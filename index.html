@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  * { box-sizing: border-box; font-family: 'Segoe UI','Inter',system-ui,sans-serif; }
+  body { background: #eef2f5; margin: 0; padding: 16px; }
+  .container { max-width: 1600px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; font-weight: 600; margin: 0 0 .2rem; color: #1a3b4f; }
+  .sub { color: #4a6f8a; margin-bottom: 20px; border-left: 4px solid #2c7da0; padding-left: 14px; font-size: .9rem; }
+  .two-columns { display: flex; flex-wrap: wrap; gap: 20px; }
+  .settings-panel, .results-panel { flex: 1; min-width: 320px; background: white; border-radius: 24px; box-shadow: 0 10px 25px -8px rgba(0,0,0,.08); padding: 20px 22px; }
+  .card-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 16px; border-bottom: 2px solid #e6edf4; padding-bottom: 8px; }
+  .form-row { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; align-items: flex-end; }
+  .form-group { flex: 1; min-width: 140px; }
+  label { font-size: .7rem; text-transform: uppercase; font-weight: 700; color: #2c506d; margin-bottom: 6px; display: block; }
+  input, select, button { width: 100%; padding: 9px 14px; border-radius: 18px; border: 1px solid #cfdfe9; background: #fff; font-size: .9rem; }
+  button { background: #1e5a7a; color: white; font-weight: 600; border: none; cursor: pointer; }
+  button:hover { background: #0f425c; }
+  .btn-secondary { background: #eef2f7; color: #1f3e54; border: 1px solid #cbdde8; }
+  .price-block { background: #f9fbfd; border-radius: 20px; padding: 16px; margin-bottom: 20px; border: 1px solid #e2edf4; }
+  .price-value { font-size: 1.8rem; font-weight: 700; color: #1c5a7a; }
+  .greeks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .greek { background: white; border-radius: 24px; padding: 6px 14px; border: 1px solid #dee9f0; font-size: .8rem; }
+  .flex-btns { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
+  .badge { background: #eef3fc; border-radius: 30px; padding: 4px 12px; font-size: .7rem; display: inline-block; }
+  .model-note { font-size: .7rem; color: #5f7f9e; margin-top: 6px; font-style: italic; }
+  .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📊 Black‑Scholes · опционный калькулятор</h1>
+  <div class="sub">Расчёт цены опциона для двух уровней базового актива</div>
+
+  <div class="two-columns">
+    <div class="settings-panel">
+      <div class="card-title">⚙️ Параметры модели</div>
+      <div class="form-row">
+        <div class="form-group"><label>Тип опциона</label>
+          <select id="optionType"><option value="call">Колл</option><option value="put">Пут</option></select></div>
+        <div class="form-group"><label>Страйк (K)</label><input type="number" id="strike" value="160" step="1"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Цена БА — ПОКУПКА</label><input type="number" id="priceBuy" value="150" step="0.5"></div>
+        <div class="form-group"><label>Цена БА — ПРОДАЖА</label><input type="number" id="priceSell" value="163" step="0.5"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Дата экспирации</label>
+          <input type="date" id="expiryDate">
+          <div class="expiry-source" id="expirySource"></div>
+        </div>
+        <div class="form-group"><label>Текущая дата</label><input type="date" id="currentDate"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Безрисковая ставка %</label><input type="number" id="riskFree" value="10" step="0.1"></div>
+        <div class="form-group"><label>Волатильность σ %</label><input type="number" id="volatility" value="30" step="1"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Дивидендная доходность %</label><input type="number" id="dividend" value="0" step="0.1"></div>
+        <div class="form-group"><label>Модель</label>
+          <select id="pricingModel">
+            <option value="bs">Black‑Scholes (европейский)</option>
+            <option value="binom">Биномиальная (американский)</option>
+          </select>
+          <div class="model-note">BS — для европейских опционов; биномиальная — для американских.</div>
+        </div>
+      </div>
+      <div class="flex-btns">
+        <button id="calcBtn">🧮 Рассчитать</button>
+        <button id="resetBtn" class="btn-secondary">⟳ Сброс</button>
+        <button id="saveSettingsBtn" class="btn-secondary">💾 Сохранить</button>
+        <button id="exportCsvBtn" class="btn-secondary">📎 CSV</button>
+      </div>
+    </div>
+
+    <div class="results-panel">
+      <div class="card-title">📐 Результаты расчёта</div>
+      <div class="price-block">
+        <div>🔵 Цена при ПОКУПКЕ (S = <span id="buyLevelVal">150</span>)</div>
+        <div class="price-value" id="priceBuyResult">— ₽</div>
+        <div class="greeks" id="greeksBuy"></div>
+      </div>
+      <div class="price-block">
+        <div>🔴 Цена при ПРОДАЖЕ (S = <span id="sellLevelVal">163</span>)</div>
+        <div class="price-value" id="priceSellResult">— ₽</div>
+        <div class="greeks" id="greeksSell"></div>
+      </div>
+      <div class="price-block">
+        <div>🧾 Спред (продажа – покупка)</div>
+        <div class="price-value" id="spreadResult">— ₽</div>
+        <div id="recommendMsg" class="badge" style="margin-top:8px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- Black-Scholes / биномиальная ----------
+  function normCDF(x){const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;}
+  function blackScholes(spot,strike,T,rate,vol,div,type){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));const d2=d1-sigma*Math.sqrt(T);if(type==='call')return spot*Math.exp(-q*T)*normCDF(d1)-strike*Math.exp(-r*T)*normCDF(d2);return strike*Math.exp(-r*T)*normCDF(-d2)-spot*Math.exp(-q*T)*normCDF(-d1);}
+  function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-spot*Math.pow(u,step-i)*Math.pow(d,i));values[i]=Math.max(hold,exer);}}return values[0];}
+  function calcGreeks(spot,strike,T,rate,vol,div,type){if(T<=1e-6)return{delta:'n/a',gamma:'n/a',theta:'n/a',vega:'n/a'};const r=rate/100,q=div/100,sigma=vol/100;const sqrtT=Math.sqrt(T);const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*sqrtT);const d2=d1-sigma*sqrtT;const nd1=normCDF(d1);const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);const delta=type==='call'?Math.exp(-q*T)*nd1:Math.exp(-q*T)*(nd1-1);const gamma=pdf*Math.exp(-q*T)/(spot*sigma*sqrtT);const vega=spot*pdf*Math.exp(-q*T)*sqrtT/100;const thetaCall=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)-r*strike*Math.exp(-r*T)*normCDF(d2)+q*spot*Math.exp(-q*T)*nd1;const thetaPut=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)+r*strike*Math.exp(-r*T)*normCDF(-d2)-q*spot*Math.exp(-q*T)*normCDF(-d1);const theta=(type==='call'?thetaCall:thetaPut)/365;return{delta:delta.toFixed(3),gamma:gamma.toFixed(3),vega:vega.toFixed(2),theta:theta.toFixed(3)};}
+  function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
+
+  function updatePrices(){
+    const type=document.getElementById('optionType').value;
+    const K=parseFloat(document.getElementById('strike').value);
+    const Sbuy=parseFloat(document.getElementById('priceBuy').value);
+    const Ssell=parseFloat(document.getElementById('priceSell').value);
+    const expiryDate=document.getElementById('expiryDate').value;
+    const currentDate=document.getElementById('currentDate').value;
+    if(!expiryDate){document.getElementById('priceBuyResult').innerHTML='— ₽';document.getElementById('priceSellResult').innerHTML='— ₽';return;}
+    const T=getTimeYears(currentDate,expiryDate);
+    const r=parseFloat(document.getElementById('riskFree').value);
+    const vol=parseFloat(document.getElementById('volatility').value);
+    const div=parseFloat(document.getElementById('dividend').value);
+    const model=document.getElementById('pricingModel').value;
+    let priceBuy,priceSell;
+    if(model==='bs'){priceBuy=blackScholes(Sbuy,K,T,r,vol,div,type);priceSell=blackScholes(Ssell,K,T,r,vol,div,type);}
+    else{priceBuy=binomialAmerican(Sbuy,K,T,r,vol,div,type);priceSell=binomialAmerican(Ssell,K,T,r,vol,div,type);}
+    document.getElementById('priceBuyResult').innerHTML=priceBuy.toFixed(2)+' ₽';
+    document.getElementById('priceSellResult').innerHTML=priceSell.toFixed(2)+' ₽';
+    document.getElementById('buyLevelVal').innerText=Sbuy;
+    document.getElementById('sellLevelVal').innerText=Ssell;
+    const spread=priceSell-priceBuy;
+    document.getElementById('spreadResult').innerHTML=spread.toFixed(2)+' ₽';
+    const intrinsic=Math.max(0,Ssell-K);
+    document.getElementById('recommendMsg').innerHTML=`Внутренняя стоимость: ${intrinsic.toFixed(2)} ₽, временная: ${(priceSell-intrinsic).toFixed(2)} ₽ | Спред: ${spread.toFixed(2)} ₽`;
+    const gB=calcGreeks(Sbuy,K,T,r,vol,div,type), gS=calcGreeks(Ssell,K,T,r,vol,div,type);
+    document.getElementById('greeksBuy').innerHTML=`<div class="greek">Δ ${gB.delta}</div><div class="greek">Γ ${gB.gamma}</div><div class="greek">Θ ${gB.theta}</div><div class="greek">ν ${gB.vega}</div>`;
+    document.getElementById('greeksSell').innerHTML=`<div class="greek">Δ ${gS.delta}</div><div class="greek">Γ ${gS.gamma}</div><div class="greek">Θ ${gS.theta}</div><div class="greek">ν ${gS.vega}</div>`;
+  }
+
+  function saveSettings(){localStorage.setItem('optionCalcSettings',JSON.stringify({optionType:document.getElementById('optionType').value,strike:document.getElementById('strike').value,priceBuy:document.getElementById('priceBuy').value,priceSell:document.getElementById('priceSell').value,currentDate:document.getElementById('currentDate').value,expiryDate:document.getElementById('expiryDate').value,riskFree:document.getElementById('riskFree').value,volatility:document.getElementById('volatility').value,dividend:document.getElementById('dividend').value,pricingModel:document.getElementById('pricingModel').value}));}
+  function loadSettings(){const s=JSON.parse(localStorage.getItem('optionCalcSettings')||'{}');['optionType','strike','priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel'].forEach(k=>{if(s[k]!==undefined)document.getElementById(k).value=s[k];});updatePrices();}
+  function resetToExample(){document.getElementById('optionType').value='call';document.getElementById('strike').value='160';document.getElementById('priceBuy').value='150';document.getElementById('priceSell').value='163';document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);document.getElementById('riskFree').value='10';document.getElementById('volatility').value='30';document.getElementById('dividend').value='0';document.getElementById('pricingModel').value='bs';document.getElementById('expirySource').innerText='';updatePrices();}
+  function exportCSV(){const rows=[['Параметр','Значение'],['Тип',document.getElementById('optionType').value],['Страйк',document.getElementById('strike').value],['S покупка',document.getElementById('priceBuy').value],['S продажа',document.getElementById('priceSell').value],['Экспирация',document.getElementById('expiryDate').value],['Текущая дата',document.getElementById('currentDate').value],['Ставка %',document.getElementById('riskFree').value],['Волатильность %',document.getElementById('volatility').value],['Модель',document.getElementById('pricingModel').value],['Цена (покупка)',document.getElementById('priceBuyResult').innerText],['Цена (продажа)',document.getElementById('priceSellResult').innerText],['Спред',document.getElementById('spreadResult').innerText]];const csv=rows.map(r=>r.join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='option_calc.csv';a.click();}
+
+  document.getElementById('calcBtn').addEventListener('click',updatePrices);
+  document.getElementById('resetBtn').addEventListener('click',resetToExample);
+  document.getElementById('saveSettingsBtn').addEventListener('click',saveSettings);
+  document.getElementById('exportCsvBtn').addEventListener('click',exportCSV);
+  ['optionType','strike','priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel'].forEach(id=>document.getElementById(id).addEventListener('input',updatePrices));
+
+  // ---------- Инициализация ----------
+  if(!document.getElementById('currentDate').value) document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);
+  if(!document.getElementById('expiryDate').value) document.getElementById('expiryDate').value=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  loadSettings();
+  updatePrices();
+
+  // ---------- Мост с родителем Streamlit ----------
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || data.type !== 'setExpiry') return;
+
+    // Проверка, что это наш калькулятор (в документе есть поле expiryDate)
+    const el = document.getElementById('expiryDate');
+    if (!el || typeof data.value !== 'string') return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.value)) return;
+
+    if (el.value !== data.value) {
+      el.value = data.value;
+      const source = document.getElementById('expirySource');
+      if (source) source.innerText = data.series_code
+        ? `↳ из MOEX: серия ${data.series_code}`
+        : '↳ из MOEX';
+      updatePrices();
+      try { saveSettings(); } catch (_) {}
+    }
+  });
+
+  // Сообщаем родителю, что калькулятор готов принимать сообщения
+  try { window.parent.postMessage({ type: 'calcReady' }, '*'); } catch (_) {}
+</script>
+</body>
+</html>
