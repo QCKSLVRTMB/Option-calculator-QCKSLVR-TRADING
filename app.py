@@ -187,30 +187,30 @@ def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
 
 # ================= UI =================
 
-st.title("📊 MOEX Option Board & Black‑Scholes")
+st.title("Калькулятор опционов QCKSLVR TRADING")
 
 # --- Верхний блок: калькулятор (iframe) ---
 calc_html = Path("index.html").read_text(encoding="utf-8")
 components.html(calc_html, height=900, scrolling=True)
 
 st.markdown("---")
-st.header("📡 Реальные опционы MOEX")
+st.header("Выберите опционную серию")
 
 col1, col2, col3 = st.columns([2, 2, 3])
 with col1:
-    asset = st.text_input("Базовый актив", value="GAZR",
-                          placeholder="GAZR, GAZP, SBRF...").strip().upper()
+    asset = st.text_input("Базовый актив", value="RTS",
+                          placeholder="SI, GAZP, SBRF...").strip().upper()
 with col2:
     asset_type_ui = st.selectbox(
-        "Вид базового актива",
+        "Категория базового актива",
         ["Фьючерс", "Акция", "Валюта", "Товар", "Индекс"],
     )
 with col3:
     st.write("")
-    load_btn = st.button("🔄 Загрузить серии", use_container_width=True)
+    load_btn = st.button("Загрузить доску опционов", use_container_width=True)
 
 # Кнопка ручного обновления (сброс кэша)
-if st.button("♻️ Сбросить кэш MOEX"):
+if st.button("Сбросить кэш MOEX"):
     st.cache_data.clear()
     st.rerun()
 
@@ -235,13 +235,13 @@ if st.session_state.series_list:
     # >>> Передаём дату в калькулятор через postMessage <<<
     push_expiry_to_calculator(expiry_str, series_code)
 
-    st.caption(f"📅 В калькулятор передана дата экспирации: **{expiry_str}** "
+    st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
 
     # --- Информация о серии ---
     try:
         info = fetch_series_info(asset, asset_type_ui, series_code)
-        with st.expander("📋 Информация об опционной серии", expanded=False):
+        with st.expander("Об опционной серии", expanded=False):
             st.json(info, expanded=True)
     except Exception as e:
         st.warning(f"Не удалось загрузить информацию о серии: {e}")
@@ -311,11 +311,20 @@ if st.session_state.series_list:
                     styles.append("")
             return styles
 
-        st.subheader("📋 Доска опционов")
+        st.subheader("Доска опционов")
         st.caption(f"Центральный страйк: **{central if central is not None else 'не определён'}** · "
                    f"всего страйков: {len(df)}")
         st.dataframe(
-            df.style.apply(style_row, axis=1).format(precision=4, na_rep="—"),
+            df.style
+              .apply(style_row, axis=1)
+              .format(
+                  {
+                      "Strike": "{:.0f}",   # целое число
+                      "IV_%":   "{:.2f}",   # 2 знака после точки
+                  },
+                  precision=4,
+                  na_rep="—",
+              ),
             use_container_width=True,
             height=600,
         )
@@ -336,9 +345,11 @@ if st.session_state.series_list:
                 name='IV, %',
             ))
             fig.update_layout(
-                title="📈 Улыбка волатильности (IV по страйкам)",
+                title="Улыбка волатильности",
                 xaxis_title="Страйк", yaxis_title="IV, %",
                 height=380, margin=dict(l=20, r=20, t=50, b=20),
+                xaxis=dict(tickformat=".0f", hoverformat=".0f"),
+                yaxis=dict(tickformat=".2f", hoverformat=".2f"),
             )
             st.plotly_chart(fig, use_container_width=True)
 else:
