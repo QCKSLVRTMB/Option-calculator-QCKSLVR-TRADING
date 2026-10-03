@@ -28,7 +28,7 @@
   .model-note { font-size: .7rem; color: #5f7f9e; margin-top: 6px; font-style: italic; }
   .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 4px; }
 
-  /* Валидация уровней покупок / продаж */
+  /* Валидация уровней покупок / продаж и текущей даты */
   input.input-error {
     color: #d32f2f !important;
     border-color: #d32f2f !important;
@@ -87,7 +87,13 @@
           <input type="date" id="expiryDate">
           <div class="expiry-source" id="expirySource"></div>
         </div>
-        <div class="form-group"><label>Текущая дата</label><input type="date" id="currentDate"></div>
+        <div class="form-group">
+          <label>Текущая дата</label>
+          <input type="date" id="currentDate">
+        </div>
+      </div>
+      <div class="validation-msg" id="dateValidation">
+        ⚠ «Текущая дата» должна совпадать с сегодняшней датой.
       </div>
       <div class="form-row">
         <div class="form-group"><label>Безрисковая ставка %</label><input type="number" id="riskFree" value="0" step="0.0001"></div>
@@ -252,8 +258,28 @@
     return !invalid;
   }
 
+  // ---------- Валидация текущей даты ----------
+  function validateCurrentDate() {
+    const el = document.getElementById('currentDate');
+    const msgEl = document.getElementById('dateValidation');
+    if (!el || !msgEl) return true;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const invalid = el.value !== today;
+
+    if (invalid) {
+      el.classList.add('input-error');
+      msgEl.classList.add('show');
+    } else {
+      el.classList.remove('input-error');
+      msgEl.classList.remove('show');
+    }
+    return !invalid;
+  }
+
   function updatePrices(){
     validateLevels();
+    validateCurrentDate();
 
     const type=document.getElementById('optionType').value;
     const K=parseFloat(document.getElementById('strike').value);
@@ -279,8 +305,8 @@
     const intrinsic=Math.max(0,Ssell-K);
     document.getElementById('recommendMsg').innerHTML=`Внутренняя стоимость: ${intrinsic.toFixed(2)} ₽, временная: ${(priceSell-intrinsic).toFixed(2)} ₽ | Спред: ${spread.toFixed(2)} ₽`;
     const gB=calcGreeks(Sbuy,K,T,r,vol,div,type), gS=calcGreeks(Ssell,K,T,r,vol,div,type);
-    document.getElementById('greeksBuy').innerHTML=`<div class="greek">Дельта ${gB.delta}</div><div class="greek">Гамма ${gB.gamma}</div><div class="greek">Тета ${gB.theta}</div><div class="greek">Вега ${gB.vega}</div>`;
-    document.getElementById('greeksSell').innerHTML=`<div class="greek">Дельта ${gS.delta}</div><div class="greek">Гамма ${gS.gamma}</div><div class="greek">Тета ${gS.theta}</div><div class="greek">Вега ${gS.vega}</div>`;
+    document.getElementById('greeksBuy').innerHTML=`<div class="greek">Δ ${gB.delta}</div><div class="greek">Γ ${gB.gamma}</div><div class="greek">Θ ${gB.theta}</div><div class="greek">ν ${gB.vega}</div>`;
+    document.getElementById('greeksSell').innerHTML=`<div class="greek">Δ ${gS.delta}</div><div class="greek">Γ ${gS.gamma}</div><div class="greek">Θ ${gS.theta}</div><div class="greek">ν ${gS.vega}</div>`;
   }
 
   function saveSettings(){localStorage.setItem('optionCalcSettings',JSON.stringify({optionType:document.getElementById('optionType').value,strike:document.getElementById('strike').value,priceBuy:document.getElementById('priceBuy').value,priceSell:document.getElementById('priceSell').value,currentDate:document.getElementById('currentDate').value,expiryDate:document.getElementById('expiryDate').value,riskFree:document.getElementById('riskFree').value,volatility:document.getElementById('volatility').value,dividend:document.getElementById('dividend').value,pricingModel:document.getElementById('pricingModel').value}));}
@@ -310,8 +336,13 @@
     updatePrices();
   });
 
-  if(!document.getElementById('currentDate').value) document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);
-  if(!document.getElementById('expiryDate').value) document.getElementById('expiryDate').value=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  // Устанавливаем сегодняшнюю дату при загрузке (если поле пустое)
+  if(!document.getElementById('currentDate').value) {
+    document.getElementById('currentDate').value = new Date().toISOString().slice(0,10);
+  }
+  if(!document.getElementById('expiryDate').value) {
+    document.getElementById('expiryDate').value = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  }
   loadSettings();
   updatePrices();
 
@@ -399,9 +430,9 @@
     }
 
     if (data.type === 'setDividend') {
-      const elBuy = document.getElementById('dividend');
-      if (elBuy && typeof data.q_buy === 'number') {
-        elBuy.value = (data.q_buy * 100).toFixed(4);  // доля → %
+      const el = document.getElementById('dividend');
+      if (el && typeof data.value === 'number') {
+        el.value = (data.value * 100).toFixed(4);  // доля → %
         updatePrices();
       }
       return;
