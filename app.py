@@ -13,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ---------- Немного CSS, чтобы iframe не «прилипал» ----------
 st.markdown("""
 <style>
 .block-container {padding-top: 1rem; padding-bottom: 2rem;}
@@ -32,7 +31,6 @@ ASSET_TYPE_MAP = {
     'Индекс': 'index',
 }
 
-# Соответствие UI-категории → engine/market для MOEX ISS candles
 ENGINE_MARKET_MAP = {
     'Фьючерс': ('futures', 'forts'),
     'Акция':   ('stock', 'shares'),
@@ -42,7 +40,6 @@ ENGINE_MARKET_MAP = {
 }
 
 # ================= Справочник инструментов MOEX =================
-# Только базовые активы, на которые на срочном рынке MOEX есть опционы.
 MOEX_INSTRUMENTS = {
     "Индексы": {
         "RTS":      "Индекс РТС",
@@ -139,10 +136,17 @@ CATEGORY_TO_ASSET_TYPE = {
     "Товары":  "Товар",
 }
 
+# Справочные тикеры TradingView для непрерывных фьючерсов.
+# Используются только для документирования. Графики строятся на данных MOEX ISS.
+TV_TICKER_REFERENCE = {
+    "RTS": "RI1!", "MIX": "MIX1!", "RVI": "VI1!", "RGBI": "RB1!",
+    "Si": "SI1!", "Eu": "EU1!", "CNY": "CR1!", "BR": "BR1!",
+    "GOLD": "GD1!", "SILV": "SV1!", "NG": "NG1!",
+}
+
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
-    """Определяем код актива и его тип для MOEX ISS. Кэш — 30 минут."""
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
     if moex_type != 'futures':
@@ -259,14 +263,13 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
         return []
 
 
-# ================= MOEX Candles (для графиков) =================
+# ================= MOEX Candles + склейка фьючерсов =================
 
 MSK_OFFSET_SECONDS = 3 * 3600
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def list_moex_securities(engine: str, market: str) -> pd.DataFrame:
-    """Возвращает DataFrame всех инструментов указанного рынка MOEX ISS."""
     url = f"https://iss.moex.com/iss/engines/{engine}/markets/{market}/securities.json"
     try:
         r = requests.get(url, params={"iss.meta": "off", "iss.only": "securities"}, timeout=20)
@@ -277,42 +280,25 @@ def list_moex_securities(engine: str, market: str) -> pd.DataFrame:
     return pd.DataFrame(data["data"], columns=data["columns"])
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def resolve_futures_secid(asset_code: str) -> str:
-    """Если введён короткий код ('RTS', 'Si'), находит ближайший контракт.
-
-    Если код уже содержит '-', возвращает как есть.
-    """
-    if not asset_code:
-        return asset_code
-    if "-" in asset_code:
-        return asset_code
-
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_futures_contracts(asset_code: str) -> list:
+    """Список контрактов одного базового актива, отсортированных по дате экспирации."""
     df = list_moex_securities("futures", "forts")
-    if df.empty or "ASSETCODE" not in df.columns:
-        return asset_code
-
-    df = df[df["ASSETCODE"] == asset_code]
-    if df.empty:
-        return asset_code
-
-    # отбрасываем строки без даты экспирации
-    if "LASTTRADEDATE" in df.columns:
-        df = df.dropna(subset=["LASTTRADEDATE"])
-        if df.empty:
-            return asset_code
-        df = df.sort_values("LASTTRADEDATE")
-
-    return df.iloc[0]["SECID"]
+    if df.empty or "ASSETCODE" not in df.columns or "LASTTRADEDATE" not in df.columns:
+        return []
+    df = df[df["ASSETCODE"] == asset_code].dropna(subset=["LASTTRADEDATE", "SECID"])
+    df = df.sort_values("LASTTRADEDATE").reset_index(drop=True)
+    return [
+        {"secid": row.SECID, "lasttradedate": row.LASTTRADEDATE}
+        for row in df.itertuples()
+    ]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_bars(secid: str, interval: int = 24, days: int = 365,
                engine: str = "futures", market: str = "forts"):
-    """Загружает бары (OHLCV) с MOEX ISS."""
     end = datetime.now()
     start = end - timedelta(days=days)
-
     url = (
         f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
         f"/securities/{secid}/candles.json"
@@ -327,30 +313,84 @@ def fetch_bars(secid: str, interval: int = 24, days: int = 365,
         r = requests.get(url, params=params, timeout=15)
         r.raise_for_status()
         data = r.json()
-    except Exception as e:
-        st.warning(f"Ошибка загрузки баров {secid} (interval={interval}): {e}")
+    except Exception:
         return pd.DataFrame()
-
     cols = data.get("candles", {}).get("columns", [])
     rows = data.get("candles", {}).get("data", [])
     if not rows or not cols:
         return pd.DataFrame()
-
     df = pd.DataFrame(rows, columns=cols)
     df["begin"] = pd.to_datetime(df["begin"])
-    df = df.sort_values("begin").reset_index(drop=True)
-    return df
+    return df.sort_values("begin").reset_index(drop=True)
+
+
+def build_continuous_series(asset_code: str, interval: int, days: int,
+                            rollover_days_before: int = 5) -> pd.DataFrame:
+    """Склейка фьючерсов: последовательное сшивание контрактов с коррекцией цен."""
+    contracts = get_futures_contracts(asset_code)
+    if not contracts:
+        return pd.DataFrame()
+
+    now = datetime.now()
+    start_dt = now - timedelta(days=days)
+
+    relevant = []
+    for i, c in enumerate(contracts):
+        ltd = pd.to_datetime(c["lasttradedate"]).to_pydatetime()
+        if ltd >= start_dt:
+            if i > 0 and not relevant:
+                prev = contracts[i - 1]
+                prev_ltd = pd.to_datetime(prev["lasttradedate"]).to_pydatetime()
+                if prev_ltd >= start_dt:
+                    relevant.append(prev)
+            relevant.append(c)
+    if not relevant:
+        relevant = [contracts[-1]]
+
+    pieces = []
+    for c in relevant:
+        ltd = pd.to_datetime(c["lasttradedate"]).to_pydatetime()
+        rollover_dt = ltd - timedelta(days=rollover_days_before)
+        df = fetch_bars(c["secid"], interval=interval, days=days,
+                        engine="futures", market="forts")
+        if df.empty:
+            continue
+        df = df[df["begin"] <= pd.Timestamp(rollover_dt)].copy()
+        if df.empty:
+            continue
+        df["_rollover_dt"] = rollover_dt
+        pieces.append(df)
+
+    if not pieces:
+        return pd.DataFrame()
+
+    pieces.sort(key=lambda d: d["_rollover_dt"].iloc[0])
+
+    result_parts = []
+    for piece in pieces:
+        if not result_parts:
+            result_parts.append(piece)
+            continue
+        prev_close = result_parts[-1]["close"].iloc[-1]
+        curr_open = piece["open"].iloc[0]
+        shift = curr_open - prev_close
+        for rp in result_parts:
+            for col in ("open", "high", "low", "close"):
+                rp[col] = rp[col] + shift
+        result_parts.append(piece)
+
+    df = pd.concat(result_parts, ignore_index=True)
+    df = df.sort_values("begin").drop_duplicates(subset=["begin"], keep="last")
+    return df.reset_index(drop=True)
 
 
 def df_to_bars(df: pd.DataFrame, intraday: bool):
-    """Преобразует DataFrame со свечами в формат Lightweight Charts."""
     bars, vols = [], []
     for _, row in df.iterrows():
         if intraday:
             t = int(row["begin"].value // 10**9) - MSK_OFFSET_SECONDS
         else:
             t = row["begin"].strftime("%Y-%m-%d")
-
         bars.append({
             "time": t,
             "open": float(row["open"]),
@@ -358,18 +398,13 @@ def df_to_bars(df: pd.DataFrame, intraday: bool):
             "low": float(row["low"]),
             "close": float(row["close"]),
         })
-        vols.append({
-            "time": t,
-            "value": float(row["volume"]),
-            "color": "black",
-        })
+        vols.append({"time": t, "value": float(row["volume"]), "color": "black"})
     return bars, vols
 
 
 # ================= Мост HTML ↔ Python =================
 
 def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
-    """Отправляет дату экспирации в iframe калькулятора через postMessage."""
     js = f"""
     <script>
     (function() {{
@@ -392,10 +427,7 @@ def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
     components.html(js, height=0)
 
 
-def push_bars_to_calculator(ticker: str,
-                            d1_bars, d1_vols,
-                            h1_bars, h1_vols):
-    """Отправляет бары в iframe калькулятора через postMessage."""
+def push_bars_to_calculator(ticker, d1_bars, d1_vols, h1_bars, h1_vols):
     payload = {
         "type": "setBars",
         "ticker": ticker,
@@ -430,20 +462,17 @@ def push_bars_to_calculator(ticker: str,
 
 st.title("Калькулятор опционов QCKSLVR TRADING")
 
-# --- Верхний блок: калькулятор (iframe) ---
 calc_html = Path("index.html").read_text(encoding="utf-8")
 components.html(calc_html, height=1000, scrolling=True)
 
 st.markdown("---")
 st.header("Выберите опционную серию")
 
-# --- Инициализация значений по умолчанию ---
 if "asset_input" not in st.session_state:
     st.session_state.asset_input = "RTS"
 if "asset_type_ui" not in st.session_state:
     st.session_state.asset_type_ui = "Фьючерс"
 
-# --- Справочник инструментов MOEX ---
 with st.expander("📖 Справочник инструментов MOEX — кликните по тикеру, "
                  "чтобы подставить его в поле «Базовый актив»", expanded=False):
     filter_text = st.text_input(
@@ -464,7 +493,6 @@ with st.expander("📖 Справочник инструментов MOEX — к
             if not filtered:
                 st.caption("Ничего не найдено.")
                 continue
-
             n_cols = 4
             cols = st.columns(n_cols)
             for i, (code, name) in enumerate(filtered.items()):
@@ -480,7 +508,6 @@ with st.expander("📖 Справочник инструментов MOEX — к
                         st.rerun()
                     st.caption(name)
 
-# --- Поля ввода ---
 col1, col2, col3 = st.columns([2, 2, 3])
 with col1:
     asset = st.text_input(
@@ -498,7 +525,6 @@ with col3:
     st.write("")
     load_btn = st.button("Загрузить доску опционов", use_container_width=True)
 
-# Кнопка ручного обновления (сброс кэша)
 if st.button("Сбросить кэш MOEX"):
     st.cache_data.clear()
     st.rerun()
@@ -519,27 +545,28 @@ if st.session_state.series_list:
     chosen = st.selectbox("Дата экспирации (серия)", options, index=0)
     selected = st.session_state.series_list[options.index(chosen)]
     series_code = selected["code"]
-    expiry_str = selected["expiry"]          # YYYY-MM-DD
+    expiry_str = selected["expiry"]
 
-    # >>> Передаём дату в калькулятор через postMessage <<<
     push_expiry_to_calculator(expiry_str, series_code)
 
     st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
 
-    # --- Биржевые графики: грузим бары и отправляем в iframe ---
-    engine, market = ENGINE_MARKET_MAP.get(asset_type_ui, ("futures", "forts"))
-
-    # Для фьючерсов разрешаем короткий код в конкретный контракт
-    chart_secid = asset
+    # --- Биржевые графики ---
     if asset_type_ui == "Фьючерс":
-        chart_secid = resolve_futures_secid(asset)
-
-    with st.spinner(f"Загрузка баров для графиков ({chart_secid})..."):
-        df_d1 = fetch_bars(chart_secid, interval=24, days=365,
-                           engine=engine, market=market)
-        df_h1 = fetch_bars(chart_secid, interval=60, days=60,
-                           engine=engine, market=market)
+        with st.spinner(f"Построение склейки фьючерса {asset} (D1)..."):
+            df_d1 = build_continuous_series(asset, interval=24, days=365)
+        with st.spinner(f"Построение склейки фьючерса {asset} (H1)..."):
+            df_h1 = build_continuous_series(asset, interval=60, days=60)
+        chart_label = f"{asset} (склейка)"
+    else:
+        engine, market = ENGINE_MARKET_MAP.get(asset_type_ui, ("futures", "forts"))
+        with st.spinner(f"Загрузка баров для графиков ({asset})..."):
+            df_d1 = fetch_bars(asset, interval=24, days=365,
+                               engine=engine, market=market)
+            df_h1 = fetch_bars(asset, interval=60, days=60,
+                               engine=engine, market=market)
+        chart_label = asset
 
     d1_bars, d1_vols = ([], [])
     h1_bars, h1_vols = ([], [])
@@ -548,10 +575,10 @@ if st.session_state.series_list:
     if not df_h1.empty:
         h1_bars, h1_vols = df_to_bars(df_h1, intraday=True)
 
-    push_bars_to_calculator(chart_secid, d1_bars, d1_vols, h1_bars, h1_vols)
+    push_bars_to_calculator(chart_label, d1_bars, d1_vols, h1_bars, h1_vols)
 
     if df_d1.empty and df_h1.empty:
-        st.info(f"Не удалось загрузить бары для графика по тикеру «{chart_secid}». "
+        st.info(f"Не удалось загрузить бары для графика «{chart_label}». "
                 f"Проверьте, что инструмент торгуется на MOEX.")
 
     # --- Информация о серии ---
@@ -634,10 +661,7 @@ if st.session_state.series_list:
             df.style
               .apply(style_row, axis=1)
               .format(
-                  {
-                      "Strike": "{:.0f}",
-                      "IV_%":   "{:.2f}",
-                  },
+                  {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
                   precision=4,
                   na_rep="—",
               ),
@@ -645,7 +669,6 @@ if st.session_state.series_list:
             height=600,
         )
 
-        # --- Улыбка волатильности ---
         try:
             points = fetch_volatility_graph(asset, series_code, asset_type_ui)
         except Exception:
