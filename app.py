@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 import json
 import math
+import re
 import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime, date, timedelta
@@ -263,6 +264,118 @@ def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
 
+# ================= Дивиденды (smart-lab.ru) =================
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_dividends_smartlab() -> pd.DataFrame:
+    """Загружает таблицу дивидендов с smart-lab.ru и возвращает DataFrame.
+
+    Колонки: ticker, dividend_rub, record_date (date).
+    """
+    url = "https://smart-lab.ru/dividends/index/order_by_ticker/desc/"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0 Safari/537.36"
+        )
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+    except Exception as e:
+        st.warning(f"Не удалось загрузить таблицу дивидендов: {e}")
+        return pd.DataFrame(columns=["ticker", "dividend_rub", "record_date"])
+
+    # Простой парсинг HTML: ищем строки таблицы с тикерами и датами
+    rows = re.findall(
+        r'<tr[^>]*>(.*?)</tr>',
+        r.text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    records = []
+    for row_html in rows:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, flags=re.DOTALL | re.IGNORECASE)
+        if len(cells) < 8:
+            continue
+        # Убираем HTML-теги из ячеек
+        clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+        ticker = clean[1].upper() if len(clean) > 1 else ""
+        if not ticker or not re.match(r'^[A-Z0-9]+$', ticker):
+            continue
+        try:
+            dividend = float(clean[3].replace(",", ".").replace(" ", ""))
+        except Exception:
+            continue
+        # Дата закрытия реестра — обычно 8-й столбец (индекс 7)
+        date_str = None
+        for idx in (7, 6, 8):
+            if idx < len(clean) and re.match(r'\d{2}\.\d{2}\.\d{4}', clean[idx]):
+                date_str = clean[idx]
+                break
+        if not date_str:
+            continue
+        try:
+            record_date = datetime.strptime(date_str, "%d.%m.%Y").date()
+        except Exception:
+            continue
+        records.append({
+            "ticker": ticker,
+            "dividend_rub": dividend,
+            "record_date": record_date,
+        })
+
+    return pd.DataFrame(records)
+
+
+def get_dividend_yield_for_ticker(
+    ticker: str,
+    expiry_str: str,
+    spot_buy: float,
+    spot_sell: float,
+):
+    """Возвращает дивидендную доходность (в долях) для опциона на акцию.
+
+    Условия:
+      * опцион на акцию (проверяется вызывающим кодом),
+      * тикер совпадает с тикером со smart-lab,
+      * дата закрытия реестра ≤ дата экспирации опциона.
+
+    Возвращает (q_buy, q_sell) — доли (например, 0.115 для 11.5%),
+    либо (None, None), если подходящего дивиденда нет.
+    """
+    df = fetch_dividends_smartlab()
+    if df.empty:
+        return None, None
+
+    try:
+        exp_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+    except Exception:
+        return None, None
+
+    candidates = df[
+        (df["ticker"] == ticker.upper())
+        & (df["record_date"] <= exp_date)
+        & (df["record_date"] >= date.today())
+    ]
+    if candidates.empty:
+        return None, None
+
+    # Берём ближайший по дате дивиденд
+    row = candidates.sort_values("record_date").iloc[0]
+    div = float(row["dividend_rub"])
+
+    q_buy = None
+    q_sell = None
+    if spot_buy and spot_buy > 0:
+        q_buy = div / spot_buy           # доля
+    if spot_sell and spot_sell > 0:
+        q_sell = div / spot_sell         # доля
+
+    return q_buy, q_sell
+
+
 # ================= G-кривая MOEX → безрисковая ставка =================
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -301,7 +414,6 @@ def fetch_g_curve_params():
         return None
 
 
-# Центры (a) и ширины (b) гауссовых «горбов» G-кривой MOEX
 _GC_A = [0.0, 0.4, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0]
 _GC_B = [0.4, 0.6, 1.0, 1.6, 2.4, 4.0, 6.4, 9.6, 16.0]
 
@@ -330,10 +442,7 @@ def g_curve_yield(t_years: float, p: dict):
             term4 += g[i] * math.exp(-((t_years - _GC_A[i]) ** 2) / (_GC_B[i] ** 2))
 
     raw = term1 + term2 + term3 + term4
-
-    # MOEX отдаёт B1/B2/B3 в единицах 10^-4 процента.
     rate_pct = raw / 10000.0
-    # авто-коррекция масштаба, если данные пришли уже в процентах
     if rate_pct < 0.5 or rate_pct > 50:
         rate_pct = raw / 100.0 if raw > 100 else raw
     return rate_pct
@@ -552,6 +661,16 @@ def push_risk_free_rate(rate_value):
     }, delays=(500, 1500, 3000))
 
 
+def push_dividend_yield(q_buy, q_sell):
+    """Отправляет дивидендную доходность (в долях) в iframe."""
+    payload = {
+        "type": "setDividend",
+        "q_buy": float(q_buy) if q_buy is not None else 0.0,
+        "q_sell": float(q_sell) if q_sell is not None else 0.0,
+    }
+    _send_to_iframes(payload, delays=(700, 1700, 3200))
+
+
 # ================= UI =================
 
 st.title("Калькулятор опционов QCKSLVR TRADING")
@@ -665,6 +784,39 @@ if st.session_state.series_list:
             st.caption("⚠ Не удалось получить ставку из G-кривой — оставлено 0.")
     else:
         push_risk_free_rate(0.0)
+
+    # --- Дивидендная доходность: только для опционов на акции ---
+    if asset_type_ui == "Акция":
+        spot_buy = None
+        spot_sell = None
+        try:
+            # Пробуем получить значения полей из iframe через query-параметры
+            # (если не получится — используем дефолты: цена = 1.0)
+            spot_buy = float(st.session_state.get("price_buy", 0) or 0)
+            spot_sell = float(st.session_state.get("price_sell", 0) or 0)
+        except Exception:
+            pass
+
+        if not spot_buy:
+            spot_buy = 1.0
+        if not spot_sell:
+            spot_sell = 1.0
+
+        q_buy, q_sell = get_dividend_yield_for_ticker(
+            asset, expiry_str, spot_buy, spot_sell
+        )
+        push_dividend_yield(q_buy, q_sell)
+
+        if q_buy is not None and q_sell is not None:
+            st.caption(
+                f"Дивидендная доходность (smart-lab.ru): "
+                f"q_buy = **{q_buy:.4f}** ({q_buy*100:.2f} %), "
+                f"q_sell = **{q_sell:.4f}** ({q_sell*100:.2f} %)"
+            )
+        else:
+            st.caption("Дивиденды по этому тикеру до экспирации не найдены — q = 0.")
+    else:
+        push_dividend_yield(0.0, 0.0)
 
     st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
