@@ -37,8 +37,106 @@ ENGINE_MARKET_MAP = {
     'Фьючерс': ('futures', 'forts'),
     'Акция':   ('stock', 'shares'),
     'Индекс':  ('stock', 'index'),
-    'Валюта':  ('futures', 'forts'),  # опционы на валюту — это опционы на фьючерс
+    'Валюта':  ('futures', 'forts'),
     'Товар':   ('futures', 'forts'),
+}
+
+# ================= Справочник инструментов MOEX =================
+# Только базовые активы, на которые на срочном рынке MOEX есть опционы.
+MOEX_INSTRUMENTS = {
+    "Индексы": {
+        "RTS":      "Индекс РТС",
+        "MIX":      "Индекс МосБиржи",
+        "RVI":      "Индекс волатильности RVI",
+        "MOEXCNY":  "Индекс МосБиржи в юанях",
+        "RGBI":     "Индекс RGBI",
+        "MMI":      "Индекс металлов и добычи",
+        "FNI":      "Индекс финансов",
+        "OGI":      "Индекс нефти и газа",
+        "MXI":      "Индекс МосБиржи (мини)",
+        "RTSM":     "Индекс РТС (мини)",
+    },
+    "Акции": {
+        "GAZR": "Газпром",
+        "SBRF": "Сбербанк (о.с.)",
+        "SBPR": "Сбербанк (п.с.)",
+        "LKOH": "ЛУКОЙЛ",
+        "ROSN": "Роснефть",
+        "NOTK": "НОВАТЭК",
+        "TATN": "Татнефть (о.с.)",
+        "TATP": "Татнефть (п.с.)",
+        "SNGR": "Сургутнефтегаз (о.с.)",
+        "SNGP": "Сургутнефтегаз (п.с.)",
+        "MTSS": "МТС",
+        "MGNT": "Магнит",
+        "GMKN": "Норникель",
+        "NLMK": "НЛМК",
+        "CHMF": "Северсталь",
+        "ALRS": "АЛРОСА",
+        "VTBR": "ВТБ",
+        "MOEX": "Московская Биржа",
+        "AFKS": "АФК Система",
+        "IRAO": "Интер РАО",
+        "HYDR": "РусГидро",
+        "RTKM": "Ростелеком",
+        "PLZL": "Полюс",
+        "MAGN": "ММК",
+        "YDEX": "Яндекс",
+        "PHOR": "ФосАгро",
+        "RUAL": "РУСАЛ",
+        "FEES": "ФСК ЕЭС",
+        "TRNF": "Транснефть (п.с.)",
+        "AFLT": "Аэрофлот",
+        "SIBN": "Газпром нефть",
+        "PIKK": "ПИК",
+        "FLOT": "Совкомфлот",
+        "CBOM": "МКБ",
+        "SGZH": "Сегежа",
+        "BSPB": "Банк Санкт-Петербург",
+        "KMAZ": "КАМАЗ",
+        "ASTR": "Группа Астра",
+        "SVCB": "Совкомбанк",
+    },
+    "Валюты": {
+        "Si":   "Доллар США / Рубль",
+        "Eu":   "Евро / Рубль",
+        "CNY":  "Юань / Рубль",
+        "TRY":  "Турецкая лира / Рубль",
+        "HKD":  "Гонконгский доллар / Рубль",
+        "AED":  "Дирхам ОАЭ / Рубль",
+        "KZT":  "Казахстанский тенге / Рубль",
+        "AMD":  "Армянский драм / Рубль",
+        "BYN":  "Белорусский рубль / Рубль",
+        "ED":   "Евро / Доллар",
+        "AUDU": "Австралийский доллар / Доллар",
+        "GBPU": "Фунт стерлингов / Доллар",
+        "UCAD": "Доллар / Канадский доллар",
+        "UCHF": "Доллар / Швейцарский франк",
+        "UJPY": "Доллар / Японская йена",
+        "UCNY": "Доллар / Юань",
+    },
+    "Товары": {
+        "BR":    "Нефть Brent",
+        "CL":    "Нефть Light Sweet",
+        "GOLD":  "Золото",
+        "SILV":  "Серебро",
+        "PLD":   "Палладий",
+        "PLT":   "Платина",
+        "ALMN":  "Алюминий",
+        "Co":    "Медь",
+        "Nl":    "Никель",
+        "Zn":    "Цинк",
+        "NG":    "Природный газ",
+        "WHEAT": "Пшеница",
+        "SUGR":  "Сахар",
+    },
+}
+
+CATEGORY_TO_ASSET_TYPE = {
+    "Индексы": "Индекс",
+    "Акции":   "Акция",
+    "Валюты":  "Валюта",
+    "Товары":  "Товар",
 }
 
 
@@ -163,17 +261,55 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
 
 # ================= MOEX Candles (для графиков) =================
 
-# Москва — UTC+3 (без перехода на летнее время с 2014 г.)
 MSK_OFFSET_SECONDS = 3 * 3600
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def list_moex_securities(engine: str, market: str) -> pd.DataFrame:
+    """Возвращает DataFrame всех инструментов указанного рынка MOEX ISS."""
+    url = f"https://iss.moex.com/iss/engines/{engine}/markets/{market}/securities.json"
+    try:
+        r = requests.get(url, params={"iss.meta": "off", "iss.only": "securities"}, timeout=20)
+        r.raise_for_status()
+        data = r.json()["securities"]
+    except Exception:
+        return pd.DataFrame()
+    return pd.DataFrame(data["data"], columns=data["columns"])
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def resolve_futures_secid(asset_code: str) -> str:
+    """Если введён короткий код ('RTS', 'Si'), находит ближайший контракт.
+
+    Если код уже содержит '-', возвращает как есть.
+    """
+    if not asset_code:
+        return asset_code
+    if "-" in asset_code:
+        return asset_code
+
+    df = list_moex_securities("futures", "forts")
+    if df.empty or "ASSETCODE" not in df.columns:
+        return asset_code
+
+    df = df[df["ASSETCODE"] == asset_code]
+    if df.empty:
+        return asset_code
+
+    # отбрасываем строки без даты экспирации
+    if "LASTTRADEDATE" in df.columns:
+        df = df.dropna(subset=["LASTTRADEDATE"])
+        if df.empty:
+            return asset_code
+        df = df.sort_values("LASTTRADEDATE")
+
+    return df.iloc[0]["SECID"]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_bars(secid: str, interval: int = 24, days: int = 365,
                engine: str = "futures", market: str = "forts"):
-    """Загружает бары (OHLCV) с MOEX ISS.
-
-    interval: 1 (мин), 10, 60 (H1), 24 (D1), 7 (неделя), 31 (месяц)
-    """
+    """Загружает бары (OHLCV) с MOEX ISS."""
     end = datetime.now()
     start = end - timedelta(days=days)
 
@@ -207,17 +343,10 @@ def fetch_bars(secid: str, interval: int = 24, days: int = 365,
 
 
 def df_to_bars(df: pd.DataFrame, intraday: bool):
-    """Преобразует DataFrame со свечами в формат Lightweight Charts.
-
-    Для дневного таймфрейма time = 'YYYY-MM-DD' (business day).
-    Для часового — UNIX-таймстемп в секундах (MSK → UTC).
-    """
+    """Преобразует DataFrame со свечами в формат Lightweight Charts."""
     bars, vols = [], []
     for _, row in df.iterrows():
         if intraday:
-            # pandas .value — наносекунды от эпохи (naive = UTC).
-            # MOEX отдаёт время в MSK, поэтому вычитаем смещение,
-            # чтобы получить настоящий UTC.
             t = int(row["begin"].value // 10**9) - MSK_OFFSET_SECONDS
         else:
             t = row["begin"].strftime("%Y-%m-%d")
@@ -303,19 +432,67 @@ st.title("Калькулятор опционов QCKSLVR TRADING")
 
 # --- Верхний блок: калькулятор (iframe) ---
 calc_html = Path("index.html").read_text(encoding="utf-8")
-components.html(calc_html, height=900, scrolling=True)
+components.html(calc_html, height=1000, scrolling=True)
 
 st.markdown("---")
 st.header("Выберите опционную серию")
 
+# --- Инициализация значений по умолчанию ---
+if "asset_input" not in st.session_state:
+    st.session_state.asset_input = "RTS"
+if "asset_type_ui" not in st.session_state:
+    st.session_state.asset_type_ui = "Фьючерс"
+
+# --- Справочник инструментов MOEX ---
+with st.expander("📖 Справочник инструментов MOEX — кликните по тикеру, "
+                 "чтобы подставить его в поле «Базовый актив»", expanded=False):
+    filter_text = st.text_input(
+        "🔍 Поиск по коду или названию",
+        key="dict_filter",
+        placeholder="GAZP, Сбер, золото…",
+    ).strip().lower()
+
+    dict_tabs = st.tabs(list(MOEX_INSTRUMENTS.keys()))
+    for tab, (category, items) in zip(dict_tabs, MOEX_INSTRUMENTS.items()):
+        with tab:
+            filtered = {
+                code: name for code, name in items.items()
+                if not filter_text
+                or filter_text in code.lower()
+                or filter_text in name.lower()
+            }
+            if not filtered:
+                st.caption("Ничего не найдено.")
+                continue
+
+            n_cols = 4
+            cols = st.columns(n_cols)
+            for i, (code, name) in enumerate(filtered.items()):
+                with cols[i % n_cols]:
+                    if st.button(
+                        code,
+                        key=f"dict_{category}_{code}",
+                        use_container_width=True,
+                        help=f"{name} — нажмите, чтобы подставить",
+                    ):
+                        st.session_state.asset_input = code
+                        st.session_state.asset_type_ui = CATEGORY_TO_ASSET_TYPE[category]
+                        st.rerun()
+                    st.caption(name)
+
+# --- Поля ввода ---
 col1, col2, col3 = st.columns([2, 2, 3])
 with col1:
-    asset = st.text_input("Базовый актив", value="RTS",
-                          placeholder="SI, GAZP, SBRF...").strip().upper()
+    asset = st.text_input(
+        "Базовый актив",
+        key="asset_input",
+        placeholder="RTS, Si, GAZR…",
+    ).strip().upper()
 with col2:
     asset_type_ui = st.selectbox(
         "Категория базового актива",
         ["Фьючерс", "Акция", "Валюта", "Товар", "Индекс"],
+        key="asset_type_ui",
     )
 with col3:
     st.write("")
@@ -342,7 +519,7 @@ if st.session_state.series_list:
     chosen = st.selectbox("Дата экспирации (серия)", options, index=0)
     selected = st.session_state.series_list[options.index(chosen)]
     series_code = selected["code"]
-    expiry_str = selected["expiry"]          # ожидается формат YYYY-MM-DD
+    expiry_str = selected["expiry"]          # YYYY-MM-DD
 
     # >>> Передаём дату в калькулятор через postMessage <<<
     push_expiry_to_calculator(expiry_str, series_code)
@@ -352,10 +529,16 @@ if st.session_state.series_list:
 
     # --- Биржевые графики: грузим бары и отправляем в iframe ---
     engine, market = ENGINE_MARKET_MAP.get(asset_type_ui, ("futures", "forts"))
-    with st.spinner("Загрузка баров для графиков..."):
-        df_d1 = fetch_bars(asset, interval=24, days=365,
+
+    # Для фьючерсов разрешаем короткий код в конкретный контракт
+    chart_secid = asset
+    if asset_type_ui == "Фьючерс":
+        chart_secid = resolve_futures_secid(asset)
+
+    with st.spinner(f"Загрузка баров для графиков ({chart_secid})..."):
+        df_d1 = fetch_bars(chart_secid, interval=24, days=365,
                            engine=engine, market=market)
-        df_h1 = fetch_bars(asset, interval=60, days=60,
+        df_h1 = fetch_bars(chart_secid, interval=60, days=60,
                            engine=engine, market=market)
 
     d1_bars, d1_vols = ([], [])
@@ -365,7 +548,11 @@ if st.session_state.series_list:
     if not df_h1.empty:
         h1_bars, h1_vols = df_to_bars(df_h1, intraday=True)
 
-    push_bars_to_calculator(asset, d1_bars, d1_vols, h1_bars, h1_vols)
+    push_bars_to_calculator(chart_secid, d1_bars, d1_vols, h1_bars, h1_vols)
+
+    if df_d1.empty and df_h1.empty:
+        st.info(f"Не удалось загрузить бары для графика по тикеру «{chart_secid}». "
+                f"Проверьте, что инструмент торгуется на MOEX.")
 
     # --- Информация о серии ---
     try:
@@ -448,8 +635,8 @@ if st.session_state.series_list:
               .apply(style_row, axis=1)
               .format(
                   {
-                      "Strike": "{:.0f}",   # целое число
-                      "IV_%":   "{:.2f}",   # 2 знака после точки
+                      "Strike": "{:.0f}",
+                      "IV_%":   "{:.2f}",
                   },
                   precision=4,
                   na_rep="—",
