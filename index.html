@@ -28,6 +28,20 @@
   .model-note { font-size: .7rem; color: #5f7f9e; margin-top: 6px; font-style: italic; }
   .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 4px; }
 
+  /* Валидация уровней покупок / продаж */
+  input.input-error {
+    color: #d32f2f !important;
+    border-color: #d32f2f !important;
+    background: #fdecec !important;
+  }
+  .validation-msg {
+    color: #d32f2f;
+    font-size: .78rem;
+    margin: -10px 0 14px 0;
+    display: none;
+  }
+  .validation-msg.show { display: block; }
+
   .chart-ticker { font-size: .8rem; font-weight: 400; color: #4a6f8a; margin-left: 6px; }
   .charts-container { display: flex; flex-direction: column; gap: 10px; }
   .chart-block { border: 1px solid #e6edf4; border-radius: 12px; overflow: hidden; }
@@ -50,8 +64,17 @@
         <div class="form-group"><label>Страйк</label><input type="number" id="strike" value="0" step="1"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Уровень покупок на графике</label><input type="number" id="priceBuy" value="0" step="0.1"></div>
-        <div class="form-group"><label>Уровень продаж на графике</label><input type="number" id="priceSell" value="0" step="0.1"></div>
+        <div class="form-group">
+          <label>Уровень покупок на графике</label>
+          <input type="number" id="priceBuy" value="0" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Уровень продаж на графике</label>
+          <input type="number" id="priceSell" value="0" step="0.1">
+        </div>
+      </div>
+      <div class="validation-msg" id="levelsValidation">
+        ⚠ «Уровень покупок» должен быть строго меньше «Уровень продаж».
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -122,11 +145,45 @@
   // ---------- Black-Scholes / биномиальная ----------
   function normCDF(x){const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;}
   function blackScholes(spot,strike,T,rate,vol,div,type){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));const d2=d1-sigma*Math.sqrt(T);if(type==='call')return spot*Math.exp(-q*T)*normCDF(d1)-strike*Math.exp(-r*T)*normCDF(d2);return strike*Math.exp(-r*T)*normCDF(-d2)-spot*Math.exp(-q*T)*normCDF(-d1);}
-  function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-Math.pow(u,step-i)*Math.pow(d,i)*spot);values[i]=Math.max(hold,exer);}}return values[0];}
+  function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-spot*Math.pow(u,step-i)*Math.pow(d,i));values[i]=Math.max(hold,exer);}}return values[0];}
   function calcGreeks(spot,strike,T,rate,vol,div,type){if(T<=1e-6)return{delta:'n/a',gamma:'n/a',theta:'n/a',vega:'n/a'};const r=rate/100,q=div/100,sigma=vol/100;const sqrtT=Math.sqrt(T);const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*sqrtT);const d2=d1-sigma*sqrtT;const nd1=normCDF(d1);const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);const delta=type==='call'?Math.exp(-q*T)*nd1:Math.exp(-q*T)*(nd1-1);const gamma=pdf*Math.exp(-q*T)/(spot*sigma*sqrtT);const vega=spot*pdf*Math.exp(-q*T)*sqrtT/100;const thetaCall=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)-r*strike*Math.exp(-r*T)*normCDF(d2)+q*spot*Math.exp(-q*T)*nd1;const thetaPut=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)+r*strike*Math.exp(-r*T)*normCDF(-d2)-q*spot*Math.exp(-q*T)*normCDF(-d1);const theta=(type==='call'?thetaCall:thetaPut)/365;return{delta:delta.toFixed(3),gamma:gamma.toFixed(3),vega:vega.toFixed(2),theta:theta.toFixed(3)};}
   function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
 
+  // ---------- Валидация уровней покупок/продаж ----------
+  function validateLevels() {
+    const buyEl = document.getElementById('priceBuy');
+    const sellEl = document.getElementById('priceSell');
+    const msgEl = document.getElementById('levelsValidation');
+    const buyVal = parseFloat(buyEl.value);
+    const sellVal = parseFloat(sellEl.value);
+
+    // Пропускаем валидацию, если хотя бы одно поле пустое или не число
+    if (isNaN(buyVal) || isNaN(sellVal)) {
+      buyEl.classList.remove('input-error');
+      sellEl.classList.remove('input-error');
+      msgEl.classList.remove('show');
+      return true;
+    }
+
+    // Уровень покупок должен быть строго меньше уровня продаж
+    const invalid = buyVal >= sellVal;
+
+    if (invalid) {
+      buyEl.classList.add('input-error');
+      sellEl.classList.add('input-error');
+      msgEl.classList.add('show');
+    } else {
+      buyEl.classList.remove('input-error');
+      sellEl.classList.remove('input-error');
+      msgEl.classList.remove('show');
+    }
+    return !invalid;
+  }
+
   function updatePrices(){
+    // Валидация уровней — если ошибка, всё равно считаем, но подсвечиваем
+    validateLevels();
+
     const type=document.getElementById('optionType').value;
     const K=parseFloat(document.getElementById('strike').value);
     const Sbuy=parseFloat(document.getElementById('priceBuy').value);
@@ -171,7 +228,7 @@
   loadSettings();
   updatePrices();
 
-  // ---------- TradingView Widget (compact iframe embed) ----------
+  // ---------- TradingView Widget (compact iframe embed, BARS only) ----------
   function renderTVChart(containerId, symbol, interval) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -185,12 +242,7 @@
 
     const frameId = 'tv_' + Math.random().toString(36).slice(2, 11);
 
-    // overrides: пробуем сделать бары чёрными (может не сработать — тогда просто светлая тема)
     const overrides = {
-      "mainSeriesProperties.barStyle.upColor": "rgba(0,0,0,1)",
-      "mainSeriesProperties.barStyle.downColor": "rgba(0,0,0,1)",
-      "mainSeriesProperties.barStyle.borderUpColor": "rgba(0,0,0,1)",
-      "mainSeriesProperties.barStyle.borderDownColor": "rgba(0,0,0,1)",
       "paneProperties.background": "#ffffff",
       "paneProperties.vertGridProperties.color": "rgba(0,0,0,0.05)",
       "paneProperties.horzGridProperties.color": "rgba(0,0,0,0.05)"
@@ -200,23 +252,37 @@
       frameElementId: frameId,
       symbol: symbol,
       interval: interval,
+      // Полностью скрываем верхнюю и боковые панели
       hidesidetoolbar: '1',
       hidetoptoolbar: '1',
       hidelegend: '1',
       hideideas: '1',
       hidedetails: '1',
+      // Запрет смены тикера, сохранения, скриншотов
       symboledit: '0',
       saveimage: '0',
       withdateranges: '0',
+      watchlist: '0',
+      // Стиль баров
+      style: '0',
+      // Оформление
       toolbarbg: 'ffffff',
       studies: '[]',
       theme: 'light',
-      style: '0',                 // 0 = бары, 1 = свечи
       timezone: 'Europe/Moscow',
       studies_overrides: '{}',
       overrides: JSON.stringify(overrides),
       enabled_features: '[]',
-      disabled_features: '[]',
+      disabled_features: JSON.stringify([
+        "header_symbol_search",
+        "header_compare",
+        "header_undo_redo",
+        "header_screenshot",
+        "header_fullscreen_button",
+        "symbol_search_hot_key",
+        "use_localstorage_for_settings",
+        "save_chart_properties_to_local_storage"
+      ]),
       locale: 'ru',
       utm_source: 'embed',
       utm_medium: 'widget',
