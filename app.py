@@ -2,8 +2,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 import requests
 import pandas as pd
+import json
 import plotly.graph_objects as go
 from pathlib import Path
+from datetime import datetime, timedelta
 
 st.set_page_config(
     page_title="MOEX Options & Black-Scholes",
@@ -28,6 +30,15 @@ ASSET_TYPE_MAP = {
     'Валюта': 'currency',
     'Товар': 'commodity',
     'Индекс': 'index',
+}
+
+# Соответствие UI-категории → engine/market для MOEX ISS candles
+ENGINE_MARKET_MAP = {
+    'Фьючерс': ('futures', 'forts'),
+    'Акция':   ('stock', 'shares'),
+    'Индекс':  ('stock', 'index'),
+    'Валюта':  ('futures', 'forts'),  # опционы на валюту — это опционы на фьючерс
+    'Товар':   ('futures', 'forts'),
 }
 
 
@@ -150,28 +161,129 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
         return []
 
 
+# ================= MOEX Candles (для графиков) =================
+
+# Москва — UTC+3 (без перехода на летнее время с 2014 г.)
+MSK_OFFSET_SECONDS = 3 * 3600
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_bars(secid: str, interval: int = 24, days: int = 365,
+               engine: str = "futures", market: str = "forts"):
+    """Загружает бары (OHLCV) с MOEX ISS.
+
+    interval: 1 (мин), 10, 60 (H1), 24 (D1), 7 (неделя), 31 (месяц)
+    """
+    end = datetime.now()
+    start = end - timedelta(days=days)
+
+    url = (
+        f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
+        f"/securities/{secid}/candles.json"
+    )
+    params = {
+        "from": start.strftime("%Y-%m-%d"),
+        "till": end.strftime("%Y-%m-%d"),
+        "interval": interval,
+        "iss.meta": "off",
+    }
+    try:
+        r = requests.get(url, params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        st.warning(f"Ошибка загрузки баров {secid} (interval={interval}): {e}")
+        return pd.DataFrame()
+
+    cols = data.get("candles", {}).get("columns", [])
+    rows = data.get("candles", {}).get("data", [])
+    if not rows or not cols:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows, columns=cols)
+    df["begin"] = pd.to_datetime(df["begin"])
+    df = df.sort_values("begin").reset_index(drop=True)
+    return df
+
+
+def df_to_bars(df: pd.DataFrame, intraday: bool):
+    """Преобразует DataFrame со свечами в формат Lightweight Charts.
+
+    Для дневного таймфрейма time = 'YYYY-MM-DD' (business day).
+    Для часового — UNIX-таймстемп в секундах (MSK → UTC).
+    """
+    bars, vols = [], []
+    for _, row in df.iterrows():
+        if intraday:
+            # pandas .value — наносекунды от эпохи (naive = UTC).
+            # MOEX отдаёт время в MSK, поэтому вычитаем смещение,
+            # чтобы получить настоящий UTC.
+            t = int(row["begin"].value // 10**9) - MSK_OFFSET_SECONDS
+        else:
+            t = row["begin"].strftime("%Y-%m-%d")
+
+        bars.append({
+            "time": t,
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+        })
+        vols.append({
+            "time": t,
+            "value": float(row["volume"]),
+            "color": "black",
+        })
+    return bars, vols
+
+
 # ================= Мост HTML ↔ Python =================
 
 def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
-    """
-    Отправляет дату экспирации в iframe калькулятора через postMessage.
-    Рендерит невидимый iframe-инжектор, который находит все iframe'ы
-    в родительском документе Streamlit и рассылает им сообщение.
-    """
+    """Отправляет дату экспирации в iframe калькулятора через postMessage."""
     js = f"""
     <script>
     (function() {{
-      const value = {expiry_str!r};
-      const series_code = {series_code!r};
+      const payload = {{ type: 'setExpiry', value: {expiry_str!r}, series_code: {series_code!r} }};
       function send() {{
         try {{
           const frames = window.parent.document.querySelectorAll('iframe');
           frames.forEach(f => {{
-            try {{
-              f.contentWindow.postMessage(
-                {{ type: 'setExpiry', value: value, series_code: series_code }}, '*'
-              );
-            }} catch (e) {{}}
+            try {{ f.contentWindow.postMessage(payload, '*'); }} catch (e) {{}}
+          }});
+        }} catch (e) {{}}
+      }}
+      send();
+      setTimeout(send, 300);
+      setTimeout(send, 1000);
+      setTimeout(send, 2500);
+    }})();
+    </script>
+    """
+    components.html(js, height=0)
+
+
+def push_bars_to_calculator(ticker: str,
+                            d1_bars, d1_vols,
+                            h1_bars, h1_vols):
+    """Отправляет бары в iframe калькулятора через postMessage."""
+    payload = {
+        "type": "setBars",
+        "ticker": ticker,
+        "d1": d1_bars,
+        "d1_vol": d1_vols,
+        "h1": h1_bars,
+        "h1_vol": h1_vols,
+    }
+    js = f"""
+    <script>
+    (function() {{
+      const payload = {json.dumps(payload, ensure_ascii=False)};
+      function send() {{
+        try {{
+          const frames = window.parent.document.querySelectorAll('iframe');
+          frames.forEach(f => {{
+            try {{ f.contentWindow.postMessage(payload, '*'); }} catch (e) {{}}
           }});
         }} catch (e) {{}}
       }}
@@ -237,6 +349,23 @@ if st.session_state.series_list:
 
     st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
+
+    # --- Биржевые графики: грузим бары и отправляем в iframe ---
+    engine, market = ENGINE_MARKET_MAP.get(asset_type_ui, ("futures", "forts"))
+    with st.spinner("Загрузка баров для графиков..."):
+        df_d1 = fetch_bars(asset, interval=24, days=365,
+                           engine=engine, market=market)
+        df_h1 = fetch_bars(asset, interval=60, days=60,
+                           engine=engine, market=market)
+
+    d1_bars, d1_vols = ([], [])
+    h1_bars, h1_vols = ([], [])
+    if not df_d1.empty:
+        d1_bars, d1_vols = df_to_bars(df_d1, intraday=False)
+    if not df_h1.empty:
+        h1_bars, h1_vols = df_to_bars(df_h1, intraday=True)
+
+    push_bars_to_calculator(asset, d1_bars, d1_vols, h1_bars, h1_vols)
 
     # --- Информация о серии ---
     try:
