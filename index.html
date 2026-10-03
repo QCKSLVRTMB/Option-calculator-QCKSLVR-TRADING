@@ -61,7 +61,9 @@
       <div class="form-row">
         <div class="form-group"><label>Тип опциона (Call/Put)</label>
           <select id="optionType"><option value="call">Call</option><option value="put">Put</option></select></div>
-        <div class="form-group"><label>Страйк</label><input type="number" id="strike" value="0" step="1"></div>
+        <div class="form-group"><label>Страйк</label>
+          <select id="strike"><option value="0">Загрузка…</option></select>
+        </div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -86,7 +88,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>Безрисковая ставка %</label><input type="number" id="riskFree" value="0" step="0.1"></div>
-        <div class="form-group"><label>Волатильность %</label><input type="number" id="volatility" value="0" step="1"></div>
+        <div class="form-group"><label>Волатильность %</label><input type="number" id="volatility" value="0" step="0.1"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Дивидендная доходность %</label><input type="number" id="dividend" value="0" step="0.1"></div>
@@ -157,7 +159,6 @@
     const buyVal = parseFloat(buyEl.value);
     const sellVal = parseFloat(sellEl.value);
 
-    // Пропускаем валидацию, если хотя бы одно поле пустое или не число
     if (isNaN(buyVal) || isNaN(sellVal)) {
       buyEl.classList.remove('input-error');
       sellEl.classList.remove('input-error');
@@ -165,7 +166,6 @@
       return true;
     }
 
-    // Уровень покупок должен быть строго меньше уровня продаж
     const invalid = buyVal >= sellVal;
 
     if (invalid) {
@@ -181,7 +181,6 @@
   }
 
   function updatePrices(){
-    // Валидация уровней — если ошибка, всё равно считаем, но подсвечиваем
     validateLevels();
 
     const type=document.getElementById('optionType').value;
@@ -213,15 +212,28 @@
   }
 
   function saveSettings(){localStorage.setItem('optionCalcSettings',JSON.stringify({optionType:document.getElementById('optionType').value,strike:document.getElementById('strike').value,priceBuy:document.getElementById('priceBuy').value,priceSell:document.getElementById('priceSell').value,currentDate:document.getElementById('currentDate').value,expiryDate:document.getElementById('expiryDate').value,riskFree:document.getElementById('riskFree').value,volatility:document.getElementById('volatility').value,dividend:document.getElementById('dividend').value,pricingModel:document.getElementById('pricingModel').value}));}
-  function loadSettings(){const s=JSON.parse(localStorage.getItem('optionCalcSettings')||'{}');['optionType','strike','priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel'].forEach(k=>{if(s[k]!==undefined)document.getElementById(k).value=s[k];});updatePrices();}
-  function resetToExample(){document.getElementById('optionType').value='call';document.getElementById('strike').value='160';document.getElementById('priceBuy').value='150';document.getElementById('priceSell').value='163';document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);document.getElementById('riskFree').value='10';document.getElementById('volatility').value='30';document.getElementById('dividend').value='0';document.getElementById('pricingModel').value='bs';document.getElementById('expirySource').innerText='';updatePrices();}
+  function loadSettings(){const s=JSON.parse(localStorage.getItem('optionCalcSettings')||'{}');['optionType','priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel'].forEach(k=>{if(s[k]!==undefined)document.getElementById(k).value=s[k];});updatePrices();}
+  function resetToExample(){document.getElementById('optionType').value='call';document.getElementById('priceBuy').value='150';document.getElementById('priceSell').value='163';document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);document.getElementById('riskFree').value='10';document.getElementById('volatility').value='30';document.getElementById('dividend').value='0';document.getElementById('pricingModel').value='bs';document.getElementById('expirySource').innerText='';updatePrices();}
   function exportCSV(){const rows=[['Параметр','Значение'],['Тип',document.getElementById('optionType').value],['Страйк',document.getElementById('strike').value],['S покупка',document.getElementById('priceBuy').value],['S продажа',document.getElementById('priceSell').value],['Экспирация',document.getElementById('expiryDate').value],['Текущая дата',document.getElementById('currentDate').value],['Ставка %',document.getElementById('riskFree').value],['Волатильность %',document.getElementById('volatility').value],['Модель',document.getElementById('pricingModel').value],['Цена (покупка)',document.getElementById('priceBuyResult').innerText],['Цена (продажа)',document.getElementById('priceSellResult').innerText],['Спред',document.getElementById('spreadResult').innerText]];const csv=rows.map(r=>r.join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='option_calc.csv';a.click();}
 
   document.getElementById('calcBtn').addEventListener('click',updatePrices);
   document.getElementById('resetBtn').addEventListener('click',resetToExample);
   document.getElementById('saveSettingsBtn').addEventListener('click',saveSettings);
   document.getElementById('exportCsvBtn').addEventListener('click',exportCSV);
-  ['optionType','strike','priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel'].forEach(id=>document.getElementById(id).addEventListener('input',updatePrices));
+
+  // Обычные input-поля → на изменение сразу обновляем расчёт
+  ['optionType','priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel']
+    .forEach(id => document.getElementById(id).addEventListener('input', updatePrices));
+
+  // Страйк — это <select>, обновляем при 'change' + синхронизируем волатильность
+  document.getElementById('strike').addEventListener('change', function() {
+    const ivMap = window.__strikeIV || {};
+    const iv = ivMap[this.value];
+    if (iv != null) {
+      document.getElementById('volatility').value = iv;
+    }
+    updatePrices();
+  });
 
   if(!document.getElementById('currentDate').value) document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);
   if(!document.getElementById('expiryDate').value) document.getElementById('expiryDate').value=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
@@ -252,20 +264,16 @@
       frameElementId: frameId,
       symbol: symbol,
       interval: interval,
-      // Полностью скрываем верхнюю и боковые панели
       hidesidetoolbar: '1',
       hidetoptoolbar: '1',
       hidelegend: '1',
       hideideas: '1',
       hidedetails: '1',
-      // Запрет смены тикера, сохранения, скриншотов
       symboledit: '0',
       saveimage: '0',
       withdateranges: '0',
       watchlist: '0',
-      // Стиль баров
       style: '0',
-      // Оформление
       toolbarbg: 'ffffff',
       studies: '[]',
       theme: 'light',
@@ -329,6 +337,52 @@
       }
       renderTVChart('chartD1', data.symbol, 'D');
       renderTVChart('chartH1', data.symbol, '60');
+      return;
+    }
+
+    if (data.type === 'setStrikes') {
+      const sel = document.getElementById('strike');
+      const vol = document.getElementById('volatility');
+      if (!sel || !Array.isArray(data.strikes)) return;
+
+      // Сохраняем карту «страйк → IV» в глобальном объекте
+      window.__strikeIV = {};
+      data.strikes.forEach(s => {
+        if (s && s.strike != null) {
+          window.__strikeIV[String(s.strike)] = s.iv;
+        }
+      });
+
+      // Перерисовываем селект
+      const prevVal = sel.value;
+      sel.innerHTML = '';
+      data.strikes.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.strike;
+        opt.textContent = s.strike;
+        sel.appendChild(opt);
+      });
+
+      // Определяем целевой страйк: центральный, если есть,
+      // иначе — предыдущий, если он есть в новом списке
+      let target = data.central;
+      const hasTarget = target != null && window.__strikeIV.hasOwnProperty(String(target));
+      if (!hasTarget && window.__strikeIV.hasOwnProperty(String(prevVal))) {
+        target = prevVal;
+      }
+      if (target == null && data.strikes.length > 0) {
+        target = data.strikes[0].strike;
+      }
+
+      if (target != null) {
+        sel.value = target;
+        const iv = window.__strikeIV[String(target)];
+        if (iv != null && vol) {
+          vol.value = iv;
+        }
+      }
+
+      updatePrices();
       return;
     }
   });
