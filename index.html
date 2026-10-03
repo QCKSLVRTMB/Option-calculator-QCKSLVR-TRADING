@@ -42,11 +42,8 @@
   }
   .validation-msg.show { display: block; }
 
-  /* Цветной select для страйка (толщина шрифта — чтобы цвет был заметен) */
-  #strike {
-    font-weight: 700;
-    transition: color .12s ease;
-  }
+  /* Цветной select для страйка */
+  #strike { font-weight: 700; transition: color .12s ease; }
 
   .chart-ticker { font-size: .8rem; font-weight: 400; color: #4a6f8a; margin-left: 6px; }
   .charts-container { display: flex; flex-direction: column; gap: 10px; }
@@ -93,7 +90,7 @@
         <div class="form-group"><label>Текущая дата</label><input type="date" id="currentDate"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Безрисковая ставка %</label><input type="number" id="riskFree" value="0" step="0.1"></div>
+        <div class="form-group"><label>Безрисковая ставка %</label><input type="number" id="riskFree" value="0" step="0.0001"></div>
         <div class="form-group"><label>Волатильность %</label><input type="number" id="volatility" value="0" step="0.1"></div>
       </div>
       <div class="form-row">
@@ -164,7 +161,7 @@
   function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
 
   // ---------- Состояние страйков ----------
-  let __strikeList = [];       // [{strike, iv}]
+  let __strikeList = [];
   let __centralStrike = null;
 
   function getIVForStrike(k) {
@@ -173,13 +170,11 @@
   }
 
   function classifyStrike(strike, central, optionType) {
-    // Возвращает { label: 'ATM'|'ITM'|'OTM', color: '...' }
     if (central == null) return { label: '', color: COLOR_NEUTRAL };
     const k = parseFloat(strike);
     const c = parseFloat(central);
     if (isNaN(k) || isNaN(c)) return { label: '', color: COLOR_NEUTRAL };
     if (k === c) return { label: 'ATM', color: COLOR_ATM };
-
     const isCall = optionType === 'call';
     const inTheMoney = isCall ? (k < c) : (k > c);
     return inTheMoney
@@ -213,7 +208,6 @@
       sel.appendChild(opt);
     });
 
-    // Восстанавливаем выбор: предыдущий → центральный → первый
     let target = null;
     if (prevVal && __strikeList.some(x => String(x.strike) === String(prevVal))) {
       target = prevVal;
@@ -226,12 +220,11 @@
 
     applySelectColor(sel);
 
-    // Обновляем волатильность под текущий страйк
     const iv = getIVForStrike(sel.value);
     if (iv != null) document.getElementById('volatility').value = iv;
   }
 
-  // ---------- Валидация уровней покупок/продаж ----------
+  // ---------- Валидация уровней ----------
   function validateLevels() {
     const buyEl = document.getElementById('priceBuy');
     const sellEl = document.getElementById('priceSell');
@@ -247,7 +240,6 @@
     }
 
     const invalid = buyVal >= sellVal;
-
     if (invalid) {
       buyEl.classList.add('input-error');
       sellEl.classList.add('input-error');
@@ -301,17 +293,14 @@
   document.getElementById('saveSettingsBtn').addEventListener('click',saveSettings);
   document.getElementById('exportCsvBtn').addEventListener('click',exportCSV);
 
-  // Обычные input-поля → на изменение сразу обновляем расчёт
   ['priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel']
     .forEach(id => document.getElementById(id).addEventListener('input', updatePrices));
 
-  // Смена типа опциона — пересчитываем цвета страйков и обновляем расчёт
   document.getElementById('optionType').addEventListener('change', function() {
     renderStrikes();
     updatePrices();
   });
 
-  // Смена страйка — обновляем цвет закрытого селекта, волатильность и расчёт
   document.getElementById('strike').addEventListener('change', function() {
     applySelectColor(this);
     const iv = getIVForStrike(this.value);
@@ -326,7 +315,7 @@
   loadSettings();
   updatePrices();
 
-  // ---------- TradingView Widget (compact iframe embed, BARS only) ----------
+  // ---------- TradingView Widget ----------
   function renderTVChart(containerId, symbol, interval) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -400,6 +389,15 @@
     const data = event.data;
     if (!data) return;
 
+    if (data.type === 'setRiskFree') {
+      const el = document.getElementById('riskFree');
+      if (el && typeof data.value === 'number') {
+        el.value = data.value.toFixed(4);
+        updatePrices();
+      }
+      return;
+    }
+
     if (data.type === 'setExpiry') {
       const el = document.getElementById('expiryDate');
       if (!el || typeof data.value !== 'string') return;
@@ -428,12 +426,8 @@
 
     if (data.type === 'setStrikes') {
       if (!Array.isArray(data.strikes)) return;
-
-      // Обновляем глобальное состояние
       __strikeList = data.strikes.slice();
       __centralStrike = (data.central != null) ? data.central : null;
-
-      // Перерисовываем select с учётом цветов ATM/ITM/OTM
       renderStrikes();
       updatePrices();
       return;
