@@ -2,9 +2,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 import requests
 import pandas as pd
+import json
 import plotly.graph_objects as go
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 st.set_page_config(
     page_title="MOEX Options & Black-Scholes",
@@ -31,7 +32,6 @@ ASSET_TYPE_MAP = {
 }
 
 # ================= Справочник инструментов MOEX =================
-# Формат: { "Название вкладки": { "код": (категория, "описание") } }
 MOEX_INSTRUMENTS = {
     "Индексы": {
         "RTS":      ("Индекс", "Индекс РТС"),
@@ -262,6 +262,33 @@ def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
 
+# ================= Цветовые маркеры дат экспирации =================
+
+def expiry_marker(expiry_str: str) -> str:
+    """Определяет цветовой маркер для даты экспирации.
+
+    Логика (по неделям, где неделя = Пн–Вс):
+      - 🔴 красный  — все даты до конца следующей недели включительно
+      - 🔵 синий    — все даты через неделю (следующая за красной)
+      - 🟢 зелёный  — все остальные (более 2 недель вперёд)
+    """
+    try:
+        d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+    except Exception:
+        return "⚪"
+
+    today = date.today()
+    monday_this_week = today - timedelta(days=today.weekday())
+    end_next_week = monday_this_week + timedelta(days=13)     # воскресенье след. недели
+    end_week_after = monday_this_week + timedelta(days=20)    # воскресенье через неделю
+
+    if d <= end_next_week:
+        return "🔴"
+    if d <= end_week_after:
+        return "🔵"
+    return "🟢"
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
@@ -382,11 +409,12 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
 
 # ================= Мост HTML ↔ Python =================
 
-def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
+def _send_to_iframes(payload: dict, delays=(300, 1000, 2500)):
+    delays_js = "\n".join([f"setTimeout(send, {d});" for d in delays])
     js = f"""
     <script>
     (function() {{
-      const payload = {{ type: 'setExpiry', value: {expiry_str!r}, series_code: {series_code!r} }};
+      const payload = {json.dumps(payload, ensure_ascii=False)};
       function send() {{
         try {{
           const frames = window.parent.document.querySelectorAll('iframe');
@@ -396,36 +424,35 @@ def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
         }} catch (e) {{}}
       }}
       send();
-      setTimeout(send, 300);
-      setTimeout(send, 1000);
-      setTimeout(send, 2500);
+      {delays_js}
     }})();
     </script>
     """
     components.html(js, height=0)
+
+
+def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
+    _send_to_iframes({
+        "type": "setExpiry",
+        "value": expiry_str,
+        "series_code": series_code,
+    })
 
 
 def push_tv_ticker(ticker_label: str, tv_symbol: str):
-    js = f"""
-    <script>
-    (function() {{
-      const payload = {{ type: 'setTicker', ticker: {ticker_label!r}, symbol: {tv_symbol!r} }};
-      function send() {{
-        try {{
-          const frames = window.parent.document.querySelectorAll('iframe');
-          frames.forEach(f => {{
-            try {{ f.contentWindow.postMessage(payload, '*'); }} catch (e) {{}}
-          }});
-        }} catch (e) {{}}
-      }}
-      send();
-      setTimeout(send, 500);
-      setTimeout(send, 1500);
-      setTimeout(send, 3000);
-    }})();
-    </script>
-    """
-    components.html(js, height=0)
+    _send_to_iframes({
+        "type": "setTicker",
+        "ticker": ticker_label,
+        "symbol": tv_symbol,
+    })
+
+
+def push_strikes_to_calculator(strikes_iv: list, central_strike):
+    _send_to_iframes({
+        "type": "setStrikes",
+        "strikes": strikes_iv,
+        "central": central_strike,
+    }, delays=(300, 800, 1500, 2500))
 
 
 # ================= UI =================
@@ -513,45 +540,18 @@ if load_btn and asset:
         st.session_state.series_list = []
 
 if st.session_state.series_list:
-    # ---------- Цветовые маркеры дат экспирации ----------
-    today = date.today()
-
-    def _days_left(expiry_str: str):
-        try:
-            return (datetime.strptime(expiry_str, "%Y-%m-%d").date() - today).days
-        except Exception:
-            return None
-
-    # Сортируем по дате, чтобы правильно определить «первую дату после 2 недель»
+    # --- Цветовые маркеры дат экспирации ---
     sorted_series = sorted(
         st.session_state.series_list,
         key=lambda x: x.get("expiry", "")
     )
 
-    blue_assigned = False
-    option_labels = []
-    for s in sorted_series:
-        d = _days_left(s["expiry"])
-        if d is None:
-            marker = "⚪"          # неизвестная дата
-        elif d < 14:
-            marker = "🔴"          # меньше двух недель
-        elif not blue_assigned:
-            marker = "🔵"          # первая дата после двух недель
-            blue_assigned = True
-        else:
-            marker = "🟢"          # больше двух недель
-        option_labels.append(f"{marker} {s['expiry']} — {s['code']}")
-
-    st.markdown(
-        "<div style='font-size:.8rem; color:#4a6f8a; margin:-6px 0 6px 0;'>"
-        "🔴 — менее 2 недель · 🔵 — ближайшая после 2 недель · 🟢 — более 2 недель"
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    option_labels = [
+        f"{expiry_marker(s['expiry'])} {s['expiry']} — {s['code']}"
+        for s in sorted_series
+    ]
 
     chosen = st.selectbox("Дата экспирации (серия)", option_labels, index=0)
-
     chosen_idx = option_labels.index(chosen)
     selected = sorted_series[chosen_idx]
     series_code = selected["code"]
@@ -596,6 +596,18 @@ if st.session_state.series_list:
         c_map = {c['strike']: c for c in calls}
         p_map = {p['strike']: p for p in puts}
 
+        # --- Строим список страйков с их IV и отправляем в iframe ---
+        strikes_iv = []
+        for k in strikes:
+            c = c_map.get(k, {})
+            p = p_map.get(k, {})
+            iv = c.get('volatility') or p.get('volatility')
+            strikes_iv.append({
+                "strike": int(k) if float(k).is_integer() else k,
+                "iv": float(iv) if iv is not None else None,
+            })
+        push_strikes_to_calculator(strikes_iv, central)
+
         rows = []
         for k in strikes:
             c = c_map.get(k, {})
@@ -639,7 +651,6 @@ if st.session_state.series_list:
                 elif col.startswith("Put_"):
                     styles.append(f"background-color: {put_bg}")
                 elif col in ("Strike", "IV_%") and is_central:
-                    # Центральный страйк и его волатильность
                     styles.append("background-color: #e3e7ec; font-weight: bold")
                 else:
                     styles.append("")
@@ -686,7 +697,6 @@ if st.session_state.series_list:
             height=600,
         )
 
-        # --- Улыбка волатильности ---
         try:
             points = fetch_volatility_graph(asset, series_code, asset_type_ui)
         except Exception:
