@@ -2,10 +2,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 import requests
 import pandas as pd
-import json
 import plotly.graph_objects as go
 from pathlib import Path
-from datetime import datetime, timedelta
 
 st.set_page_config(
     page_title="MOEX Options & Black-Scholes",
@@ -29,14 +27,6 @@ ASSET_TYPE_MAP = {
     'Валюта': 'currency',
     'Товар': 'commodity',
     'Индекс': 'index',
-}
-
-ENGINE_MARKET_MAP = {
-    'Фьючерс': ('futures', 'forts'),
-    'Акция':   ('stock', 'shares'),
-    'Индекс':  ('stock', 'index'),
-    'Валюта':  ('futures', 'forts'),
-    'Товар':   ('futures', 'forts'),
 }
 
 # ================= Справочник инструментов MOEX =================
@@ -136,12 +126,95 @@ CATEGORY_TO_ASSET_TYPE = {
     "Товары":  "Товар",
 }
 
-# Справочные тикеры TradingView для непрерывных фьючерсов.
-# Используются только для документирования. Графики строятся на данных MOEX ISS.
-TV_TICKER_REFERENCE = {
-    "RTS": "RI1!", "MIX": "MIX1!", "RVI": "VI1!", "RGBI": "RB1!",
-    "Si": "SI1!", "Eu": "EU1!", "CNY": "CR1!", "BR": "BR1!",
-    "GOLD": "GD1!", "SILV": "SV1!", "NG": "NG1!",
+# ================= Соответствие MOEX-код → тикер TradingView =================
+# Для фьючерсов используется НЕПРЕРЫВНЫЙ (склеенный) контракт — суффикс "1!".
+# Для акций/индексов — спот-тикер (совпадает с кодом MOEX).
+TV_TICKER_MAP = {
+    # --- Индексы (фьючерсы, склейка) ---
+    "RTS":      "MOEX:RI1!",
+    "MIX":      "MOEX:MIX1!",
+    "RVI":      "MOEX:VI1!",
+    "RGBI":     "MOEX:RB1!",
+    "MOEXCNY":  "MOEX:CR1!",
+    "MMI":      "MOEX:MMI1!",
+    "FNI":      "MOEX:FNI1!",
+    "OGI":      "MOEX:OGI1!",
+    "MXI":      "MOEX:MIX1!",
+    "RTSM":     "MOEX:RTSM1!",
+
+    # --- Валюты (фьючерсы, склейка) ---
+    "Si":   "MOEX:SI1!",
+    "Eu":   "MOEX:EU1!",
+    "CNY":  "MOEX:CR1!",
+    "TRY":  "MOEX:TRY1!",
+    "HKD":  "MOEX:HKD1!",
+    "AED":  "MOEX:AED1!",
+    "KZT":  "MOEX:KZT1!",
+    "AMD":  "MOEX:AMD1!",
+    "BYN":  "MOEX:BYN1!",
+    "ED":   "MOEX:ED1!",
+    "AUDU": "MOEX:AUDU1!",
+    "GBPU": "MOEX:GBPU1!",
+    "UCAD": "MOEX:UCAD1!",
+    "UCHF": "MOEX:UCHF1!",
+    "UJPY": "MOEX:UJPY1!",
+    "UCNY": "MOEX:UCNY1!",
+
+    # --- Товары (фьючерсы, склейка) ---
+    "BR":    "MOEX:BR1!",
+    "CL":    "MOEX:CL1!",
+    "GOLD":  "MOEX:GD1!",
+    "SILV":  "MOEX:SV1!",
+    "PLD":   "MOEX:PD1!",
+    "PLT":   "MOEX:PT1!",
+    "ALMN":  "MOEX:ALMN1!",
+    "Co":    "MOEX:CO1!",
+    "Nl":    "MOEX:NI1!",
+    "Zn":    "MOEX:ZN1!",
+    "NG":    "MOEX:NG1!",
+    "WHEAT": "MOEX:WHEAT1!",
+    "SUGR":  "MOEX:SUGR1!",
+
+    # --- Акции (спот-тикеры — совпадают с кодом MOEX) ---
+    "GAZR": "MOEX:GAZP",
+    "SBRF": "MOEX:SBER",
+    "SBPR": "MOEX:SBERP",
+    "LKOH": "MOEX:LKOH",
+    "ROSN": "MOEX:ROSN",
+    "NOTK": "MOEX:NOTK",
+    "TATN": "MOEX:TATN",
+    "TATP": "MOEX:TATNP",
+    "SNGR": "MOEX:SNGSP",
+    "SNGP": "MOEX:SNGSP",
+    "MTSS": "MOEX:MTSS",
+    "MGNT": "MOEX:MGNT",
+    "GMKN": "MOEX:GMKN",
+    "NLMK": "MOEX:NLMK",
+    "CHMF": "MOEX:CHMF",
+    "ALRS": "MOEX:ALRS",
+    "VTBR": "MOEX:VTBR",
+    "MOEX": "MOEX:MOEX",
+    "AFKS": "MOEX:AFKS",
+    "IRAO": "MOEX:IRAO",
+    "HYDR": "MOEX:HYDR",
+    "RTKM": "MOEX:RTKM",
+    "PLZL": "MOEX:PLZL",
+    "MAGN": "MOEX:MAGN",
+    "YDEX": "MOEX:YDEX",
+    "PHOR": "MOEX:PHOR",
+    "RUAL": "MOEX:RUAL",
+    "FEES": "MOEX:FEES",
+    "TRNF": "MOEX:TRNFP",
+    "AFLT": "MOEX:AFLT",
+    "SIBN": "MOEX:SIBN",
+    "PIKK": "MOEX:PIKK",
+    "FLOT": "MOEX:FLOT",
+    "CBOM": "MOEX:CBOM",
+    "SGZH": "MOEX:SGZH",
+    "BSPB": "MOEX:BSPB",
+    "KMAZ": "MOEX:KMAZ",
+    "ASTR": "MOEX:ASTR",
+    "SVCB": "MOEX:SVCB",
 }
 
 
@@ -263,145 +336,6 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
         return []
 
 
-# ================= MOEX Candles + склейка фьючерсов =================
-
-MSK_OFFSET_SECONDS = 3 * 3600
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def list_moex_securities(engine: str, market: str) -> pd.DataFrame:
-    url = f"https://iss.moex.com/iss/engines/{engine}/markets/{market}/securities.json"
-    try:
-        r = requests.get(url, params={"iss.meta": "off", "iss.only": "securities"}, timeout=20)
-        r.raise_for_status()
-        data = r.json()["securities"]
-    except Exception:
-        return pd.DataFrame()
-    return pd.DataFrame(data["data"], columns=data["columns"])
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_futures_contracts(asset_code: str) -> list:
-    """Список контрактов одного базового актива, отсортированных по дате экспирации."""
-    df = list_moex_securities("futures", "forts")
-    if df.empty or "ASSETCODE" not in df.columns or "LASTTRADEDATE" not in df.columns:
-        return []
-    df = df[df["ASSETCODE"] == asset_code].dropna(subset=["LASTTRADEDATE", "SECID"])
-    df = df.sort_values("LASTTRADEDATE").reset_index(drop=True)
-    return [
-        {"secid": row.SECID, "lasttradedate": row.LASTTRADEDATE}
-        for row in df.itertuples()
-    ]
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_bars(secid: str, interval: int = 24, days: int = 365,
-               engine: str = "futures", market: str = "forts"):
-    end = datetime.now()
-    start = end - timedelta(days=days)
-    url = (
-        f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
-        f"/securities/{secid}/candles.json"
-    )
-    params = {
-        "from": start.strftime("%Y-%m-%d"),
-        "till": end.strftime("%Y-%m-%d"),
-        "interval": interval,
-        "iss.meta": "off",
-    }
-    try:
-        r = requests.get(url, params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
-        return pd.DataFrame()
-    cols = data.get("candles", {}).get("columns", [])
-    rows = data.get("candles", {}).get("data", [])
-    if not rows or not cols:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows, columns=cols)
-    df["begin"] = pd.to_datetime(df["begin"])
-    return df.sort_values("begin").reset_index(drop=True)
-
-
-def build_continuous_series(asset_code: str, interval: int, days: int,
-                            rollover_days_before: int = 5) -> pd.DataFrame:
-    """Склейка фьючерсов: последовательное сшивание контрактов с коррекцией цен."""
-    contracts = get_futures_contracts(asset_code)
-    if not contracts:
-        return pd.DataFrame()
-
-    now = datetime.now()
-    start_dt = now - timedelta(days=days)
-
-    relevant = []
-    for i, c in enumerate(contracts):
-        ltd = pd.to_datetime(c["lasttradedate"]).to_pydatetime()
-        if ltd >= start_dt:
-            if i > 0 and not relevant:
-                prev = contracts[i - 1]
-                prev_ltd = pd.to_datetime(prev["lasttradedate"]).to_pydatetime()
-                if prev_ltd >= start_dt:
-                    relevant.append(prev)
-            relevant.append(c)
-    if not relevant:
-        relevant = [contracts[-1]]
-
-    pieces = []
-    for c in relevant:
-        ltd = pd.to_datetime(c["lasttradedate"]).to_pydatetime()
-        rollover_dt = ltd - timedelta(days=rollover_days_before)
-        df = fetch_bars(c["secid"], interval=interval, days=days,
-                        engine="futures", market="forts")
-        if df.empty:
-            continue
-        df = df[df["begin"] <= pd.Timestamp(rollover_dt)].copy()
-        if df.empty:
-            continue
-        df["_rollover_dt"] = rollover_dt
-        pieces.append(df)
-
-    if not pieces:
-        return pd.DataFrame()
-
-    pieces.sort(key=lambda d: d["_rollover_dt"].iloc[0])
-
-    result_parts = []
-    for piece in pieces:
-        if not result_parts:
-            result_parts.append(piece)
-            continue
-        prev_close = result_parts[-1]["close"].iloc[-1]
-        curr_open = piece["open"].iloc[0]
-        shift = curr_open - prev_close
-        for rp in result_parts:
-            for col in ("open", "high", "low", "close"):
-                rp[col] = rp[col] + shift
-        result_parts.append(piece)
-
-    df = pd.concat(result_parts, ignore_index=True)
-    df = df.sort_values("begin").drop_duplicates(subset=["begin"], keep="last")
-    return df.reset_index(drop=True)
-
-
-def df_to_bars(df: pd.DataFrame, intraday: bool):
-    bars, vols = [], []
-    for _, row in df.iterrows():
-        if intraday:
-            t = int(row["begin"].value // 10**9) - MSK_OFFSET_SECONDS
-        else:
-            t = row["begin"].strftime("%Y-%m-%d")
-        bars.append({
-            "time": t,
-            "open": float(row["open"]),
-            "high": float(row["high"]),
-            "low": float(row["low"]),
-            "close": float(row["close"]),
-        })
-        vols.append({"time": t, "value": float(row["volume"]), "color": "black"})
-    return bars, vols
-
-
 # ================= Мост HTML ↔ Python =================
 
 def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
@@ -427,19 +361,12 @@ def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
     components.html(js, height=0)
 
 
-def push_bars_to_calculator(ticker, d1_bars, d1_vols, h1_bars, h1_vols):
-    payload = {
-        "type": "setBars",
-        "ticker": ticker,
-        "d1": d1_bars,
-        "d1_vol": d1_vols,
-        "h1": h1_bars,
-        "h1_vol": h1_vols,
-    }
+def push_tv_ticker(ticker_label: str, tv_symbol: str):
+    """Отправляет тикер TradingView в iframe для отрисовки виджетов D1 и H1."""
     js = f"""
     <script>
     (function() {{
-      const payload = {json.dumps(payload, ensure_ascii=False)};
+      const payload = {{ type: 'setTicker', ticker: {ticker_label!r}, symbol: {tv_symbol!r} }};
       function send() {{
         try {{
           const frames = window.parent.document.querySelectorAll('iframe');
@@ -449,9 +376,9 @@ def push_bars_to_calculator(ticker, d1_bars, d1_vols, h1_bars, h1_vols):
         }} catch (e) {{}}
       }}
       send();
-      setTimeout(send, 300);
-      setTimeout(send, 1000);
-      setTimeout(send, 2500);
+      setTimeout(send, 500);
+      setTimeout(send, 1500);
+      setTimeout(send, 3000);
     }})();
     </script>
     """
@@ -493,6 +420,7 @@ with st.expander("📖 Справочник инструментов MOEX — к
             if not filtered:
                 st.caption("Ничего не найдено.")
                 continue
+
             n_cols = 4
             cols = st.columns(n_cols)
             for i, (code, name) in enumerate(filtered.items()):
@@ -552,34 +480,15 @@ if st.session_state.series_list:
     st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
 
-    # --- Биржевые графики ---
-    if asset_type_ui == "Фьючерс":
-        with st.spinner(f"Построение склейки фьючерса {asset} (D1)..."):
-            df_d1 = build_continuous_series(asset, interval=24, days=365)
-        with st.spinner(f"Построение склейки фьючерса {asset} (H1)..."):
-            df_h1 = build_continuous_series(asset, interval=60, days=60)
-        chart_label = f"{asset} (склейка)"
+    # --- Определяем TV-тикер и отправляем в iframe ---
+    tv_symbol = TV_TICKER_MAP.get(asset)
+    if tv_symbol:
+        push_tv_ticker(asset, tv_symbol)
     else:
-        engine, market = ENGINE_MARKET_MAP.get(asset_type_ui, ("futures", "forts"))
-        with st.spinner(f"Загрузка баров для графиков ({asset})..."):
-            df_d1 = fetch_bars(asset, interval=24, days=365,
-                               engine=engine, market=market)
-            df_h1 = fetch_bars(asset, interval=60, days=60,
-                               engine=engine, market=market)
-        chart_label = asset
-
-    d1_bars, d1_vols = ([], [])
-    h1_bars, h1_vols = ([], [])
-    if not df_d1.empty:
-        d1_bars, d1_vols = df_to_bars(df_d1, intraday=False)
-    if not df_h1.empty:
-        h1_bars, h1_vols = df_to_bars(df_h1, intraday=True)
-
-    push_bars_to_calculator(chart_label, d1_bars, d1_vols, h1_bars, h1_vols)
-
-    if df_d1.empty and df_h1.empty:
-        st.info(f"Не удалось загрузить бары для графика «{chart_label}». "
-                f"Проверьте, что инструмент торгуется на MOEX.")
+        st.warning(
+            f"⚠️ Для базового актива «{asset}» не задан тикер TradingView. "
+            f"Добавьте его в словарь `TV_TICKER_MAP` в файле `app.py`."
+        )
 
     # --- Информация о серии ---
     try:
