@@ -3,6 +3,7 @@ import streamlit.components.v1 as components
 import requests
 import pandas as pd
 import json
+import math
 import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime, date, timedelta
@@ -262,16 +263,103 @@ def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
 
+# ================= G-кривая MOEX → безрисковая ставка =================
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_g_curve_params():
+    """Загружает актуальные параметры G-кривой (КБД ОФЗ) с MOEX ISS."""
+    url = "https://iss.moex.com/iss/engines/stock/zcyc/securities.json"
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        st.warning(f"Не удалось загрузить параметры G-кривой: {e}")
+        return None
+
+    params = data.get('params', {})
+    columns = params.get('columns', [])
+    values = params.get('data', [])
+    if not columns or not values:
+        return None
+
+    df = pd.DataFrame(values, columns=columns)
+    row = df.iloc[0]
+
+    try:
+        return {
+            'beta0': float(row['B1']),
+            'beta1': float(row['B2']),
+            'beta2': float(row['B3']),
+            'tau':   float(row['T1']),
+            'g':     [float(row[f'G{i}']) for i in range(1, 10)],
+            'tradedate': str(row.get('tradedate', '')),
+            'tradetime': str(row.get('tradetime', '')),
+        }
+    except Exception as e:
+        st.warning(f"Ошибка разбора параметров G-кривой: {e}")
+        return None
+
+
+# Центры (a) и ширины (b) гауссовых «горбов» G-кривой MOEX
+_GC_A = [0.0, 0.4, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0]
+_GC_B = [0.4, 0.6, 1.0, 1.6, 2.4, 4.0, 6.4, 9.6, 16.0]
+
+
+def g_curve_yield(t_years: float, p: dict):
+    """Доходность КБД ОФЗ (%) на срок t_years лет (модель Нельсона-Сигеля MOEX)."""
+    if p is None or t_years <= 0:
+        return None
+
+    b0, b1, b2, tau = p['beta0'], p['beta1'], p['beta2'], p['tau']
+    g = p['g']
+
+    if tau <= 0:
+        tau = 1.0
+
+    exp_term = math.exp(-t_years / tau)
+    frac = (1 - exp_term) * tau / t_years
+
+    term1 = b0
+    term2 = b1 * frac
+    term3 = b2 * (frac - exp_term)
+
+    term4 = 0.0
+    for i in range(9):
+        if _GC_B[i] != 0:
+            term4 += g[i] * math.exp(-((t_years - _GC_A[i]) ** 2) / (_GC_B[i] ** 2))
+
+    raw = term1 + term2 + term3 + term4
+
+    # MOEX отдаёт B1/B2/B3 в единицах 10^-4 процента.
+    rate_pct = raw / 10000.0
+    # авто-коррекция масштаба, если данные пришли уже в процентах
+    if rate_pct < 0.5 or rate_pct > 50:
+        rate_pct = raw / 100.0 if raw > 100 else raw
+    return rate_pct
+
+
+def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
+    """Безрисковая ставка (%) для даты экспирации. None — если не удалось."""
+    params = fetch_g_curve_params()
+    if params is None:
+        return None
+    try:
+        exp_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+        cur_date = (datetime.strptime(current_str, "%Y-%m-%d").date()
+                    if current_str else date.today())
+        days = (exp_date - cur_date).days
+        if days <= 0:
+            return None
+        return round(g_curve_yield(days / 365.0, params), 4)
+    except Exception:
+        return None
+
+
 # ================= Цветовые маркеры дат экспирации =================
 
 def expiry_marker(expiry_str: str) -> str:
-    """Определяет цветовой маркер для даты экспирации.
-
-    Логика (по неделям, где неделя = Пн–Вс):
-      - 🔴 красный  — все даты до конца следующей недели включительно
-      - 🔵 синий    — все даты через неделю (следующая за красной)
-      - 🟢 зелёный  — все остальные (более 2 недель вперёд)
-    """
+    """Цветовой маркер даты экспирации (по неделям, Пн–Вс)."""
     try:
         d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
     except Exception:
@@ -279,8 +367,8 @@ def expiry_marker(expiry_str: str) -> str:
 
     today = date.today()
     monday_this_week = today - timedelta(days=today.weekday())
-    end_next_week = monday_this_week + timedelta(days=13)     # воскресенье след. недели
-    end_week_after = monday_this_week + timedelta(days=20)    # воскресенье через неделю
+    end_next_week = monday_this_week + timedelta(days=13)
+    end_week_after = monday_this_week + timedelta(days=20)
 
     if d <= end_next_week:
         return "🔴"
@@ -455,6 +543,15 @@ def push_strikes_to_calculator(strikes_iv: list, central_strike):
     }, delays=(300, 800, 1500, 2500))
 
 
+def push_risk_free_rate(rate_value):
+    """Отправляет безрисковую ставку в iframe (0 — если None)."""
+    payload_value = float(rate_value) if rate_value is not None else 0.0
+    _send_to_iframes({
+        "type": "setRiskFree",
+        "value": payload_value,
+    }, delays=(500, 1500, 3000))
+
+
 # ================= UI =================
 
 st.title("Калькулятор опционов QCKSLVR TRADING")
@@ -540,7 +637,6 @@ if load_btn and asset:
         st.session_state.series_list = []
 
 if st.session_state.series_list:
-    # --- Цветовые маркеры дат экспирации ---
     sorted_series = sorted(
         st.session_state.series_list,
         key=lambda x: x.get("expiry", "")
@@ -559,6 +655,17 @@ if st.session_state.series_list:
 
     push_expiry_to_calculator(expiry_str, series_code)
 
+    # --- Безрисковая ставка: только для опционов на акции ---
+    if asset_type_ui == "Акция":
+        rfr = get_risk_free_rate_for_expiry(expiry_str)
+        push_risk_free_rate(rfr)
+        if rfr is not None:
+            st.caption(f"Безрисковая ставка (G-кривая ОФЗ MOEX): **{rfr:.4f} %**")
+        else:
+            st.caption("⚠ Не удалось получить ставку из G-кривой — оставлено 0.")
+    else:
+        push_risk_free_rate(0.0)
+
     st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
 
@@ -572,7 +679,6 @@ if st.session_state.series_list:
             f"Добавьте его в `TV_TICKER_MAP[\"{asset_type_ui}\"]` в `app.py`."
         )
 
-    # --- Информация о серии ---
     try:
         info = fetch_series_info(asset, asset_type_ui, series_code)
         with st.expander("Об опционной серии", expanded=False):
@@ -580,7 +686,6 @@ if st.session_state.series_list:
     except Exception as e:
         st.warning(f"Не удалось загрузить информацию о серии: {e}")
 
-    # --- Доска опционов ---
     try:
         board = fetch_optionboard(asset, asset_type_ui, series_code)
     except Exception as e:
@@ -596,7 +701,6 @@ if st.session_state.series_list:
         c_map = {c['strike']: c for c in calls}
         p_map = {p['strike']: p for p in puts}
 
-        # --- Строим список страйков с их IV и отправляем в iframe ---
         strikes_iv = []
         for k in strikes:
             c = c_map.get(k, {})
