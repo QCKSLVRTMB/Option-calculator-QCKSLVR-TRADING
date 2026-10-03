@@ -31,8 +31,6 @@ ASSET_TYPE_MAP = {
 
 # ================= Справочник инструментов MOEX =================
 # Формат: { "Название вкладки": { "код": (категория, "описание") } }
-# Категория — то, что подставляется в поле «Категория базового актива»
-# при клике по тикеру. У каждого элемента своя категория.
 MOEX_INSTRUMENTS = {
     "Индексы": {
         "RTS":      ("Индекс", "Индекс РТС"),
@@ -46,8 +44,47 @@ MOEX_INSTRUMENTS = {
         "MXI":      ("Индекс", "Индекс МосБиржи (мини)"),
         "RTSM":     ("Индекс", "Индекс РТС (мини)"),
     },
+    "Акции": {
+        "GAZP":     ("Акция", "Газпром"),
+        "SBER":     ("Акция", "Сбербанк о.с."),
+        "SBERP":    ("Акция", "Сбербанк п.с."),
+        "LKOH":     ("Акция", "ЛУКОЙЛ"),
+        "ROSN":     ("Акция", "Роснефть"),
+        "NOTK":     ("Акция", "НОВАТЭК"),
+        "TATN":     ("Акция", "Татнефть о.с."),
+        "TATNP":    ("Акция", "Татнефть п.с."),
+        "SNGSP":    ("Акция", "Сургутнефтегаз п.с."),
+        "MTSS":     ("Акция", "МТС"),
+        "MGNT":     ("Акция", "Магнит"),
+        "GMKN":     ("Акция", "Норникель"),
+        "NLMK":     ("Акция", "НЛМК"),
+        "CHMF":     ("Акция", "Северсталь"),
+        "ALRS":     ("Акция", "АЛРОСА"),
+        "VTBR":     ("Акция", "ВТБ"),
+        "MOEX":     ("Акция", "Московская Биржа"),
+        "AFKS":     ("Акция", "АФК Система"),
+        "IRAO":     ("Акция", "Интер РАО"),
+        "HYDR":     ("Акция", "РусГидро"),
+        "RTKM":     ("Акция", "Ростелеком"),
+        "PLZL":     ("Акция", "Полюс"),
+        "MAGN":     ("Акция", "ММК"),
+        "YDEX":     ("Акция", "Яндекс"),
+        "PHOR":     ("Акция", "ФосАгро"),
+        "RUAL":     ("Акция", "РУСАЛ"),
+        "FEES":     ("Акция", "ФСК ЕЭС"),
+        "TRNFP":    ("Акция", "Транснефть п.с."),
+        "AFLT":     ("Акция", "Аэрофлот"),
+        "SIBN":     ("Акция", "Газпром нефть"),
+        "PIKK":     ("Акция", "ПИК"),
+        "FLOT":     ("Акция", "Совкомфлот"),
+        "CBOM":     ("Акция", "МКБ"),
+        "SGZH":     ("Акция", "Сегежа"),
+        "BSPB":     ("Акция", "Банк Санкт-Петербург"),
+        "KMAZ":     ("Акция", "КАМАЗ"),
+        "ASTR":     ("Акция", "Группа Астра"),
+        "SVCB":     ("Акция", "Совкомбанк"),
+    },
     "Фьючерсы": {
-        # --- Фьючерсы на акции ---
         "GAZR":     ("Фьючерс", "Газпром (фьючерс)"),
         "SBRF":     ("Фьючерс", "Сбербанк о.с. (фьючерс)"),
         "SBPR":     ("Фьючерс", "Сбербанк п.с. (фьючерс)"),
@@ -124,7 +161,6 @@ MOEX_INSTRUMENTS = {
 }
 
 # ================= Соответствие MOEX-код → тикер TradingView =================
-# Ключ верхнего уровня — категория базового актива.
 TV_TICKER_MAP = {
     "Акция": {
         "GAZP": "MOEX:GAZP", "SBER": "MOEX:SBER", "SBERP": "MOEX:SBERP",
@@ -143,7 +179,6 @@ TV_TICKER_MAP = {
         "SVCB": "MOEX:SVCB",
     },
     "Фьючерс": {
-        # --- На акции ---
         "GAZR": "MOEX:GZ1!", "GZ": "MOEX:GZ1!",
         "SBRF": "MOEX:SR1!", "SR": "MOEX:SR1!",
         "SBPR": "MOEX:SP1!", "SP": "MOEX:SP1!",
@@ -177,17 +212,14 @@ TV_TICKER_MAP = {
         "KMAZ": "MOEX:KM1!", "KM": "MOEX:KM1!",
         "ASTR": "MOEX:AS1!", "AS": "MOEX:AS1!",
         "SVCB": "MOEX:SC1!", "SC": "MOEX:SC1!",
-        # --- На индексы ---
         "RTS": "MOEX:RI1!", "RI": "MOEX:RI1!",
         "MIX": "MOEX:MIX1!",
         "RVI": "MOEX:VI1!", "VI": "MOEX:VI1!",
         "RGBI": "MOEX:RB1!", "RB": "MOEX:RB1!",
         "MOEXCNY": "MOEX:CR1!",
-        # --- На валюты ---
         "Si": "MOEX:SI1!", "Eu": "MOEX:EU1!",
         "CNY": "MOEX:CR1!", "CR": "MOEX:CR1!",
         "TRY": "MOEX:TRY1!",
-        # --- На товары ---
         "BR": "MOEX:BR1!", "GOLD": "MOEX:GD1!", "GD": "MOEX:GD1!",
         "SILV": "MOEX:SV1!", "SV": "MOEX:SV1!",
         "NG": "MOEX:NG1!", "CL": "MOEX:CL1!",
@@ -226,7 +258,6 @@ TV_TICKER_MAP = {
 
 
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
-    """Подбирает тикер TradingView с учётом категории актива."""
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
 
@@ -416,7 +447,7 @@ with st.expander("📖 Справочник инструментов MOEX — к
     filter_text = st.text_input(
         "🔍 Поиск по коду или названию",
         key="dict_filter",
-        placeholder="GAZR, Сбер, золото…",
+        placeholder="GAZP, Сбер, золото…",
     ).strip().lower()
 
     dict_tabs = st.tabs(list(MOEX_INSTRUMENTS.keys()))
@@ -492,7 +523,6 @@ if st.session_state.series_list:
     st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
 
-    # --- Определяем TV-тикер с учётом категории и отправляем в iframe ---
     tv_symbol = resolve_tv_ticker(asset, asset_type_ui)
     if tv_symbol:
         push_tv_ticker(asset, tv_symbol)
@@ -503,7 +533,6 @@ if st.session_state.series_list:
             f"Добавьте его в `TV_TICKER_MAP[\"{asset_type_ui}\"]` в `app.py`."
         )
 
-    # --- Информация о серии ---
     try:
         info = fetch_series_info(asset, asset_type_ui, series_code)
         with st.expander("Об опционной серии", expanded=False):
@@ -511,7 +540,6 @@ if st.session_state.series_list:
     except Exception as e:
         st.warning(f"Не удалось загрузить информацию о серии: {e}")
 
-    # --- Доска опционов ---
     try:
         board = fetch_optionboard(asset, asset_type_ui, series_code)
     except Exception as e:
@@ -563,18 +591,43 @@ if st.session_state.series_list:
             is_central = central is not None and abs(strike - central) < 0.01
             call_bg = "#e1e3fb" if is_central else "#dbf3df"
             put_bg  = "#fee5cd" if is_central else "#ffcdce"
-            strike_bg = "#e3e7ec"
             styles = []
             for col in row.index:
                 if col.startswith("Call_"):
                     styles.append(f"background-color: {call_bg}")
                 elif col.startswith("Put_"):
                     styles.append(f"background-color: {put_bg}")
-                elif col in ("Strike", "IV_%"):
-                    styles.append(f"background-color: {strike_bg}; font-weight: bold")
+                elif col in ("Strike", "IV_%") and is_central:
+                    # Выделяем только центральный страйк и его волатильность
+                    styles.append("background-color: #e3e7ec; font-weight: bold")
                 else:
                     styles.append("")
             return styles
+
+        column_display = {
+            "Call_Ticker": "Тикер",
+            "Call_Rho":    "Ро",
+            "Call_Theta":  "Тета",
+            "Call_Vega":   "Вега",
+            "Call_Gamma":  "Гамма",
+            "Call_Delta":  "Дельта",
+            "Call_Theor":  "Теор.Ц",
+            "Call_Last":   "Посл.Ц",
+            "Call_Offer":  "Offer",
+            "Call_Bid":    "Bid",
+            "Strike":      "Страйк",
+            "IV_%":        "IV%",
+            "Put_Bid":     "Bid",
+            "Put_Offer":   "Offer",
+            "Put_Last":    "Посл.Ц",
+            "Put_Theor":   "Теор.Ц",
+            "Put_Delta":   "Дельта",
+            "Put_Gamma":   "Гамма",
+            "Put_Vega":    "Вега",
+            "Put_Theta":   "Тета",
+            "Put_Rho":     "Ро",
+            "Put_Ticker":  "Тикер",
+        }
 
         st.subheader("Доска опционов")
         st.caption(f"Центральный страйк: **{central if central is not None else 'не определён'}** · "
@@ -587,6 +640,7 @@ if st.session_state.series_list:
                   precision=4,
                   na_rep="—",
               ),
+            column_config=column_display,
             use_container_width=True,
             height=600,
         )
