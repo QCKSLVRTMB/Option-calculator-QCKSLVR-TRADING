@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 from pathlib import Path
+from datetime import datetime, date
 
 st.set_page_config(
     page_title="MOEX Options & Black-Scholes",
@@ -512,9 +513,47 @@ if load_btn and asset:
         st.session_state.series_list = []
 
 if st.session_state.series_list:
-    options = [f"{s['expiry']} — {s['code']}" for s in st.session_state.series_list]
-    chosen = st.selectbox("Дата экспирации (серия)", options, index=0)
-    selected = st.session_state.series_list[options.index(chosen)]
+    # ---------- Цветовые маркеры дат экспирации ----------
+    today = date.today()
+
+    def _days_left(expiry_str: str):
+        try:
+            return (datetime.strptime(expiry_str, "%Y-%m-%d").date() - today).days
+        except Exception:
+            return None
+
+    # Сортируем по дате, чтобы правильно определить «первую дату после 2 недель»
+    sorted_series = sorted(
+        st.session_state.series_list,
+        key=lambda x: x.get("expiry", "")
+    )
+
+    blue_assigned = False
+    option_labels = []
+    for s in sorted_series:
+        d = _days_left(s["expiry"])
+        if d is None:
+            marker = "⚪"          # неизвестная дата
+        elif d < 14:
+            marker = "🔴"          # меньше двух недель
+        elif not blue_assigned:
+            marker = "🔵"          # первая дата после двух недель
+            blue_assigned = True
+        else:
+            marker = "🟢"          # больше двух недель
+        option_labels.append(f"{marker} {s['expiry']} — {s['code']}")
+
+    st.markdown(
+        "<div style='font-size:.8rem; color:#4a6f8a; margin:-6px 0 6px 0;'>"
+        "🔴 — менее 2 недель · 🔵 — ближайшая после 2 недель · 🟢 — более 2 недель"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    chosen = st.selectbox("Дата экспирации (серия)", option_labels, index=0)
+
+    chosen_idx = option_labels.index(chosen)
+    selected = sorted_series[chosen_idx]
     series_code = selected["code"]
     expiry_str = selected["expiry"]
 
@@ -533,6 +572,7 @@ if st.session_state.series_list:
             f"Добавьте его в `TV_TICKER_MAP[\"{asset_type_ui}\"]` в `app.py`."
         )
 
+    # --- Информация о серии ---
     try:
         info = fetch_series_info(asset, asset_type_ui, series_code)
         with st.expander("Об опционной серии", expanded=False):
@@ -540,6 +580,7 @@ if st.session_state.series_list:
     except Exception as e:
         st.warning(f"Не удалось загрузить информацию о серии: {e}")
 
+    # --- Доска опционов ---
     try:
         board = fetch_optionboard(asset, asset_type_ui, series_code)
     except Exception as e:
@@ -598,7 +639,7 @@ if st.session_state.series_list:
                 elif col.startswith("Put_"):
                     styles.append(f"background-color: {put_bg}")
                 elif col in ("Strike", "IV_%") and is_central:
-                    # Выделяем только центральный страйк и его волатильность
+                    # Центральный страйк и его волатильность
                     styles.append("background-color: #e3e7ec; font-weight: bold")
                 else:
                     styles.append("")
@@ -645,6 +686,7 @@ if st.session_state.series_list:
             height=600,
         )
 
+        # --- Улыбка волатильности ---
         try:
             points = fetch_volatility_graph(asset, series_code, asset_type_ui)
         except Exception:
