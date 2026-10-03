@@ -34,7 +34,6 @@
   .chart-label { font-size: .7rem; font-weight: 700; color: #2c506d; padding: 6px 10px; background: #f9fbfd; border-bottom: 1px solid #e6edf4; text-transform: uppercase; letter-spacing: .04em; }
   .chart-inner { height: 340px; position: relative; }
   .chart-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #7f9bb3; font-size: .85rem; text-align: center; padding: 0 10px; }
-  .tradingview-widget-container, .tradingview-widget-container__widget { height: 100%; width: 100%; }
 </style>
 </head>
 <body>
@@ -172,7 +171,7 @@
   loadSettings();
   updatePrices();
 
-  // ---------- TradingView Widget ----------
+  // ---------- TradingView Widget (iframe embed) ----------
   function renderTVChart(containerId, symbol, interval) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -184,40 +183,40 @@
       return;
     }
 
-    const widgetDiv = document.createElement('div');
-    widgetDiv.className = 'tradingview-widget-container';
-    widgetDiv.style.height = '100%';
-    widgetDiv.style.width = '100%';
+    const frameId = 'tv_' + Math.random().toString(36).slice(2, 11);
 
-    const widgetInner = document.createElement('div');
-    widgetInner.className = 'tradingview-widget-container__widget';
-    widgetInner.style.height = '100%';
-    widgetInner.style.width = '100%';
-    widgetDiv.appendChild(widgetInner);
-    container.appendChild(widgetDiv);
-
-    const script = document.createElement('script');
-    script.type = 'text/javascript';
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
-    script.async = true;
-    script.innerHTML = JSON.stringify({
-      autosize: true,
+    const params = new URLSearchParams({
+      frameElementId: frameId,
       symbol: symbol,
       interval: interval,
-      timezone: "Europe/Moscow",
-      theme: "light",
-      style: "1",              // 1 = свечи; 0 = бары
-      locale: "ru",
-      enable_publishing: false,
-      allow_symbol_change: false,
-      hide_side_toolbar: true,
-      hide_top_toolbar: false,
-      hide_legend: false,
-      save_image: false,
-      withdateranges: false,
-      support_host: "https://www.tradingview.com"
+      hidesidetoolbar: '1',
+      symboledit: '0',
+      saveimage: '0',
+      toolbarbg: 'f1f3f6',
+      studies: '[]',
+      theme: 'light',
+      style: '1',
+      timezone: 'Europe/Moscow',
+      studies_overrides: '{}',
+      overrides: '{}',
+      enabled_features: '[]',
+      disabled_features: '[]',
+      locale: 'ru',
+      utm_source: 'embed',
+      utm_medium: 'widget',
+      utm_campaign: 'chart',
     });
-    widgetDiv.appendChild(script);
+
+    const iframe = document.createElement('iframe');
+    iframe.id = frameId;
+    iframe.src = 'https://s.tradingview.com/widgetembed/?' + params.toString();
+    iframe.style.cssText = 'width:100%;height:100%;border:0;';
+    iframe.setAttribute('frameborder', '0');
+    iframe.setAttribute('scrolling', 'no');
+    iframe.setAttribute('allowtransparency', 'true');
+    iframe.setAttribute('allowfullscreen', 'true');
+
+    container.appendChild(iframe);
   }
 
   // ---------- Мост с родителем Streamlit ----------
