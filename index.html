@@ -29,10 +29,10 @@
   .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 4px; }
 
   .chart-ticker { font-size: .8rem; font-weight: 400; color: #4a6f8a; margin-left: 6px; }
-  .charts-container { display: flex; flex-direction: column; gap: 12px; }
+  .charts-container { display: flex; flex-direction: column; gap: 10px; }
   .chart-block { border: 1px solid #e6edf4; border-radius: 12px; overflow: hidden; }
-  .chart-label { font-size: .7rem; font-weight: 700; color: #2c506d; padding: 6px 10px; background: #f9fbfd; border-bottom: 1px solid #e6edf4; text-transform: uppercase; letter-spacing: .04em; }
-  .chart-inner { height: 340px; position: relative; }
+  .chart-label { font-size: .7rem; font-weight: 700; color: #2c506d; padding: 5px 10px; background: #f9fbfd; border-bottom: 1px solid #e6edf4; text-transform: uppercase; letter-spacing: .04em; }
+  .chart-inner { height: 280px; position: relative; }
   .chart-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #7f9bb3; font-size: .85rem; text-align: center; padding: 0 10px; }
 </style>
 </head>
@@ -122,7 +122,7 @@
   // ---------- Black-Scholes / биномиальная ----------
   function normCDF(x){const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;}
   function blackScholes(spot,strike,T,rate,vol,div,type){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));const d2=d1-sigma*Math.sqrt(T);if(type==='call')return spot*Math.exp(-q*T)*normCDF(d1)-strike*Math.exp(-r*T)*normCDF(d2);return strike*Math.exp(-r*T)*normCDF(-d2)-spot*Math.exp(-q*T)*normCDF(-d1);}
-  function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-spot*Math.pow(u,step-i)*Math.pow(d,i));values[i]=Math.max(hold,exer);}}return values[0];}
+  function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-Math.pow(u,step-i)*Math.pow(d,i)*spot);values[i]=Math.max(hold,exer);}}return values[0];}
   function calcGreeks(spot,strike,T,rate,vol,div,type){if(T<=1e-6)return{delta:'n/a',gamma:'n/a',theta:'n/a',vega:'n/a'};const r=rate/100,q=div/100,sigma=vol/100;const sqrtT=Math.sqrt(T);const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*sqrtT);const d2=d1-sigma*sqrtT;const nd1=normCDF(d1);const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);const delta=type==='call'?Math.exp(-q*T)*nd1:Math.exp(-q*T)*(nd1-1);const gamma=pdf*Math.exp(-q*T)/(spot*sigma*sqrtT);const vega=spot*pdf*Math.exp(-q*T)*sqrtT/100;const thetaCall=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)-r*strike*Math.exp(-r*T)*normCDF(d2)+q*spot*Math.exp(-q*T)*nd1;const thetaPut=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)+r*strike*Math.exp(-r*T)*normCDF(-d2)-q*spot*Math.exp(-q*T)*normCDF(-d1);const theta=(type==='call'?thetaCall:thetaPut)/365;return{delta:delta.toFixed(3),gamma:gamma.toFixed(3),vega:vega.toFixed(2),theta:theta.toFixed(3)};}
   function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
 
@@ -171,7 +171,7 @@
   loadSettings();
   updatePrices();
 
-  // ---------- TradingView Widget (iframe embed) ----------
+  // ---------- TradingView Widget (compact iframe embed) ----------
   function renderTVChart(containerId, symbol, interval) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -185,32 +185,48 @@
 
     const frameId = 'tv_' + Math.random().toString(36).slice(2, 11);
 
+    // overrides: пробуем сделать бары чёрными (может не сработать — тогда просто светлая тема)
+    const overrides = {
+      "mainSeriesProperties.barStyle.upColor": "rgba(0,0,0,1)",
+      "mainSeriesProperties.barStyle.downColor": "rgba(0,0,0,1)",
+      "mainSeriesProperties.barStyle.borderUpColor": "rgba(0,0,0,1)",
+      "mainSeriesProperties.barStyle.borderDownColor": "rgba(0,0,0,1)",
+      "paneProperties.background": "#ffffff",
+      "paneProperties.vertGridProperties.color": "rgba(0,0,0,0.05)",
+      "paneProperties.horzGridProperties.color": "rgba(0,0,0,0.05)"
+    };
+
     const params = new URLSearchParams({
       frameElementId: frameId,
       symbol: symbol,
       interval: interval,
       hidesidetoolbar: '1',
+      hidetoptoolbar: '1',
+      hidelegend: '1',
+      hideideas: '1',
+      hidedetails: '1',
       symboledit: '0',
       saveimage: '0',
-      toolbarbg: 'f1f3f6',
+      withdateranges: '0',
+      toolbarbg: 'ffffff',
       studies: '[]',
       theme: 'light',
-      style: '1',
+      style: '0',                 // 0 = бары, 1 = свечи
       timezone: 'Europe/Moscow',
       studies_overrides: '{}',
-      overrides: '{}',
+      overrides: JSON.stringify(overrides),
       enabled_features: '[]',
       disabled_features: '[]',
       locale: 'ru',
       utm_source: 'embed',
       utm_medium: 'widget',
-      utm_campaign: 'chart',
+      utm_campaign: 'chart'
     });
 
     const iframe = document.createElement('iframe');
     iframe.id = frameId;
     iframe.src = 'https://s.tradingview.com/widgetembed/?' + params.toString();
-    iframe.style.cssText = 'width:100%;height:100%;border:0;';
+    iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
     iframe.setAttribute('frameborder', '0');
     iframe.setAttribute('scrolling', 'no');
     iframe.setAttribute('allowtransparency', 'true');
