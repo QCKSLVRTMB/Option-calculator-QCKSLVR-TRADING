@@ -94,7 +94,7 @@
         <div class="form-group"><label>Волатильность %</label><input type="number" id="volatility" value="0" step="0.1"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Дивидендная доходность %</label><input type="number" id="dividend" value="0" step="0.1"></div>
+        <div class="form-group"><label>Дивидендная доходность %</label><input type="number" id="dividend" value="0" step="0.0001"></div>
         <div class="form-group"><label>Модель</label>
           <select id="pricingModel">
             <option value="bs">Black‑Scholes (европейский)</option>
@@ -148,9 +148,9 @@
 
 <script>
   // ---------- Палитра для ATM/ITM/OTM ----------
-  const COLOR_ATM = '#1e88e5';   // синий   — At The Money
-  const COLOR_ITM = '#2e7d32';   // зелёный — In The Money
-  const COLOR_OTM = '#d32f2f';   // красный — Out of The Money
+  const COLOR_ATM = '#1e88e5';
+  const COLOR_ITM = '#2e7d32';
+  const COLOR_OTM = '#d32f2f';
   const COLOR_NEUTRAL = '#333333';
 
   // ---------- Black-Scholes / биномиальная ----------
@@ -393,6 +393,15 @@
       const el = document.getElementById('riskFree');
       if (el && typeof data.value === 'number') {
         el.value = data.value.toFixed(4);
+        updatePrices();
+      }
+      return;
+    }
+
+    if (data.type === 'setDividend') {
+      const elBuy = document.getElementById('dividend');
+      if (elBuy && typeof data.q_buy === 'number') {
+        elBuy.value = (data.q_buy * 100).toFixed(4);  // доля → %
         updatePrices();
       }
       return;
