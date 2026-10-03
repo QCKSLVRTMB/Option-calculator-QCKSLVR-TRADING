@@ -29,13 +29,12 @@
   .model-note { font-size: .7rem; color: #5f7f9e; margin-top: 6px; font-style: italic; }
   .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 4px; }
 
-  /* Charts panel */
   .chart-ticker { font-size: .8rem; font-weight: 400; color: #4a6f8a; margin-left: 6px; }
   .charts-container { display: flex; flex-direction: column; gap: 12px; }
   .chart-block { border: 1px solid #e6edf4; border-radius: 12px; overflow: hidden; }
   .chart-label { font-size: .7rem; font-weight: 700; color: #2c506d; padding: 6px 10px; background: #f9fbfd; border-bottom: 1px solid #e6edf4; text-transform: uppercase; letter-spacing: .04em; }
   .chart-inner { height: 340px; position: relative; }
-  .chart-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #7f9bb3; font-size: .85rem; }
+  .chart-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #7f9bb3; font-size: .85rem; text-align: center; padding: 0 10px; }
 </style>
 </head>
 <body>
@@ -168,46 +167,14 @@
   document.getElementById('exportCsvBtn').addEventListener('click',exportCSV);
   ['optionType','strike','priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','pricingModel'].forEach(id=>document.getElementById(id).addEventListener('input',updatePrices));
 
-  // ---------- Инициализация ----------
   if(!document.getElementById('currentDate').value) document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);
   if(!document.getElementById('expiryDate').value) document.getElementById('expiryDate').value=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
   loadSettings();
   updatePrices();
 
-  // ---------- Мост с родителем Streamlit ----------
-  window.addEventListener('message', (event) => {
-    const data = event.data;
-    if (!data) return;
-
-    // Установка даты экспирации
-    if (data.type === 'setExpiry') {
-      const el = document.getElementById('expiryDate');
-      if (!el || typeof data.value !== 'string') return;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(data.value)) return;
-      if (el.value !== data.value) {
-        el.value = data.value;
-        const source = document.getElementById('expirySource');
-        if (source) source.innerText = data.series_code
-          ? `↳ из MOEX: серия ${data.series_code}`
-          : '↳ из MOEX';
-        updatePrices();
-        try { saveSettings(); } catch (_) {}
-      }
-      return;
-    }
-
-    // Установка баров
-    if (data.type === 'setBars') {
-      const tickerEl = document.getElementById('chartTicker');
-      if (tickerEl) tickerEl.innerText = data.ticker ? ` — ${data.ticker}` : '';
-      renderChart('chartD1', data.d1, data.d1_vol, false);
-      renderChart('chartH1', data.h1, data.h1_vol, true);
-      return;
-    }
-  });
-
-  // ---------- Рендер баров ----------
+  // ---------- Lightweight Charts ----------
   const chartInstances = {};
+
   function renderChart(containerId, bars, vols, timeVisible) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -255,7 +222,36 @@
     chartInstances[containerId] = chart;
   }
 
-  // Сообщаем родителю, что калькулятор готов принимать сообщения
+  // ---------- Мост с родителем Streamlit ----------
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data) return;
+
+    if (data.type === 'setExpiry') {
+      const el = document.getElementById('expiryDate');
+      if (!el || typeof data.value !== 'string') return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data.value)) return;
+      if (el.value !== data.value) {
+        el.value = data.value;
+        const source = document.getElementById('expirySource');
+        if (source) source.innerText = data.series_code
+          ? `↳ из MOEX: серия ${data.series_code}`
+          : '↳ из MOEX';
+        updatePrices();
+        try { saveSettings(); } catch (_) {}
+      }
+      return;
+    }
+
+    if (data.type === 'setBars') {
+      const tickerEl = document.getElementById('chartTicker');
+      if (tickerEl) tickerEl.innerText = data.ticker ? ` — ${data.ticker}` : '';
+      renderChart('chartD1', data.d1, data.d1_vol, false);
+      renderChart('chartH1', data.h1, data.h1_vol, true);
+      return;
+    }
+  });
+
   try { window.parent.postMessage({ type: 'calcReady' }, '*'); } catch (_) {}
 </script>
 </body>
