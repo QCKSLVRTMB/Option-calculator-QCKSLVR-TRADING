@@ -279,8 +279,8 @@
     const intrinsic=Math.max(0,Ssell-K);
     document.getElementById('recommendMsg').innerHTML=`Внутренняя стоимость: ${intrinsic.toFixed(2)} ₽, временная: ${(priceSell-intrinsic).toFixed(2)} ₽ | Спред: ${spread.toFixed(2)} ₽`;
     const gB=calcGreeks(Sbuy,K,T,r,vol,div,type), gS=calcGreeks(Ssell,K,T,r,vol,div,type);
-    document.getElementById('greeksBuy').innerHTML=`<div class="greek">Δ ${gB.delta}</div><div class="greek">Γ ${gB.gamma}</div><div class="greek">Θ ${gB.theta}</div><div class="greek">ν ${gB.vega}</div>`;
-    document.getElementById('greeksSell').innerHTML=`<div class="greek">Δ ${gS.delta}</div><div class="greek">Γ ${gS.gamma}</div><div class="greek">Θ ${gS.theta}</div><div class="greek">ν ${gS.vega}</div>`;
+    document.getElementById('greeksBuy').innerHTML=`<div class="greek">Дельта ${gB.delta}</div><div class="greek">Гамма ${gB.gamma}</div><div class="greek">Тета ${gB.theta}</div><div class="greek">Вега ${gB.vega}</div>`;
+    document.getElementById('greeksSell').innerHTML=`<div class="greek">Дельта ${gS.delta}</div><div class="greek">Гамма ${gS.gamma}</div><div class="greek">Тета ${gS.theta}</div><div class="greek">Вега ${gS.vega}</div>`;
   }
 
   function saveSettings(){localStorage.setItem('optionCalcSettings',JSON.stringify({optionType:document.getElementById('optionType').value,strike:document.getElementById('strike').value,priceBuy:document.getElementById('priceBuy').value,priceSell:document.getElementById('priceSell').value,currentDate:document.getElementById('currentDate').value,expiryDate:document.getElementById('expiryDate').value,riskFree:document.getElementById('riskFree').value,volatility:document.getElementById('volatility').value,dividend:document.getElementById('dividend').value,pricingModel:document.getElementById('pricingModel').value}));}
