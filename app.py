@@ -127,95 +127,184 @@ CATEGORY_TO_ASSET_TYPE = {
 }
 
 # ================= Соответствие MOEX-код → тикер TradingView =================
-# Для фьючерсов используется НЕПРЕРЫВНЫЙ (склеенный) контракт — суффикс "1!".
-# Для акций/индексов — спот-тикер (совпадает с кодом MOEX).
+# Разделяем по категории актива: спот (акции) и непрерывный фьючерс.
+# Ключ верхнего уровня — категория (asset_type_ui), внутри — код MOEX.
 TV_TICKER_MAP = {
-    # --- Индексы (фьючерсы, склейка) ---
-    "RTS":      "MOEX:RI1!",
-    "MIX":      "MOEX:MIX1!",
-    "RVI":      "MOEX:VI1!",
-    "RGBI":     "MOEX:RB1!",
-    "MOEXCNY":  "MOEX:CR1!",
-    "MMI":      "MOEX:MMI1!",
-    "FNI":      "MOEX:FNI1!",
-    "OGI":      "MOEX:OGI1!",
-    "MXI":      "MOEX:MIX1!",
-    "RTSM":     "MOEX:RTSM1!",
-
-    # --- Валюты (фьючерсы, склейка) ---
-    "Si":   "MOEX:SI1!",
-    "Eu":   "MOEX:EU1!",
-    "CNY":  "MOEX:CR1!",
-    "TRY":  "MOEX:TRY1!",
-    "HKD":  "MOEX:HKD1!",
-    "AED":  "MOEX:AED1!",
-    "KZT":  "MOEX:KZT1!",
-    "AMD":  "MOEX:AMD1!",
-    "BYN":  "MOEX:BYN1!",
-    "ED":   "MOEX:ED1!",
-    "AUDU": "MOEX:AUDU1!",
-    "GBPU": "MOEX:GBPU1!",
-    "UCAD": "MOEX:UCAD1!",
-    "UCHF": "MOEX:UCHF1!",
-    "UJPY": "MOEX:UJPY1!",
-    "UCNY": "MOEX:UCNY1!",
-
-    # --- Товары (фьючерсы, склейка) ---
-    "BR":    "MOEX:BR1!",
-    "CL":    "MOEX:CL1!",
-    "GOLD":  "MOEX:GD1!",
-    "SILV":  "MOEX:SV1!",
-    "PLD":   "MOEX:PD1!",
-    "PLT":   "MOEX:PT1!",
-    "ALMN":  "MOEX:ALMN1!",
-    "Co":    "MOEX:CO1!",
-    "Nl":    "MOEX:NI1!",
-    "Zn":    "MOEX:ZN1!",
-    "NG":    "MOEX:NG1!",
-    "WHEAT": "MOEX:WHEAT1!",
-    "SUGR":  "MOEX:SUGR1!",
-
-    # --- Акции (спот-тикеры — совпадают с кодом MOEX) ---
-    "GAZR": "MOEX:GAZP",
-    "SBRF": "MOEX:SBER",
-    "SBPR": "MOEX:SBERP",
-    "LKOH": "MOEX:LKOH",
-    "ROSN": "MOEX:ROSN",
-    "NOTK": "MOEX:NOTK",
-    "TATN": "MOEX:TATN",
-    "TATP": "MOEX:TATNP",
-    "SNGR": "MOEX:SNGSP",
-    "SNGP": "MOEX:SNGSP",
-    "MTSS": "MOEX:MTSS",
-    "MGNT": "MOEX:MGNT",
-    "GMKN": "MOEX:GMKN",
-    "NLMK": "MOEX:NLMK",
-    "CHMF": "MOEX:CHMF",
-    "ALRS": "MOEX:ALRS",
-    "VTBR": "MOEX:VTBR",
-    "MOEX": "MOEX:MOEX",
-    "AFKS": "MOEX:AFKS",
-    "IRAO": "MOEX:IRAO",
-    "HYDR": "MOEX:HYDR",
-    "RTKM": "MOEX:RTKM",
-    "PLZL": "MOEX:PLZL",
-    "MAGN": "MOEX:MAGN",
-    "YDEX": "MOEX:YDEX",
-    "PHOR": "MOEX:PHOR",
-    "RUAL": "MOEX:RUAL",
-    "FEES": "MOEX:FEES",
-    "TRNF": "MOEX:TRNFP",
-    "AFLT": "MOEX:AFLT",
-    "SIBN": "MOEX:SIBN",
-    "PIKK": "MOEX:PIKK",
-    "FLOT": "MOEX:FLOT",
-    "CBOM": "MOEX:CBOM",
-    "SGZH": "MOEX:SGZH",
-    "BSPB": "MOEX:BSPB",
-    "KMAZ": "MOEX:KMAZ",
-    "ASTR": "MOEX:ASTR",
-    "SVCB": "MOEX:SVCB",
+    # --- АКЦИИ (спот-тикеры на MOEX) ---
+    "Акция": {
+        "GAZR": "MOEX:GAZP",
+        "SBRF": "MOEX:SBER",
+        "SBPR": "MOEX:SBERP",
+        "LKOH": "MOEX:LKOH",
+        "ROSN": "MOEX:ROSN",
+        "NOTK": "MOEX:NOTK",
+        "TATN": "MOEX:TATN",
+        "TATP": "MOEX:TATNP",
+        "SNGR": "MOEX:SNGSP",
+        "SNGP": "MOEX:SNGSP",
+        "MTSS": "MOEX:MTSS",
+        "MGNT": "MOEX:MGNT",
+        "GMKN": "MOEX:GMKN",
+        "NLMK": "MOEX:NLMK",
+        "CHMF": "MOEX:CHMF",
+        "ALRS": "MOEX:ALRS",
+        "VTBR": "MOEX:VTBR",
+        "MOEX": "MOEX:MOEX",
+        "AFKS": "MOEX:AFKS",
+        "IRAO": "MOEX:IRAO",
+        "HYDR": "MOEX:HYDR",
+        "RTKM": "MOEX:RTKM",
+        "PLZL": "MOEX:PLZL",
+        "MAGN": "MOEX:MAGN",
+        "YDEX": "MOEX:YDEX",
+        "PHOR": "MOEX:PHOR",
+        "RUAL": "MOEX:RUAL",
+        "FEES": "MOEX:FEES",
+        "TRNF": "MOEX:TRNFP",
+        "AFLT": "MOEX:AFLT",
+        "SIBN": "MOEX:SIBN",
+        "PIKK": "MOEX:PIKK",
+        "FLOT": "MOEX:FLOT",
+        "CBOM": "MOEX:CBOM",
+        "SGZH": "MOEX:SGZH",
+        "BSPB": "MOEX:BSPB",
+        "KMAZ": "MOEX:KMAZ",
+        "ASTR": "MOEX:ASTR",
+        "SVCB": "MOEX:SVCB",
+    },
+    # --- ФЬЮЧЕРСЫ (непрерывные контракты через суффикс "1!") ---
+    "Фьючерс": {
+        "GAZR": "MOEX:GZ1!",
+        "GZ":   "MOEX:GZ1!",
+        "SBRF": "MOEX:SR1!",
+        "SR":   "MOEX:SR1!",
+        "SBPR": "MOEX:SP1!",
+        "SP":   "MOEX:SP1!",
+        "LKOH": "MOEX:LK1!",
+        "LK":   "MOEX:LK1!",
+        "ROSN": "MOEX:RN1!",
+        "RN":   "MOEX:RN1!",
+        "NOTK": "MOEX:NK1!",
+        "NK":   "MOEX:NK1!",
+        "TATN": "MOEX:TT1!",
+        "TT":   "MOEX:TT1!",
+        "SNGR": "MOEX:SN1!",
+        "SN":   "MOEX:SN1!",
+        "MTSS": "MOEX:MT1!",
+        "MT":   "MOEX:MT1!",
+        "MGNT": "MOEX:MG1!",
+        "MG":   "MOEX:MG1!",
+        "GMKN": "MOEX:GM1!",
+        "GK":   "MOEX:GM1!",
+        "NLMK": "MOEX:NM1!",
+        "NM":   "MOEX:NM1!",
+        "CHMF": "MOEX:CH1!",
+        "CH":   "MOEX:CH1!",
+        "ALRS": "MOEX:AL1!",
+        "AL":   "MOEX:AL1!",
+        "VTBR": "MOEX:VB1!",
+        "VB":   "MOEX:VB1!",
+        "MOEX": "MOEX:ME1!",
+        "ME":   "MOEX:ME1!",
+        "AFKS": "MOEX:AK1!",
+        "AK":   "MOEX:AK1!",
+        "IRAO": "MOEX:IR1!",
+        "IR":   "MOEX:IR1!",
+        "HYDR": "MOEX:HY1!",
+        "HY":   "MOEX:HY1!",
+        "RTKM": "MOEX:RT1!",
+        "RT":   "MOEX:RT1!",
+        "PLZL": "MOEX:PL1!",
+        "PL":   "MOEX:PL1!",
+        "MAGN": "MOEX:MM1!",
+        "YDEX": "MOEX:YD1!",
+        "YD":   "MOEX:YD1!",
+        "PHOR": "MOEX:PH1!",
+        "PH":   "MOEX:PH1!",
+        "RUAL": "MOEX:RL1!",
+        "RL":   "MOEX:RL1!",
+        "FEES": "MOEX:FS1!",
+        "FS":   "MOEX:FS1!",
+        "TRNF": "MOEX:TN1!",
+        "TN":   "MOEX:TN1!",
+        "AFLT": "MOEX:AF1!",
+        "AF":   "MOEX:AF1!",
+        "PIKK": "MOEX:PI1!",
+        "PI":   "MOEX:PI1!",
+        "FLOT": "MOEX:FL1!",
+        "FL":   "MOEX:FL1!",
+        "KMAZ": "MOEX:KM1!",
+        "KM":   "MOEX:KM1!",
+        "ASTR": "MOEX:AS1!",
+        "AS":   "MOEX:AS1!",
+        "SVCB": "MOEX:SC1!",
+        "SC":   "MOEX:SC1!",
+    },
+    # --- ИНДЕКСЫ (только фьючерсы) ---
+    "Индекс": {
+        "RTS":     "MOEX:RI1!",
+        "RI":      "MOEX:RI1!",
+        "MIX":     "MOEX:MIX1!",
+        "RVI":     "MOEX:VI1!",
+        "VI":      "MOEX:VI1!",
+        "RGBI":    "MOEX:RB1!",
+        "RB":      "MOEX:RB1!",
+        "MOEXCNY": "MOEX:CR1!",
+        "MXI":     "MOEX:MIX1!",
+        "RTSM":    "MOEX:RTSM1!",
+        "MMI":     "MOEX:MMI1!",
+        "FNI":     "MOEX:FNI1!",
+        "OGI":     "MOEX:OGI1!",
+    },
+    # --- ВАЛЮТЫ (фьючерсы) ---
+    "Валюта": {
+        "Si":   "MOEX:SI1!",
+        "Eu":   "MOEX:EU1!",
+        "CNY":  "MOEX:CR1!",
+        "CR":   "MOEX:CR1!",
+        "TRY":  "MOEX:TRY1!",
+        "HKD":  "MOEX:HKD1!",
+        "AED":  "MOEX:AED1!",
+        "KZT":  "MOEX:KZT1!",
+        "AMD":  "MOEX:AMD1!",
+        "BYN":  "MOEX:BYN1!",
+        "ED":   "MOEX:ED1!",
+        "AUDU": "MOEX:AUDU1!",
+        "GBPU": "MOEX:GBPU1!",
+        "UCAD": "MOEX:UCAD1!",
+        "UCHF": "MOEX:UCHF1!",
+        "UJPY": "MOEX:UJPY1!",
+        "UCNY": "MOEX:UCNY1!",
+    },
+    # --- ТОВАРЫ (фьючерсы) ---
+    "Товар": {
+        "BR":    "MOEX:BR1!",
+        "CL":    "MOEX:CL1!",
+        "GOLD":  "MOEX:GD1!",
+        "GD":    "MOEX:GD1!",
+        "SILV":  "MOEX:SV1!",
+        "SV":    "MOEX:SV1!",
+        "PLD":   "MOEX:PD1!",
+        "PD":    "MOEX:PD1!",
+        "PLT":   "MOEX:PT1!",
+        "PT":    "MOEX:PT1!",
+        "ALMN":  "MOEX:ALMN1!",
+        "Co":    "MOEX:CO1!",
+        "Nl":    "MOEX:NI1!",
+        "Zn":    "MOEX:ZN1!",
+        "NG":    "MOEX:NG1!",
+        "WHEAT": "MOEX:WHEAT1!",
+        "SUGR":  "MOEX:SUGR1!",
+    },
 }
+
+
+def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
+    """Подбирает тикер TradingView с учётом категории актива.
+
+    Для акций — спот-тикер (GAZP), для фьючерсов — непрерывный (GZ1!).
+    """
+    return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -362,7 +451,6 @@ def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
 
 
 def push_tv_ticker(ticker_label: str, tv_symbol: str):
-    """Отправляет тикер TradingView в iframe для отрисовки виджетов D1 и H1."""
     js = f"""
     <script>
     (function() {{
@@ -480,14 +568,15 @@ if st.session_state.series_list:
     st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                f"(серия `{series_code}`)")
 
-    # --- Определяем TV-тикер и отправляем в iframe ---
-    tv_symbol = TV_TICKER_MAP.get(asset)
+    # --- Определяем TV-тикер с учётом категории и отправляем в iframe ---
+    tv_symbol = resolve_tv_ticker(asset, asset_type_ui)
     if tv_symbol:
         push_tv_ticker(asset, tv_symbol)
+        st.caption(f"Тикер TradingView: `{tv_symbol}`")
     else:
         st.warning(
-            f"⚠️ Для базового актива «{asset}» не задан тикер TradingView. "
-            f"Добавьте его в словарь `TV_TICKER_MAP` в файле `app.py`."
+            f"⚠️ Для «{asset}» ({asset_type_ui}) не задан тикер TradingView. "
+            f"Добавьте его в `TV_TICKER_MAP[\"{asset_type_ui}\"]` в `app.py`."
         )
 
     # --- Информация о серии ---
