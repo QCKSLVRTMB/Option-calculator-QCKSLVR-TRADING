@@ -618,9 +618,7 @@ def push_dividend_yield(q_value):
         "type": "setDividend",
         "value": payload_value,
     }, delays=(700, 1700, 3200))
-
-
-# ================= UI =================
+    # ================= UI =================
 
 st.title("MOEX Options & Black-Scholes")
 
@@ -641,10 +639,10 @@ with tab_calc:
     if "asset_type_ui" not in st.session_state:
         st.session_state.asset_type_ui = "Фьючерс"
 
-    with st.expander("📖 Справочник инструментов MOEX — кликните по тикеру, "
+    with st.expander("Справочник инструментов MOEX — кликните по тикеру, "
                      "чтобы подставить его и категорию в поля ниже", expanded=False):
         filter_text = st.text_input(
-            "🔍 Поиск по коду или названию",
+            "Поиск по коду или названию",
             key="dict_filter",
             placeholder="GAZP, Сбер, золото…",
         ).strip().lower()
@@ -741,7 +739,7 @@ with tab_calc:
             if rfr is not None:
                 st.caption(f"Безрисковая ставка (G-кривая ОФЗ MOEX): **{rfr:.4f} %**")
             else:
-                st.caption("⚠ Не удалось получить ставку из G-кривой — оставлено 0.")
+                st.caption("Не удалось получить ставку из G-кривой — оставлено 0.")
         else:
             rfr = None
 
@@ -766,7 +764,7 @@ with tab_calc:
             st.caption(f"Тикер TradingView: `{tv_symbol}`")
         else:
             st.warning(
-                f"⚠️ Для «{asset}» ({asset_type_ui}) не задан тикер TradingView. "
+                f"Для «{asset}» ({asset_type_ui}) не задан тикер TradingView. "
                 f"Добавьте его в `TV_TICKER_MAP[\"{asset_type_ui}\"]` в `app.py`."
             )
 
@@ -837,7 +835,7 @@ with tab_board:
         col_t1, col_t2 = st.columns([3, 2])
         with col_t1:
             highlight_on = st.toggle(
-                "🎨 Раскрасить ячейки по грекам и ликвидности "
+                "Раскрасить ячейки по грекам и ликвидности "
                 "(Дельта / Тета-доминирование / Спред Bid-Ask)",
                 value=False,
             )
@@ -845,7 +843,7 @@ with tab_board:
             if highlight_on:
                 st.markdown(
                     "<div style='font-size:.78rem; color:#4a6f8a; padding-top:.4rem;'>"
-                    "🟢 норма · 🟡 пограничное · 🔴 не по стратегии"
+                    "Зелёный — норма · Жёлтый — пограничное · Красный — не по стратегии"
                     "</div>",
                     unsafe_allow_html=True,
                 )
@@ -1114,7 +1112,7 @@ with tab_position:
 
     risk_amount = deposit * risk_pct / 100.0
     st.info(
-        f"📊 **Доступно для сделки:** {risk_amount:,.2f} ₽ "
+        f"**Доступно для сделки:** {risk_amount:,.2f} ₽ "
         f"({risk_pct}% от {deposit:,.0f} ₽) · "
         f"комиссия по тарифу «Инвестор»: "
         f"`max(3% × премия, {min_comm} ₽)`"
@@ -1128,7 +1126,7 @@ with tab_position:
         return max(COMMISSION_RATE * premium, minc)
 
     # ---------- Билдер позиций ----------
-    st.markdown("### ➕ Добавить позицию")
+    st.markdown("### Добавить позицию")
 
     if "positions" not in st.session_state:
         st.session_state.positions = []
@@ -1210,7 +1208,7 @@ with tab_position:
                     f"Теор. цена: **{float(ref_opt.get('theorprice') or 0):.4f} ₽**"
                 )
 
-            if st.button("✅ Добавить в портфель", type="primary"):
+            if st.button("Добавить в портфель", type="primary"):
                 if chosen_strike is not None and pos_price > 0:
                     c_data = c_map.get(chosen_strike, {})
                     p_data = p_map.get(chosen_strike, {})
@@ -1236,7 +1234,7 @@ with tab_position:
                     st.error("Укажите страйк и цену > 0.")
 
     # ---------- Таблица портфеля ----------
-    st.markdown("### 📋 Текущие позиции")
+    st.markdown("### Текущие позиции")
 
     if not st.session_state.positions:
         st.caption("Портфель пуст.")
@@ -1302,9 +1300,9 @@ with tab_position:
             hide_index=True,
         )
 
-                st.markdown("### Итоги портфеля")
+        # ---------- Итоги портфеля ----------
+        st.markdown("### Итоги портфеля")
 
-        # P&L и комиссии — две метрики
         p1, p2 = st.columns(2)
         with p1:
             st.metric("P&L", f"{total_pnl:,.2f} ₽")
@@ -1315,39 +1313,38 @@ with tab_position:
         def _color_delta(d):
             d = abs(d)
             if 0.25 <= d <= 0.45:
-                return "#2e7d32"      # зелёный — целевой OTM
+                return "#2e7d32"
             if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
-                return "#b8860b"      # жёлтый — пограничная зона
-            return "#d32f2f"          # красный — вне диапазона
+                return "#b8860b"
+            return "#d32f2f"
 
         def _color_gamma(g):
             g = abs(g)
             if g < 0.001:
-                return "#2e7d32"      # низкая гамма — спокойно
+                return "#2e7d32"
             if g < 0.005:
-                return "#b8860b"      # средний риск
-            return "#d32f2f"          # высокая гамма — опасно
+                return "#b8860b"
+            return "#d32f2f"
 
         def _color_vega(v):
             v = abs(v)
             if v < 20:
-                return "#2e7d32"      # вега мала — ближний срок
+                return "#2e7d32"
             if v < 60:
                 return "#b8860b"
-            return "#d32f2f"          # большая вега — далёкий срок
+            return "#d32f2f"
 
         def _color_theta(theta, vega):
             if abs(vega) < 1e-9:
-                return "#4a6f8a"      # нет данных
+                return "#4a6f8a"
             ratio = abs(theta) / abs(vega)
             if ratio > 1.0:
-                return "#2e7d32"      # Тета доминирует — по стратегии
+                return "#2e7d32"
             if ratio > 0.5:
                 return "#b8860b"
-            return "#d32f2f"          # Вега ещё влияет
+            return "#d32f2f"
 
         def _greek_card(title, value, color):
-            """Плитка с цветным числом грека."""
             st.markdown(
                 f"""
                 <div style="background:#f9fbfd; border-radius:16px;
@@ -1382,33 +1379,35 @@ with tab_position:
         with g4:
             _greek_card("Тета (Σ)", f"{total_theta:+.3f}", c_theta)
 
+        # ---------- Проверка риска ----------
         max_loss = sum(calc_commission(p["Цена"], min_comm) * p["Кол-во"]
                        + p["Цена"] * p["Кол-во"]
                        for p in st.session_state.positions)
         if max_loss > risk_amount:
             st.error(
-                f"⚠️ Превышен риск: потенциальный макс. убыток "
+                f"Превышен риск: потенциальный макс. убыток "
                 f"**{max_loss:,.2f} ₽** > допустимых **{risk_amount:,.2f} ₽**"
             )
         else:
             st.success(
-                f"✅ Риск в пределах нормы: "
+                f"Риск в пределах нормы: "
                 f"{max_loss:,.2f} ₽ / {risk_amount:,.2f} ₽ "
                 f"({max_loss / risk_amount * 100:.1f}% от допустимого)"
             )
 
+        # ---------- Управление портфелем ----------
         d1, d2 = st.columns([1, 1])
         with d1:
-            if st.button("🗑 Удалить последнюю позицию"):
+            if st.button("Удалить последнюю позицию"):
                 st.session_state.positions.pop()
                 st.rerun()
         with d2:
-            if st.button("❌ Очистить портфель"):
+            if st.button("Очистить портфель"):
                 st.session_state.positions = []
                 st.rerun()
 
         st.download_button(
-            "📥 Экспорт портфеля (CSV)",
+            "Экспорт портфеля (CSV)",
             data=df_pos.to_csv(index=False).encode("utf-8"),
             file_name="portfolio.csv",
             mime="text/csv",
