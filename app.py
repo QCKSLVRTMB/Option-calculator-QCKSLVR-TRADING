@@ -2,6 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import requests
 import pandas as pd
+import numpy as np
 import json
 import math
 import re
@@ -262,9 +263,7 @@ TV_TICKER_MAP = {
 
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-
-
-# ================= Дивиденды (smart-lab.ru) =================
+    # ================= Дивиденды (smart-lab.ru) =================
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_dividends_smartlab() -> pd.DataFrame:
@@ -343,7 +342,7 @@ def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
     return q, float(price), row["record_date"]
 
 
-# ================= G-кривая =================
+# ================= G-кривая (безрисковая ставка) =================
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_g_curve_params():
@@ -418,7 +417,7 @@ def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
         return None
 
 
-# ================= Цветовые маркеры дат =================
+# ================= Цветовые маркеры дат экспирации =================
 
 def expiry_marker(expiry_str: str) -> str:
     try:
@@ -919,10 +918,10 @@ with tab_board:
                     return None
                 d = abs(delta)
                 if 0.25 <= d <= 0.45:
-                    return "#d4edda"
+                    return "#00ff0c"
                 if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
-                    return "#fff3cd"
-                return "#f8d7da"
+                    return "#fcff00"
+                return "#ff0000"
 
             def _theta_color(theta, vega):
                 if theta is None or vega is None:
@@ -933,10 +932,10 @@ with tab_board:
                     return None
                 ratio = abs(theta) / abs(vega)
                 if ratio > 1.0:
-                    return "#d4edda"
+                    return "#00ff0c"
                 if ratio > 0.5:
-                    return "#fff3cd"
-                return "#f8d7da"
+                    return "#fcff00"
+                return "#ff0000"
 
             def _liquidity_color(bid, ask, theor):
                 if bid is None or ask is None or theor is None:
@@ -947,10 +946,10 @@ with tab_board:
                     return None
                 spread_pct = (ask - bid) / theor * 100
                 if spread_pct < 5:
-                    return "#d4edda"
+                    return "#00ff0c"
                 if spread_pct < 15:
-                    return "#fff3cd"
-                return "#f8d7da"
+                    return "#fcff00"
+                return "#ff0000"
 
             def style_row(row):
                 strike = float(row["Strike"])
@@ -971,7 +970,6 @@ with tab_board:
                     elif col.startswith("Put_"):
                         style = f"background-color: {put_bg}"
 
-                    # Столбец «Страйк» — НЕ управляется тумблером
                     if col == "Strike":
                         if is_sell_strike:
                             style = ("background-color: #fb92f0; "
@@ -984,7 +982,6 @@ with tab_board:
                     elif col == "IV_%" and is_central:
                         style = "background-color: #e3e7ec; font-weight: bold"
 
-                    # Дополнительная раскраска (только при включённом тумблере)
                     if highlight_on:
                         if col in ("Call_Delta", "Put_Delta"):
                             c = _delta_color(row[col])
@@ -1313,41 +1310,41 @@ with tab_position:
         def _color_delta(d):
             d = abs(d)
             if 0.25 <= d <= 0.45:
-                return "#2e7d32"
+                return "#00ff0c"
             if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
-                return "#b8860b"
-            return "#d32f2f"
+                return "#fcff00"
+            return "#ff0000"
 
         def _color_gamma(g):
             g = abs(g)
             if g < 0.001:
-                return "#2e7d32"
+                return "#00ff0c"
             if g < 0.005:
-                return "#b8860b"
-            return "#d32f2f"
+                return "#fcff00"
+            return "#ff0000"
 
         def _color_vega(v):
             v = abs(v)
             if v < 20:
-                return "#2e7d32"
+                return "#00ff0c"
             if v < 60:
-                return "#b8860b"
-            return "#d32f2f"
+                return "#fcff00"
+            return "#ff0000"
 
         def _color_theta(theta, vega):
             if abs(vega) < 1e-9:
                 return "#4a6f8a"
             ratio = abs(theta) / abs(vega)
             if ratio > 1.0:
-                return "#2e7d32"
+                return "#00ff0c"
             if ratio > 0.5:
-                return "#b8860b"
-            return "#d32f2f"
+                return "#fcff00"
+            return "#ff0000"
 
         def _greek_card(title, value, color):
             st.markdown(
                 f"""
-                <div style="background:#f9fbfd; border-radius:16px;
+                <div style="background:#ffffff; border-radius:16px;
                             padding:14px 16px; border:1px solid #e2edf4;
                             height:100%;">
                     <div style="font-size:.72rem; font-weight:700;
@@ -1355,8 +1352,11 @@ with tab_position:
                                 letter-spacing:.05em; margin-bottom:6px;">
                         {title}
                     </div>
-                    <div style="font-size:1.6rem; font-weight:700;
-                                color:{color};">
+                    <div style="font-size:1.6rem; font-weight:800;
+                                color:{color};
+                                text-shadow: 0 0 1px #000,
+                                             1px 1px 0 rgba(0,0,0,0.45),
+                                             -1px -1px 0 rgba(0,0,0,0.45);">
                         {value}
                     </div>
                 </div>
@@ -1412,3 +1412,176 @@ with tab_position:
             file_name="portfolio.csv",
             mime="text/csv",
         )
+
+        # ---------- Payoff-диаграмма портфеля ----------
+        st.markdown("### Payoff-диаграмма портфеля")
+
+        all_pos_strikes = sorted({
+            float(p["Страйк"]) for p in st.session_state.positions
+            if p.get("Страйк") is not None
+        })
+
+        if not all_pos_strikes:
+            st.caption("Нет данных для построения Payoff-диаграммы.")
+        else:
+            s_min = min(all_pos_strikes) * 0.85
+            s_max = max(all_pos_strikes) * 1.15
+            S_arr = np.linspace(s_min, s_max, 500)
+
+            def _payoff_at_expiry(S_vals):
+                S_vals = np.asarray(S_vals, dtype=float)
+                pnl_arr = np.zeros_like(S_vals)
+                for p in st.session_state.positions:
+                    K = float(p["Страйк"])
+                    qty = int(p["Кол-во"])
+                    price = float(p["Цена"])
+                    com = calc_commission(price, min_comm)
+                    if p["Опцион"] == "Call":
+                        intrinsic = np.maximum(0.0, S_vals - K)
+                    else:
+                        intrinsic = np.maximum(0.0, K - S_vals)
+                    pnl_arr += (intrinsic - price - com) * qty
+                return pnl_arr
+
+            pnl_arr = _payoff_at_expiry(S_arr)
+
+            max_profit = float(np.max(pnl_arr))
+            max_loss = float(np.min(pnl_arr))
+
+            be_points = []
+            for i in range(1, len(S_arr)):
+                if pnl_arr[i - 1] * pnl_arr[i] < 0:
+                    denom = pnl_arr[i] - pnl_arr[i - 1]
+                    if abs(denom) > 1e-12:
+                        x0 = (S_arr[i - 1]
+                              + (S_arr[i] - S_arr[i - 1])
+                              * (-pnl_arr[i - 1]) / denom)
+                        be_points.append(float(x0))
+
+            # Текущая цена БА через паритет call-put
+            F_current = None
+            try:
+                board_pf = fetch_optionboard(
+                    st.session_state.get("selected_asset", ""),
+                    st.session_state.get("selected_asset_type_ui", ""),
+                    st.session_state.get("selected_series_code", ""),
+                )
+                c_map_p = {
+                    c['strike']: c
+                    for c in (board_pf.get('call') or [])
+                    if c.get('theorprice') and c.get('strike') is not None
+                }
+                p_map_p = {
+                    p2['strike']: p2
+                    for p2 in (board_pf.get('put') or [])
+                    if p2.get('theorprice') and p2.get('strike') is not None
+                }
+                common_p = sorted(set(c_map_p.keys()) & set(p_map_p.keys()))
+                fs_est = []
+                for k in common_p:
+                    ct = c_map_p[k]['theorprice']
+                    pt = p_map_p[k]['theorprice']
+                    if ct and pt and ct > 0 and pt > 0:
+                        fs_est.append(ct - pt + float(k))
+                if fs_est:
+                    fs_est.sort()
+                    F_current = fs_est[len(fs_est) // 2]
+            except Exception:
+                F_current = None
+
+            # График
+            fig_pf = go.Figure()
+
+            fig_pf.add_trace(go.Scatter(
+                x=S_arr,
+                y=np.where(pnl_arr >= 0, pnl_arr, 0),
+                fill='tozeroy',
+                fillcolor='rgba(0,255,12,0.20)',
+                line=dict(width=0),
+                mode='lines',
+                name='Прибыль',
+                hoverinfo='skip',
+            ))
+
+            fig_pf.add_trace(go.Scatter(
+                x=S_arr,
+                y=np.where(pnl_arr <= 0, pnl_arr, 0),
+                fill='tozeroy',
+                fillcolor='rgba(255,0,0,0.20)',
+                line=dict(width=0),
+                mode='lines',
+                name='Убыток',
+                hoverinfo='skip',
+            ))
+
+            fig_pf.add_trace(go.Scatter(
+                x=S_arr,
+                y=pnl_arr,
+                mode='lines',
+                line=dict(color='#1e5a7a', width=3),
+                name='P&L на экспирации',
+                hovertemplate='БА: %{x:.2f} ₽<br>P&L: %{y:.2f} ₽<extra></extra>',
+            ))
+
+            fig_pf.add_hline(y=0, line_dash='dot',
+                             line_color='#7f9bb3', line_width=1)
+
+            for k in all_pos_strikes:
+                fig_pf.add_vline(
+                    x=k,
+                    line_dash='dash',
+                    line_color='#9c00ff',
+                    line_width=1,
+                    opacity=0.5,
+                    annotation_text=f"K {k:.0f}",
+                    annotation_position="top",
+                    annotation_font_size=10,
+                )
+
+            if F_current is not None:
+                fig_pf.add_vline(
+                    x=F_current,
+                    line_dash='dot',
+                    line_color='#1e88e5',
+                    line_width=2,
+                    annotation_text=f"Тек. {F_current:.0f}",
+                    annotation_position="bottom right",
+                    annotation_font_size=11,
+                )
+
+            for be in be_points:
+                fig_pf.add_vline(
+                    x=be,
+                    line_dash='dot',
+                    line_color='#00a651',
+                    line_width=1.5,
+                    opacity=0.8,
+                )
+
+            fig_pf.update_layout(
+                title="Payoff-диаграмма портфеля (P&L на дату экспирации)",
+                xaxis_title="Цена базового актива, ₽",
+                yaxis_title="Прибыль / Убыток, ₽",
+                height=500,
+                margin=dict(l=20, r=20, t=60, b=20),
+                xaxis=dict(tickformat=".0f", hoverformat=".2f"),
+                yaxis=dict(tickformat=".2f", hoverformat=".2f"),
+                legend=dict(orientation="h", yanchor="bottom",
+                            y=1.02, xanchor="left", x=0),
+                hovermode='x unified',
+            )
+            st.plotly_chart(fig_pf, use_container_width=True)
+
+            pm1, pm2 = st.columns(2)
+            with pm1:
+                st.metric("Макс. прибыль (в диапазоне)",
+                          f"{max_profit:+,.2f} ₽")
+            with pm2:
+                st.metric("Макс. убыток (в диапазоне)",
+                          f"{max_loss:+,.2f} ₽")
+
+            if be_points:
+                be_str = " · ".join(f"**{be:,.2f} ₽**" for be in be_points)
+                st.caption(f"Точки безубыточности: {be_str}")
+            else:
+                st.caption("Точки безубыточности в выбранном диапазоне не найдены.")
