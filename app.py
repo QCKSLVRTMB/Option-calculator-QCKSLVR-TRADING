@@ -6,6 +6,7 @@ import numpy as np
 import json
 import math
 import re
+import uuid
 import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime, date, timedelta
@@ -260,49 +261,48 @@ TV_TICKER_MAP = {
     },
 }
 
-
-def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
-    return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-
-
 # ================= Предустановленные конструкции =================
-# Каждая нога: label (подпись), option (Call/Put), side (Buy/Sell),
-# qty (положительное), strike_group (общий страйк).
-
 PREDEFINED_STRATEGIES = {
-    # ===== Одиночные опционы =====
     "Long Call": {
+        "category": "Одиночные",
         "description": "Покупка опциона Call — ставка на рост",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Buy Call)", "option": "Call",
              "side": "Buy", "qty": 1, "strike_group": "K"},
         ],
     },
     "Long Put": {
+        "category": "Одиночные",
         "description": "Покупка опциона Put — ставка на падение",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Buy Put)", "option": "Put",
              "side": "Buy", "qty": 1, "strike_group": "K"},
         ],
     },
     "Short Call": {
+        "category": "Одиночные",
         "description": "Продажа опциона Call — ставка на боковик/падение",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Sell Call)", "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K"},
         ],
     },
     "Short Put": {
+        "category": "Одиночные",
         "description": "Продажа опциона Put — ставка на боковик/рост",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Sell Put)", "option": "Put",
              "side": "Sell", "qty": 1, "strike_group": "K"},
         ],
     },
-
-    # ===== Вертикальные спреды =====
     "Bull Call Spread": {
+        "category": "Вертикальные спреды",
         "description": "Buy Call (низ) + Sell Call (верх) — бычий",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
             {"label": "Buy Call (низ)", "option": "Call",
              "side": "Buy", "qty": 1, "strike_group": "K_low"},
@@ -311,7 +311,9 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Bear Call Spread": {
+        "category": "Вертикальные спреды",
         "description": "Sell Call (низ) + Buy Call (верх) — медвежий",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
             {"label": "Sell Call (низ)", "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K_low"},
@@ -320,90 +322,161 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Bull Put Spread": {
+        "category": "Вертикальные спреды",
         "description": "Sell Put (верх) + Buy Put (низ) — бычий",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
-            {"label": "Sell Put (верх)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K_high"},
             {"label": "Buy Put (низ)", "option": "Put",
              "side": "Buy", "qty": 1, "strike_group": "K_low"},
+            {"label": "Sell Put (верх)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K_high"},
         ],
     },
     "Bear Put Spread": {
+        "category": "Вертикальные спреды",
         "description": "Buy Put (верх) + Sell Put (низ) — медвежий",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
-            {"label": "Buy Put (верх)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K_high"},
             {"label": "Sell Put (низ)", "option": "Put",
              "side": "Sell", "qty": 1, "strike_group": "K_low"},
-        ],
-    },
-
-    # ===== Butterfly / Кошка =====
-    "Long Butterfly (Кошка)": {
-        "description": "Buy 1 низ + Sell 2 центр + Buy 1 верх (Call)",
-        "legs": [
-            {"label": "Buy Call (низ)",  "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K_low"},
-            {"label": "Sell Call (центр ×2)", "option": "Call",
-             "side": "Sell", "qty": 2, "strike_group": "K_mid"},
-            {"label": "Buy Call (верх)", "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Short Butterfly": {
-        "description": "Sell 1 низ + Buy 2 центр + Sell 1 верх (Call)",
-        "legs": [
-            {"label": "Sell Call (низ)",  "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K_low"},
-            {"label": "Buy Call (центр ×2)", "option": "Call",
-             "side": "Buy",  "qty": 2, "strike_group": "K_mid"},
-            {"label": "Sell Call (верх)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Long Put Butterfly": {
-        "description": "Buy 1 низ + Sell 2 центр + Buy 1 верх (Put)",
-        "legs": [
-            {"label": "Buy Put (низ)",  "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K_low"},
-            {"label": "Sell Put (центр ×2)", "option": "Put",
-             "side": "Sell", "qty": 2, "strike_group": "K_mid"},
             {"label": "Buy Put (верх)", "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K_high"},
+             "side": "Buy", "qty": 1, "strike_group": "K_high"},
         ],
     },
-
-    # ===== Condor =====
-    "Long Condor": {
-        "description": "Buy Put / Sell Put / Sell Call / Buy Call",
+    "Long Butterfly (Call)": {
+        "category": "Бабочки",
+        "description": "Buy 1 Call (K1) + Sell 2 Call (K2) + Buy 1 Call (K3). "
+                       "K1 < K2 < K3. Пик прибыли при S = K2.",
+        "strike_order": ["K1", "K2", "K3"],
         "legs": [
-            {"label": "Buy Put (низ)",   "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Put",        "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K2"},
-            {"label": "Sell Call",       "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K3"},
-            {"label": "Buy Call (верх)", "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K4"},
+            {"label": "Buy Call (K1 — низ)", "option": "Call",
+             "side": "Buy", "qty": 1, "strike_group": "K1"},
+            {"label": "Sell Call ×2 (K2 — центр)", "option": "Call",
+             "side": "Sell", "qty": 2, "strike_group": "K2"},
+            {"label": "Buy Call (K3 — верх)", "option": "Call",
+             "side": "Buy", "qty": 1, "strike_group": "K3"},
         ],
     },
-    "Short Condor": {
-        "description": "Sell Put / Buy Put / Buy Call / Sell Call",
+    "Short Butterfly (Call)": {
+        "category": "Бабочки",
+        "description": "Sell 1 Call (K1) + Buy 2 Call (K2) + Sell 1 Call (K3).",
+        "strike_order": ["K1", "K2", "K3"],
         "legs": [
-            {"label": "Sell Put (низ)",  "option": "Put",
+            {"label": "Sell Call (K1 — низ)", "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K1"},
-            {"label": "Buy Put",         "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K2"},
-            {"label": "Buy Call",        "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K3"},
-            {"label": "Sell Call (верх)","option": "Call",
+            {"label": "Buy Call ×2 (K2 — центр)", "option": "Call",
+             "side": "Buy", "qty": 2, "strike_group": "K2"},
+            {"label": "Sell Call (K3 — верх)", "option": "Call",
+             "side": "Sell", "qty": 1, "strike_group": "K3"},
+        ],
+    },
+    "Long Butterfly (Put)": {
+        "category": "Бабочки",
+        "description": "Buy 1 Put (K1) + Sell 2 Put (K2) + Buy 1 Put (K3).",
+        "strike_order": ["K1", "K2", "K3"],
+        "legs": [
+            {"label": "Buy Put (K1 — низ)", "option": "Put",
+             "side": "Buy", "qty": 1, "strike_group": "K1"},
+            {"label": "Sell Put ×2 (K2 — центр)", "option": "Put",
+             "side": "Sell", "qty": 2, "strike_group": "K2"},
+            {"label": "Buy Put (K3 — верх)", "option": "Put",
+             "side": "Buy", "qty": 1, "strike_group": "K3"},
+        ],
+    },
+    "Short Butterfly (Put)": {
+        "category": "Бабочки",
+        "description": "Sell 1 Put (K1) + Buy 2 Put (K2) + Sell 1 Put (K3).",
+        "strike_order": ["K1", "K2", "K3"],
+        "legs": [
+            {"label": "Sell Put (K1 — низ)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K1"},
+            {"label": "Buy Put ×2 (K2 — центр)", "option": "Put",
+             "side": "Buy", "qty": 2, "strike_group": "K2"},
+            {"label": "Sell Put (K3 — верх)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K3"},
+        ],
+    },
+    "Short Cat (Кошка)": {
+        "category": "Кошка",
+        "description": "Buy Put (K1) + Sell Put (K2) + Sell Call (K3) + "
+                       "Buy Call (K4). Кредитный вход, два пика прибыли.",
+        "strike_order": ["K1", "K2", "K3", "K4"],
+        "legs": [
+            {"label": "Buy Put (K1 — левая защита)", "option": "Put",
+             "side": "Buy", "qty": 1, "strike_group": "K1"},
+            {"label": "Sell Put (K2 — левое ухо)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K2"},
+            {"label": "Sell Call (K3 — правое ухо)", "option": "Call",
+             "side": "Sell", "qty": 1, "strike_group": "K3"},
+            {"label": "Buy Call (K4 — правая защита)", "option": "Call",
+             "side": "Buy", "qty": 1, "strike_group": "K4"},
+        ],
+    },
+    "Long Cat (Обратная Кошка)": {
+        "category": "Кошка",
+        "description": "Sell Put (K1) + Buy Put (K2) + Buy Call (K3) + "
+                       "Sell Call (K4). Дебетный вход на волатильность.",
+        "strike_order": ["K1", "K2", "K3", "K4"],
+        "legs": [
+            {"label": "Sell Put (K1)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K1"},
+            {"label": "Buy Put (K2)", "option": "Put",
+             "side": "Buy", "qty": 1, "strike_group": "K2"},
+            {"label": "Buy Call (K3)", "option": "Call",
+             "side": "Buy", "qty": 1, "strike_group": "K3"},
+            {"label": "Sell Call (K4)", "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K4"},
         ],
     },
-
-    # ===== Straddle / Strangle =====
+    "Long Condor": {
+        "category": "Кондоры",
+        "description": "Buy Put (K1) + Sell Put (K2) + Sell Call (K3) + Buy Call (K4).",
+        "strike_order": ["K1", "K2", "K3", "K4"],
+        "legs": [
+            {"label": "Buy Put (K1 — низ)", "option": "Put",
+             "side": "Buy", "qty": 1, "strike_group": "K1"},
+            {"label": "Sell Put (K2)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K2"},
+            {"label": "Sell Call (K3)", "option": "Call",
+             "side": "Sell", "qty": 1, "strike_group": "K3"},
+            {"label": "Buy Call (K4 — верх)", "option": "Call",
+             "side": "Buy", "qty": 1, "strike_group": "K4"},
+        ],
+    },
+    "Short Condor": {
+        "category": "Кондоры",
+        "description": "Sell Put (K1) + Buy Put (K2) + Buy Call (K3) + Sell Call (K4).",
+        "strike_order": ["K1", "K2", "K3", "K4"],
+        "legs": [
+            {"label": "Sell Put (K1 — низ)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K1"},
+            {"label": "Buy Put (K2)", "option": "Put",
+             "side": "Buy", "qty": 1, "strike_group": "K2"},
+            {"label": "Buy Call (K3)", "option": "Call",
+             "side": "Buy", "qty": 1, "strike_group": "K3"},
+            {"label": "Sell Call (K4 — верх)", "option": "Call",
+             "side": "Sell", "qty": 1, "strike_group": "K4"},
+        ],
+    },
+    "Iron Condor": {
+        "category": "Кондоры",
+        "description": "Классический железный кондор.",
+        "strike_order": ["K1", "K2", "K3", "K4"],
+        "legs": [
+            {"label": "Buy Put (K1 — низ)", "option": "Put",
+             "side": "Buy", "qty": 1, "strike_group": "K1"},
+            {"label": "Sell Put (K2)", "option": "Put",
+             "side": "Sell", "qty": 1, "strike_group": "K2"},
+            {"label": "Sell Call (K3)", "option": "Call",
+             "side": "Sell", "qty": 1, "strike_group": "K3"},
+            {"label": "Buy Call (K4 — верх)", "option": "Call",
+             "side": "Buy", "qty": 1, "strike_group": "K4"},
+        ],
+    },
     "Long Straddle": {
+        "category": "Straddle / Strangle",
         "description": "Buy Call + Buy Put на одном страйке — на волатильность",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Buy Call + Buy Put)", "option": "Call",
              "side": "Buy", "qty": 1, "strike_group": "K"},
@@ -412,7 +485,9 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Short Straddle": {
+        "category": "Straddle / Strangle",
         "description": "Sell Call + Sell Put на одном страйке",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Sell Call + Sell Put)", "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K"},
@@ -421,7 +496,9 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Long Strangle": {
+        "category": "Straddle / Strangle",
         "description": "Buy OTM Put + Buy OTM Call",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
             {"label": "Buy Put (нижний)",  "option": "Put",
              "side": "Buy", "qty": 1, "strike_group": "K_low"},
@@ -430,7 +507,9 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Short Strangle": {
+        "category": "Straddle / Strangle",
         "description": "Sell OTM Put + Sell OTM Call",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
             {"label": "Sell Put (нижний)",  "option": "Put",
              "side": "Sell", "qty": 1, "strike_group": "K_low"},
@@ -438,10 +517,10 @@ PREDEFINED_STRATEGIES = {
              "side": "Sell", "qty": 1, "strike_group": "K_high"},
         ],
     },
-
-    # ===== Ratio Spread / Backspread =====
     "Call Ratio Spread": {
+        "category": "Ratio / Backspread",
         "description": "Buy 1 Call (низ) + Sell 2 Call (верх)",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
             {"label": "Buy Call (низ)",      "option": "Call",
              "side": "Buy",  "qty": 1, "strike_group": "K_low"},
@@ -450,16 +529,20 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Put Ratio Spread": {
+        "category": "Ratio / Backspread",
         "description": "Buy 1 Put (верх) + Sell 2 Put (низ)",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
-            {"label": "Buy Put (верх)",      "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K_high"},
             {"label": "Sell Put ×2 (низ)",   "option": "Put",
              "side": "Sell", "qty": 2, "strike_group": "K_low"},
+            {"label": "Buy Put (верх)",      "option": "Put",
+             "side": "Buy",  "qty": 1, "strike_group": "K_high"},
         ],
     },
     "Call Ratio Backspread": {
+        "category": "Ratio / Backspread",
         "description": "Sell 1 Call (низ) + Buy 2 Call (верх)",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
             {"label": "Sell Call (низ)",     "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K_low"},
@@ -468,36 +551,20 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Put Ratio Backspread": {
+        "category": "Ratio / Backspread",
         "description": "Sell 1 Put (верх) + Buy 2 Put (низ)",
+        "strike_order": ["K_low", "K_high"],
         "legs": [
-            {"label": "Sell Put (верх)",     "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K_high"},
             {"label": "Buy Put ×2 (низ)",   "option": "Put",
              "side": "Buy",  "qty": 2, "strike_group": "K_low"},
-        ],
-    },
-    "Bull Backspread": {
-        "description": "Sell 1 Call (низ) + Buy 2 Call (верх)",
-        "legs": [
-            {"label": "Sell Call (низ)",     "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K_low"},
-            {"label": "Buy Call ×2 (верх)", "option": "Call",
-             "side": "Buy",  "qty": 2, "strike_group": "K_high"},
-        ],
-    },
-    "Bear Backspread": {
-        "description": "Buy 2 Put (низ) + Sell 1 Put (верх)",
-        "legs": [
-            {"label": "Buy Put ×2 (низ)",  "option": "Put",
-             "side": "Buy",  "qty": 2, "strike_group": "K_low"},
-            {"label": "Sell Put (верх)",   "option": "Put",
+            {"label": "Sell Put (верх)",     "option": "Put",
              "side": "Sell", "qty": 1, "strike_group": "K_high"},
         ],
     },
-
-    # ===== Synthetic =====
     "Synthetic Long Futures": {
+        "category": "Синтетика",
         "description": "Buy Call + Sell Put на одном страйке",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Buy Call + Sell Put)", "option": "Call",
              "side": "Buy",  "qty": 1, "strike_group": "K"},
@@ -506,7 +573,9 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Synthetic Short Futures": {
+        "category": "Синтетика",
         "description": "Sell Call + Buy Put на одном страйке",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Sell Call + Buy Put)", "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K"},
@@ -514,10 +583,10 @@ PREDEFINED_STRATEGIES = {
              "side": "Buy",  "qty": 1, "strike_group": "K"},
         ],
     },
-
-    # ===== Strap / Strip =====
     "Strap": {
+        "category": "Strap / Strip",
         "description": "Buy 2 Call + Buy 1 Put на одном страйке (бычий)",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Buy 2 Call + Buy 1 Put)", "option": "Call",
              "side": "Buy", "qty": 2, "strike_group": "K"},
@@ -526,7 +595,9 @@ PREDEFINED_STRATEGIES = {
         ],
     },
     "Strip": {
+        "category": "Strap / Strip",
         "description": "Buy 1 Call + Buy 2 Put на одном страйке (медвежий)",
+        "strike_order": [],
         "legs": [
             {"label": "Страйк (Buy 1 Call + Buy 2 Put)", "option": "Call",
              "side": "Buy", "qty": 1, "strike_group": "K"},
@@ -534,32 +605,66 @@ PREDEFINED_STRATEGIES = {
              "side": "Buy", "qty": 2, "strike_group": "K"},
         ],
     },
-
-    # ===== Ladder =====
     "Ladder Call": {
-        "description": "Buy Call + 2× Sell Call по разным страйкам",
+        "category": "Ladder",
+        "description": "Buy 1 Call (K1) + Sell Call (K2) + Sell Call (K3).",
+        "strike_order": ["K1", "K2", "K3"],
         "legs": [
-            {"label": "Buy Call (низ)",    "option": "Call",
+            {"label": "Buy Call (K1)",     "option": "Call",
              "side": "Buy",  "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Call (сред.)", "option": "Call",
+            {"label": "Sell Call (K2)",    "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K2"},
-            {"label": "Sell Call (верх.)", "option": "Call",
+            {"label": "Sell Call (K3)",    "option": "Call",
              "side": "Sell", "qty": 1, "strike_group": "K3"},
         ],
     },
     "Ladder Put": {
-        "description": "Buy Put + 2× Sell Put по разным страйкам",
+        "category": "Ladder",
+        "description": "Buy 1 Put (K1) + Sell Put (K2) + Sell Put (K3).",
+        "strike_order": ["K1", "K2", "K3"],
         "legs": [
-            {"label": "Buy Put (верх.)",   "option": "Put",
+            {"label": "Buy Put (K1)",      "option": "Put",
              "side": "Buy",  "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Put (сред.)",  "option": "Put",
+            {"label": "Sell Put (K2)",     "option": "Put",
              "side": "Sell", "qty": 1, "strike_group": "K2"},
-            {"label": "Sell Put (низ)",    "option": "Put",
+            {"label": "Sell Put (K3)",     "option": "Put",
              "side": "Sell", "qty": 1, "strike_group": "K3"},
         ],
     },
 }
-# ================= Дивиденды (smart-lab.ru) =================
+
+
+def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
+    return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
+
+
+# ================= Утилиты Call/Put, Buy/Sell =================
+
+def _color_call_put(option: str) -> str:
+    """HTML-строка для опциона: Call — зелёный, Put — красный."""
+    if option == "Call":
+        return f"<span style='color:#00a651; font-weight:700;'>{option}</span>"
+    if option == "Put":
+        return f"<span style='color:#d32f2f; font-weight:700;'>{option}</span>"
+    return option
+
+
+def _color_side(side: str) -> str:
+    """HTML-строка для направления: Buy — зелёный, Sell — красный."""
+    if side == "Buy":
+        return f"<span style='color:#00a651; font-weight:700;'>Buy</span>"
+    if side == "Sell":
+        return f"<span style='color:#d32f2f; font-weight:700;'>Sell</span>"
+    return side
+
+
+def _side_from_qty(qty: int) -> str:
+    return "Buy" if qty >= 0 else "Sell"
+
+
+def _new_position_id() -> str:
+    return uuid.uuid4().hex[:8]
+    # ================= Дивиденды (smart-lab.ru) =================
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_dividends_smartlab() -> pd.DataFrame:
@@ -913,6 +1018,162 @@ def push_dividend_yield(q_value):
         "type": "setDividend",
         "value": payload_value,
     }, delays=(700, 1700, 3200))
+
+
+# ================= Матчинг стратегий с текущими позициями =================
+
+def _leg_matches_position(leg, pos):
+    """Проверяет, может ли нога стратегии быть «покрыта» этой позицией."""
+    if not pos.get("visible", True):
+        return False
+    if pos.get("Опцион") != leg["option"]:
+        return False
+    pos_side = "Buy" if int(pos.get("Кол-во", 0)) >= 0 else "Sell"
+    if pos_side != leg["side"]:
+        return False
+    return True
+
+
+def match_strategy_with_positions(strategy_def, positions):
+    """
+    Матчинг с ЧАСТИЧНЫМ ВЕСОМ.
+    Возвращает:
+      matched = { leg_index: {pos_index, qty_covered, qty_required, full} }
+      missing = [leg_index, ...]
+      matched_strikes_by_group = { strike_group: strike }
+      weight, is_full
+    """
+    matched = {}
+    used_positions = set()
+    matched_strikes_by_group = {}
+    total_required = 0
+    total_covered = 0
+
+    for li, leg in enumerate(strategy_def["legs"]):
+        req_qty = leg["qty"]
+        total_required += req_qty
+        best_pi = None
+        best_cover = 0
+
+        for pi, p in enumerate(positions):
+            if pi in used_positions:
+                continue
+            if not _leg_matches_position(leg, p):
+                continue
+            have = abs(int(p.get("Кол-во", 0)))
+            cover = min(have, req_qty)
+            if cover > best_cover:
+                best_cover = cover
+                best_pi = pi
+
+        if best_pi is not None:
+            used_positions.add(best_pi)
+            matched[li] = {
+                "pos_index": best_pi,
+                "qty_covered": best_cover,
+                "qty_required": req_qty,
+                "full": best_cover >= req_qty,
+            }
+            total_covered += best_cover
+            grp = leg["strike_group"]
+            if grp not in matched_strikes_by_group:
+                matched_strikes_by_group[grp] = float(
+                    positions[best_pi]["Страйк"]
+                )
+
+    missing = [i for i in range(len(strategy_def["legs"]))
+               if i not in matched]
+    weight = total_covered / total_required if total_required else 0.0
+
+    return {
+        "matched": matched,
+        "missing": missing,
+        "matched_strikes_by_group": matched_strikes_by_group,
+        "weight": weight,
+        "is_full": all(m["full"] for m in matched.values())
+                  and not missing,
+    }
+
+
+def validate_strike_order(strategy_def, strike_values):
+    """Проверяет, что страйки упорядочены согласно strategy_def['strike_order']."""
+    order = strategy_def.get("strike_order", [])
+    if len(order) < 2:
+        return True, ""
+
+    vals = []
+    for grp in order:
+        v = strike_values.get(grp)
+        if v is None:
+            return False, f"Не задан страйк для группы «{grp}»"
+        vals.append(float(v))
+
+    for i in range(1, len(vals)):
+        if vals[i] <= vals[i - 1]:
+            grps_txt = " < ".join(order)
+            return False, (f"Нарушен порядок страйков: требуется "
+                           f"{grps_txt}. Сейчас: "
+                           + " < ".join(f"{order[j]}={int(vals[j])}"
+                                        for j in range(len(vals))))
+    return True, ""
+
+
+def suggest_strike_for_group(
+    grp, strategy_def, matched_strikes, strike_order, all_strikes, central
+):
+    """Предлагает страйк для незаполненной группы."""
+    if grp in matched_strikes:
+        return matched_strikes[grp]
+
+    order = [g for g in strike_order] if strike_order else []
+    if grp not in order or not all_strikes:
+        return central
+
+    idx = order.index(grp)
+    left_grp = None
+    for j in range(idx - 1, -1, -1):
+        if order[j] in matched_strikes:
+            left_grp = order[j]
+            break
+    right_grp = None
+    for j in range(idx + 1, len(order)):
+        if order[j] in matched_strikes:
+            right_grp = order[j]
+            break
+
+    if left_grp is not None and right_grp is not None:
+        K_left = float(matched_strikes[left_grp])
+        K_right = float(matched_strikes[right_grp])
+        n_steps = (order.index(right_grp) - order.index(left_grp))
+        step = (K_right - K_left) / max(n_steps, 1)
+        target = K_left + step * (idx - order.index(left_grp))
+        return min(all_strikes, key=lambda k: abs(float(k) - target))
+
+    if left_grp is not None:
+        K_left = float(matched_strikes[left_grp])
+        return min(all_strikes, key=lambda k: abs(float(k) - K_left))
+
+    if right_grp is not None:
+        K_right = float(matched_strikes[right_grp])
+        return min(all_strikes, key=lambda k: abs(float(k) - K_right))
+
+    return central
+
+
+def compute_strategy_debit_credit(strategy_def, strike_values, price_getter):
+    """Считает чистый дебет (+) / кредит (−) конструкции."""
+    total = 0.0
+    for leg in strategy_def["legs"]:
+        grp = leg["strike_group"]
+        K = strike_values.get(grp)
+        if K is None:
+            return None
+        price = price_getter(leg["option"], K)
+        if price is None or price <= 0:
+            return None
+        sign = 1 if leg["side"] == "Buy" else -1
+        total += sign * leg["qty"] * price
+    return total
     # ================= UI =================
 
 st.title("MOEX Options & Black-Scholes")
@@ -1002,7 +1263,6 @@ with tab_calc:
             st.error(f"Ошибка загрузки серий: {e}")
             st.session_state.series_list = []
 
-    # ---------- Выбор серии и вычисления ----------
     if st.session_state.series_list:
         sorted_series = sorted(
             st.session_state.series_list,
@@ -1028,7 +1288,6 @@ with tab_calc:
         st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
                    f"(серия `{series_code}`)")
 
-        # --- Безрисковая ставка: только для опционов на акции ---
         if asset_type_ui == "Акция":
             rfr = get_risk_free_rate_for_expiry(expiry_str)
             if rfr is not None:
@@ -1038,7 +1297,6 @@ with tab_calc:
         else:
             rfr = None
 
-        # --- Дивидендная доходность: только для опционов на акции ---
         if asset_type_ui == "Акция":
             q, stock_price, rec_date = get_dividend_yield_for_ticker(asset, expiry_str)
             if q is not None and stock_price is not None:
@@ -1069,16 +1327,13 @@ with tab_calc:
                 st.json(info, expanded=True)
         except Exception as e:
             st.warning(f"Не удалось загрузить информацию о серии: {e}")
-
     else:
         st.info("Введите тикер базового актива и нажмите «Загрузить доску опционов».")
 
-    # ---------- Калькулятор ----------
     st.markdown("---")
     calc_html = Path("index.html").read_text(encoding="utf-8")
     components.html(calc_html, height=1100, scrolling=True)
 
-    # ---------- Push'и в калькулятор (после iframe) ----------
     if st.session_state.series_list and "selected_expiry" in st.session_state:
         _expiry_str = st.session_state.selected_expiry
         _series_code = st.session_state.selected_series_code
@@ -1126,7 +1381,6 @@ with tab_board:
         st.markdown(f"### Доска опционов — **{asset}** "
                     f"(серия `{series_code}`, экспирация {expiry_str})")
 
-        # -------- Переключатель раскраски ячеек --------
         col_t1, col_t2 = st.columns([3, 2])
         with col_t1:
             highlight_on = st.toggle(
@@ -1208,7 +1462,6 @@ with tab_board:
                 })
             df = pd.DataFrame(rows)
 
-            # -------- Помощники для раскраски --------
             def _delta_color(delta):
                 if delta is None or not isinstance(delta, (int, float)):
                     return None
@@ -1302,7 +1555,6 @@ with tab_board:
                                                  row.get(theor_col))
                             if c:
                                 style = f"background-color: {c}"
-
                     styles.append(style)
                 return styles
 
@@ -1355,7 +1607,6 @@ with tab_board:
                 height=600,
             )
 
-            # --- Улыбка волатильности ---
             st.markdown("### Улыбка волатильности")
             try:
                 points = fetch_volatility_graph(asset, series_code, asset_type_ui)
@@ -1387,6 +1638,7 @@ with tab_board:
 with tab_position:
     st.header("Управление позицией")
 
+    # ---------- Капитал и риск ----------
     c1, c2, c3 = st.columns(3)
     with c1:
         deposit = st.number_input("Депозит, ₽",
@@ -1416,18 +1668,8 @@ with tab_position:
             return 0.0
         return max(COMMISSION_RATE * premium, minc)
 
-    # ---------- Билдер позиций ----------
-    st.markdown("### Добавить позицию")
-
     if "positions" not in st.session_state:
         st.session_state.positions = []
-
-    # Уникальные названия конструкций в порядке появления
-    _existing_constructions = []
-    for _p in st.session_state.positions:
-        _c = _p.get("Конструкция", "Без названия")
-        if _c not in _existing_constructions:
-            _existing_constructions.append(_c)
 
     can_build = (
         st.session_state.get("series_list")
@@ -1439,296 +1681,280 @@ with tab_position:
                    "и загрузите доску.")
     else:
         try:
-            board = fetch_optionboard(
+            board_pos = fetch_optionboard(
                 st.session_state.get("selected_asset", ""),
                 st.session_state.get("selected_asset_type_ui", ""),
                 st.session_state.get("selected_series_code", ""),
             )
         except Exception as e:
             st.error(f"Не удалось загрузить доску: {e}")
-            board = None
+            board_pos = None
 
-        if board:
-            calls = board.get('call') or []
-            puts = board.get('put') or []
-            central = board.get('central_strike')
+        if board_pos:
+            calls_pos = board_pos.get('call') or []
+            puts_pos = board_pos.get('put') or []
+            central_pos = board_pos.get('central_strike')
 
-            c_map = {c['strike']: c for c in calls if c.get('strike') is not None}
-            p_map = {p['strike']: p for p in puts if p.get('strike') is not None}
-            all_strikes = sorted(set(c_map.keys()) | set(p_map.keys()))
+            c_map_pos = {c['strike']: c for c in calls_pos
+                         if c.get('strike') is not None}
+            p_map_pos = {p['strike']: p for p in puts_pos
+                         if p.get('strike') is not None}
+            all_strikes_pos = sorted(set(c_map_pos.keys()) | set(p_map_pos.keys()))
+            expiry_now = st.session_state.get("selected_expiry", "—")
 
-            # ---------- Выбор конструкции ----------
-            NEW_LABEL = "— Новая конструкция —"
-            construction_options = [NEW_LABEL] + _existing_constructions
+            # Существующие конструкции
+            _existing_constructions = []
+            for _p in st.session_state.positions:
+                _c = _p.get("Конструкция", "Без названия")
+                if _c not in _existing_constructions:
+                    _existing_constructions.append(_c)
 
-            cc1, cc2 = st.columns([2, 4])
-            with cc1:
-                constr_choice = st.selectbox(
-                    "Конструкция",
-                    construction_options,
-                    key="pos_constr_choice",
-                )
-            with cc2:
-                if constr_choice == NEW_LABEL:
-                    constr_name_input = st.text_input(
-                        "Название новой конструкции",
-                        value="",
-                        placeholder="Например: Butterfly 87500/90000/92500",
-                        key="pos_constr_new",
+            # =========================================================
+            # ФОРМА ДОБАВЛЕНИЯ
+            # =========================================================
+            st.markdown("### Добавить позицию")
+
+            with st.form("add_position_form", clear_on_submit=False):
+                f1, f2, f3, f4 = st.columns([2, 2, 2, 1.6])
+                with f1:
+                    st.markdown(
+                        "<div style='font-size:.72rem; font-weight:700; "
+                        "color:#2c506d; margin-bottom:6px;'>Тип инструмента</div>",
+                        unsafe_allow_html=True,
                     )
-                    construction_name_base = constr_name_input.strip() or "Без названия"
-                else:
-                    construction_name_base = constr_choice
-                    st.text_input(
-                        "Название конструкции",
-                        value=construction_name_base,
-                        disabled=True,
-                        key="pos_constr_disp",
+                    st.markdown(
+                        "<div style='padding:8px 14px; border:1px solid #cfdfe9; "
+                        "border-radius:18px; background:#fff; font-size:.9rem;'>"
+                        "Опцион</div>",
+                        unsafe_allow_html=True,
                     )
-
-            # ---------- Режим добавления ----------
-            builder_mode = st.radio(
-                "Режим добавления",
-                ["Одна нога", "Готовая стратегия"],
-                horizontal=True,
-                key="pos_builder_mode",
-            )
-
-            # ========================================================
-            # РЕЖИМ 1: Одна нога
-            # ========================================================
-            if builder_mode == "Одна нога":
-                bc1, bc2, bc3, bc4, bc5, bc6 = st.columns(
-                    [1.2, 1.5, 1.5, 2.0, 1.2, 2.0]
-                )
-
-                with bc1:
-                    side = st.selectbox(
-                        "Направление",
-                        ["Buy", "Sell"],
-                        key="pos_side",
+                with f2:
+                    st.markdown(
+                        "<div style='font-size:.72rem; font-weight:700; "
+                        "color:#2c506d; margin-bottom:6px;'>Исполнение</div>",
+                        unsafe_allow_html=True,
                     )
-                with bc2:
-                    opt_type = st.selectbox(
-                        "Опцион", ["Call", "Put"], key="pos_opt_type"
+                    st.markdown(
+                        f"<div style='padding:8px 14px; border:1px solid #cfdfe9; "
+                        f"border-radius:18px; background:#fff; font-size:.9rem;'>"
+                        f"{expiry_now}</div>",
+                        unsafe_allow_html=True,
                     )
-                with bc3:
-                    if all_strikes:
+                with f3:
+                    if all_strikes_pos:
                         default_idx = 0
-                        if central is not None:
+                        if central_pos is not None:
                             try:
-                                default_idx = all_strikes.index(
-                                    min(all_strikes,
-                                        key=lambda s: abs(float(s) - float(central)))
+                                default_idx = all_strikes_pos.index(
+                                    min(all_strikes_pos,
+                                        key=lambda s: abs(float(s) - float(central_pos)))
                                 )
                             except ValueError:
                                 default_idx = 0
-                        chosen_strike = st.selectbox(
-                            "Страйк", all_strikes,
-                            index=default_idx, key="pos_strike"
-                        )
+                        chosen_strike = st.selectbox("Страйк", all_strikes_pos,
+                                                     index=default_idx,
+                                                     key="form_strike")
                     else:
                         chosen_strike = None
-                        st.selectbox("Страйк", ["—"], key="pos_strike_empty")
-                with bc4:
+                        st.selectbox("Страйк", ["—"], key="form_strike_empty")
+                with f4:
+                    opt_type = st.selectbox("Опцион", ["Call", "Put"],
+                                            key="form_opt_type")
+
+                f5, f6, f7, f8 = st.columns([2.4, 1.4, 1.2, 1.6])
+                with f5:
                     ref_opt_for_ticker = (
-                        (c_map.get(chosen_strike, {}) if opt_type == "Call"
-                         else p_map.get(chosen_strike, {}))
+                        (c_map_pos.get(chosen_strike, {}) if opt_type == "Call"
+                         else p_map_pos.get(chosen_strike, {}))
                         if chosen_strike is not None else {}
                     )
-                    st.text_input(
-                        "Тикер",
-                        value=ref_opt_for_ticker.get('secid', '—'),
-                        disabled=True, key="pos_ticker_disp",
+                    ticker_val = ref_opt_for_ticker.get('secid', '—')
+                    st.markdown(
+                        "<div style='font-size:.72rem; font-weight:700; "
+                        "color:#2c506d; margin-bottom:6px;'>Тикер</div>",
+                        unsafe_allow_html=True,
                     )
-                with bc5:
-                    qty_abs = st.number_input(
-                        "Кол-во", min_value=1, value=1, step=1,
-                        key="pos_qty"
+                    st.markdown(
+                        f"<div style='padding:8px 14px; border:1px solid #cfdfe9; "
+                        f"border-radius:18px; background:#f9fbfd; font-size:.9rem;'>"
+                        f"{ticker_val}</div>",
+                        unsafe_allow_html=True,
                     )
-                with bc6:
-                    ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
-                               else p_map.get(chosen_strike, {})) if chosen_strike is not None else {}
+                with f6:
+                    side = st.selectbox("Направление", ["Buy", "Sell"],
+                                        key="form_side")
+                with f7:
+                    qty_input = st.number_input("Кол-во", min_value=1, value=1,
+                                                step=1, key="form_qty")
+                with f8:
+                    ref_opt = (c_map_pos.get(chosen_strike, {}) if opt_type == "Call"
+                               else p_map_pos.get(chosen_strike, {})) if chosen_strike is not None else {}
                     default_price = float(ref_opt.get('theorprice') or 0) or \
                                     float(ref_opt.get('last') or 0) or 0.0
-                    pos_price = st.number_input(
-                        "Цена, ₽",
-                        min_value=0.0,
-                        value=float(default_price),
-                        step=1.0, format="%.4f",
-                        key="pos_price"
-                    )
+                    price_input = st.number_input("Цена, ₽",
+                                                  min_value=0.0,
+                                                  value=float(default_price),
+                                                  step=1.0,
+                                                  format="%.4f",
+                                                  key="form_price")
 
-                if ref_opt:
-                    st.caption(
-                        f"Теор. цена: **{float(ref_opt.get('theorprice') or 0):.4f} ₽**"
+                fc1, fc2 = st.columns([2, 4])
+                with fc1:
+                    NEW_LABEL = "— Новая конструкция —"
+                    constr_choice = st.selectbox(
+                        "Конструкция",
+                        [NEW_LABEL] + _existing_constructions,
+                        key="form_constr_choice",
                     )
+                with fc2:
+                    if constr_choice == NEW_LABEL:
+                        constr_name_input = st.text_input(
+                            "Название новой конструкции",
+                            value="",
+                            placeholder="Например: Butterfly 87500/90000/92500",
+                            key="form_constr_name",
+                        )
+                        construction_name = constr_name_input.strip() or "Без названия"
+                    else:
+                        construction_name = constr_choice
+                        st.text_input("Название", value=construction_name,
+                                      disabled=True, key="form_constr_disp")
 
-                if st.button("Добавить ногу", type="primary"):
-                    if chosen_strike is not None and pos_price > 0:
-                        c_data = c_map.get(chosen_strike, {})
-                        p_data = p_map.get(chosen_strike, {})
+                submitted = st.form_submit_button("Добавить позицию",
+                                                  type="primary")
+
+                if submitted:
+                    if chosen_strike is not None and price_input > 0:
+                        c_data = c_map_pos.get(chosen_strike, {})
+                        p_data = p_map_pos.get(chosen_strike, {})
                         ref = c_data if opt_type == "Call" else p_data
-                        signed_qty = int(qty_abs) if side == "Buy" else -int(qty_abs)
+                        signed_qty = int(qty_input) if side == "Buy" else -int(qty_input)
                         st.session_state.positions.append({
-                            "Конструкция": construction_name_base,
-                            "Тип": "Опцион",
+                            "_id": _new_position_id(),
+                            "Конструкция": construction_name,
                             "Опцион": opt_type,
                             "Направление": side,
                             "Страйк": chosen_strike,
-                            "Эксп.": st.session_state.get("selected_expiry", "—"),
+                            "Эксп.": expiry_now,
                             "Тикер": ref.get('secid', '—'),
                             "Кол-во": signed_qty,
-                            "Цена": float(pos_price),
+                            "Цена": float(price_input),
                             "Теор.цена": float(ref.get('theorprice') or 0),
                             "Дельта": ref.get('delta'),
                             "Гамма":  ref.get('gamma'),
                             "Вега":   ref.get('vega'),
                             "Тета":   ref.get('theta'),
                             "Ро":     ref.get('rho'),
+                            "visible": True,
                         })
                         st.success(
-                            f"Добавлено в «{construction_name_base}»: "
-                            f"{side} {opt_type} {chosen_strike} × {qty_abs}"
+                            f"Добавлено: {side} {opt_type} {chosen_strike} × {qty_input}"
                         )
                         st.rerun()
                     else:
                         st.error("Укажите страйк и цену > 0.")
 
-            # ========================================================
-            # РЕЖИМ 2: Готовая стратегия
-            # ========================================================
-            else:
+            # ---------- Expander «Готовые стратегии» ----------
+            with st.expander("Готовые стратегии (сборка в один клик)",
+                             expanded=False):
                 strat_names = list(PREDEFINED_STRATEGIES.keys())
-                strat_choice = st.selectbox(
-                    "Стратегия",
-                    strat_names,
-                    key="pos_strategy_choice",
-                )
+                strat_choice = st.selectbox("Стратегия", strat_names,
+                                            key="pos_strategy_choice")
                 strat_def = PREDEFINED_STRATEGIES[strat_choice]
-
                 st.caption(strat_def["description"])
 
-                if not all_strikes:
-                    st.error("В доске нет страйков — невозможно построить конструкцию.")
+                if not all_strikes_pos:
+                    st.error("Нет страйков в доске.")
                 else:
-                    legs = strat_def["legs"]
-
-                    # --- Уникальные strike_group в порядке появления ---
-                    unique_groups = []
-                    for leg in legs:
+                    strike_groups = []
+                    for leg in strat_def["legs"]:
                         g = leg["strike_group"]
-                        if g not in unique_groups:
-                            unique_groups.append(g)
-
-                    # --- Один селект страйка на каждую группу ---
-                    group_labels = {}
-                    for leg in legs:
-                        g = leg["strike_group"]
-                        if g not in group_labels:
-                            lbl = leg["label"].split("(")[0].strip()
-                            group_labels[g] = lbl or g
+                        if g not in strike_groups:
+                            strike_groups.append(g)
 
                     strike_values = {}
-                    cols_strikes = st.columns(len(unique_groups))
-                    for i, g in enumerate(unique_groups):
+                    cols_strikes = st.columns(len(strike_groups))
+                    for i, grp in enumerate(strike_groups):
                         with cols_strikes[i]:
+                            grp_label = next(
+                                (leg["label"] for leg in strat_def["legs"]
+                                 if leg["strike_group"] == grp),
+                                grp
+                            )
                             default_idx = 0
-                            if central is not None:
+                            if central_pos is not None:
                                 try:
-                                    default_idx = all_strikes.index(
-                                        min(all_strikes,
-                                            key=lambda s: abs(float(s) - float(central)))
+                                    default_idx = all_strikes_pos.index(
+                                        min(all_strikes_pos,
+                                            key=lambda s: abs(float(s) - float(central_pos)))
                                     )
                                 except ValueError:
                                     default_idx = 0
-                            strike_values[g] = st.selectbox(
-                                f"Страйк — {group_labels[g]}",
-                                all_strikes,
+                            strike_values[grp] = st.selectbox(
+                                grp_label,
+                                all_strikes_pos,
                                 index=default_idx,
-                                key=f"pos_strat_strike_{strat_choice}_{g}",
+                                key=f"strat_strike_{grp}",
                             )
 
-                    # --- Цена по каждой ноге ---
                     st.markdown("**Цены ног (по умолчанию — теоретические):**")
                     leg_prices = {}
-                    cols_prices = st.columns(min(len(legs), 4))
-                    for i, leg in enumerate(legs):
-                        K = strike_values[leg["strike_group"]]
-                        ref = (c_map.get(K, {}) if leg["option"] == "Call"
-                               else p_map.get(K, {}))
+                    cols_prices = st.columns(len(strat_def["legs"]))
+                    for i, leg in enumerate(strat_def["legs"]):
+                        grp = leg["strike_group"]
+                        K = strike_values[grp]
+                        ref = c_map_pos.get(K, {}) if leg["option"] == "Call" \
+                              else p_map_pos.get(K, {})
                         default_p = float(ref.get('theorprice') or 0) or \
                                     float(ref.get('last') or 0) or 0.0
-                        with cols_prices[i % min(len(legs), 4)]:
+                        with cols_prices[i]:
                             leg_prices[i] = st.number_input(
-                                f"{leg['side']} {leg['option']} {K} × {leg['qty']}",
+                                f"{leg['side']} {leg['option']} {K}",
                                 min_value=0.0,
                                 value=float(default_p),
                                 step=1.0, format="%.4f",
-                                key=f"pos_strat_price_{strat_choice}_{i}",
+                                key=f"strat_price_{i}_{strat_choice}",
                             )
 
-                    # --- Имя конструкции ---
+                    order_ok, order_msg = validate_strike_order(
+                        strat_def, strike_values
+                    )
+                    if not order_ok:
+                        st.error(f"⚠ {order_msg}")
+
                     strike_suffix = "/".join(
-                        str(int(strike_values[g])) if float(strike_values[g]).is_integer()
+                        str(int(strike_values[g]))
+                        if float(strike_values[g]).is_integer()
                         else str(strike_values[g])
-                        for g in unique_groups
+                        for g in strike_groups
                     )
-                    if constr_choice == NEW_LABEL:
-                        auto_name = f"{strat_choice} {strike_suffix}"
-                        final_strategy_name = st.text_input(
-                            "Имя конструкции (можно изменить)",
-                            value=auto_name,
-                            key=f"pos_strategy_name_{strat_choice}",
-                        ).strip() or auto_name
-                    else:
-                        final_strategy_name = constr_choice
+                    auto_name = f"{strat_choice} {strike_suffix}"
+                    final_strategy_name = st.text_input(
+                        "Имя конструкции",
+                        value=auto_name,
+                        key="strat_final_name",
+                    ).strip() or auto_name
 
-                    # --- Preview конструкции ---
-                    st.markdown("**Preview конструкции:**")
-                    preview_rows = []
-                    for i, leg in enumerate(legs):
-                        K = strike_values[leg["strike_group"]]
-                        ref = (c_map.get(K, {}) if leg["option"] == "Call"
-                               else p_map.get(K, {}))
-                        signed_qty = leg["qty"] if leg["side"] == "Buy" else -leg["qty"]
-                        preview_rows.append({
-                            "Направление": leg["side"],
-                            "Опцион":      leg["option"],
-                            "Страйк":      K,
-                            "Кол-во":      signed_qty,
-                            "Цена":        leg_prices[i],
-                            "Теор.цена":   float(ref.get('theorprice') or 0),
-                        })
-                    st.dataframe(
-                        pd.DataFrame(preview_rows).style.format({
-                            "Страйк":    "{:.0f}",
-                            "Цена":      "{:.4f}",
-                            "Теор.цена": "{:.4f}",
-                        }),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                    # --- Кнопка "Собрать" ---
-                    if st.button("Собрать конструкцию", type="primary"):
+                    if st.button("Собрать конструкцию", type="primary",
+                                 key="strat_build_btn", disabled=not order_ok):
                         added = 0
-                        for i, leg in enumerate(legs):
-                            K = strike_values[leg["strike_group"]]
+                        for i, leg in enumerate(strat_def["legs"]):
+                            grp = leg["strike_group"]
+                            K = strike_values[grp]
                             price = leg_prices[i]
                             if price <= 0:
                                 continue
-                            ref = (c_map.get(K, {}) if leg["option"] == "Call"
-                                   else p_map.get(K, {}))
+                            ref = c_map_pos.get(K, {}) if leg["option"] == "Call" \
+                                  else p_map_pos.get(K, {})
                             signed_qty = leg["qty"] if leg["side"] == "Buy" \
                                          else -leg["qty"]
                             st.session_state.positions.append({
+                                "_id": _new_position_id(),
                                 "Конструкция": final_strategy_name,
-                                "Тип": "Опцион",
                                 "Опцион": leg["option"],
                                 "Направление": leg["side"],
                                 "Страйк": K,
-                                "Эксп.": st.session_state.get("selected_expiry", "—"),
+                                "Эксп.": expiry_now,
                                 "Тикер": ref.get('secid', '—'),
                                 "Кол-во": int(signed_qty),
                                 "Цена": float(price),
@@ -1738,9 +1964,10 @@ with tab_position:
                                 "Вега":   ref.get('vega'),
                                 "Тета":   ref.get('theta'),
                                 "Ро":     ref.get('rho'),
+                                "visible": True,
                             })
                             added += 1
-                        if added > 0:
+                        if added:
                             st.success(
                                 f"Собрано {added} ног в «{final_strategy_name}»"
                             )
@@ -1748,130 +1975,171 @@ with tab_position:
                         else:
                             st.error("Укажите цену > 0 хотя бы для одной ноги.")
 
-    # ---------- Текущие позиции (с группировкой) ----------
+    # =========================================================
+    # ТАБЛИЦА ПОЗИЦИЙ
+    # =========================================================
     st.markdown("### Текущие позиции")
 
     if not st.session_state.positions:
         st.caption("Портфель пуст.")
     else:
-        # Уникальные конструкции в порядке появления
-        unique_constructions = []
-        for _p in st.session_state.positions:
-            _c = _p.get("Конструкция", "Без названия")
-            if _c not in unique_constructions:
-                unique_constructions.append(_c)
+        hdr = st.columns([0.35, 0.35, 1.1, 0.8, 0.9, 0.7, 0.9, 0.7, 0.9, 0.9,
+                          0.7, 0.7, 0.7, 0.7, 0.9])
+        headers = ["", "", "Опцион", "Страйк", "Тикер", "Кол-во", "Цена",
+                   "Комис.", "Эфф. цена", "Теор.цена", "Δ", "Γ", "ν", "Θ", "P&L"]
+        for c, h in zip(hdr, headers):
+            with c:
+                st.markdown(
+                    f"<div style='font-size:.7rem; color:#2c506d; "
+                    f"font-weight:700; text-transform:uppercase; "
+                    f"letter-spacing:.03em; padding-top:2px;'>{h}</div>",
+                    unsafe_allow_html=True,
+                )
 
-        # ---------- Глобальные счётчики ----------
+        st.markdown(
+            "<hr style='margin:4px 0 8px 0; border:none; "
+            "border-top:1px solid #e6edf4;'>",
+            unsafe_allow_html=True,
+        )
+
+        for idx, p in enumerate(st.session_state.positions):
+            _id = p.get("_id", f"legacy_{idx}")
+            visible = p.get("visible", True)
+            gray = "opacity:0.45;" if not visible else ""
+
+            row = st.columns([0.35, 0.35, 1.1, 0.8, 0.9, 0.7, 0.9, 0.7, 0.9,
+                              0.9, 0.7, 0.7, 0.7, 0.7, 0.9])
+
+            with row[0]:
+                if st.button("✖", key=f"del_{_id}",
+                             help="Удалить позицию"):
+                    st.session_state.positions.pop(idx)
+                    for k in list(st.session_state.keys()):
+                        if k.endswith(f"_{_id}"):
+                            del st.session_state[k]
+                    st.rerun()
+
+            with row[1]:
+                icon = "👁" if visible else "🚫"
+                if st.button(icon, key=f"vis_{_id}",
+                             help="Скрыть/показать в профиле"):
+                    p["visible"] = not visible
+                    st.rerun()
+
+            with row[2]:
+                st.markdown(
+                    f"<div style='padding-top:6px; {gray}'>"
+                    f"{_color_call_put(p['Опцион'])}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            with row[3]:
+                st.markdown(
+                    f"<div style='padding-top:6px; {gray}'>"
+                    f"<b>{int(p['Страйк'])}</b></div>",
+                    unsafe_allow_html=True,
+                )
+
+            with row[4]:
+                st.markdown(
+                    f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
+                    f"{p.get('Тикер', '—')}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            with row[5]:
+                kq = f"qty_{_id}"
+                if kq not in st.session_state:
+                    st.session_state[kq] = int(p.get("Кол-во", 1))
+                new_qty = st.number_input(
+                    "qty", min_value=-10000, max_value=10000,
+                    value=int(st.session_state[kq]),
+                    step=1, key=kq, label_visibility="collapsed",
+                )
+                if new_qty != p.get("Кол-во"):
+                    p["Кол-во"] = int(new_qty)
+                    p["Направление"] = _side_from_qty(int(new_qty))
+
+            with row[6]:
+                kp = f"price_{_id}"
+                if kp not in st.session_state:
+                    st.session_state[kp] = float(p.get("Цена", 0.0))
+                new_price = st.number_input(
+                    "price", min_value=0.0, value=float(st.session_state[kp]),
+                    step=1.0, format="%.4f", key=kp,
+                    label_visibility="collapsed",
+                )
+                if new_price != p.get("Цена"):
+                    p["Цена"] = float(new_price)
+
+            com = calc_commission(float(p.get("Цена", 0)), min_comm)
+            eff_price = float(p.get("Цена", 0)) + com
+            theor = float(p.get("Теор.цена", 0))
+            qty = int(p.get("Кол-во", 0))
+            pnl = (theor - eff_price) * qty
+
+            with row[7]:
+                st.markdown(
+                    f"<div style='padding-top:6px; {gray}; "
+                    f"font-size:.8rem;'>{com:.4f}</div>",
+                    unsafe_allow_html=True,
+                )
+            with row[8]:
+                st.markdown(
+                    f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
+                    f"<b>{eff_price:.4f}</b></div>",
+                    unsafe_allow_html=True,
+                )
+            with row[9]:
+                st.markdown(
+                    f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
+                    f"{theor:.4f}</div>",
+                    unsafe_allow_html=True,
+                )
+            for ri, gr in zip([10, 11, 12, 13],
+                              ["Дельта", "Гамма", "Вега", "Тета"]):
+                val = p.get(gr)
+                txt = f"{val:+.4f}" if isinstance(val, (int, float)) else "—"
+                with row[ri]:
+                    st.markdown(
+                        f"<div style='padding-top:6px; {gray}; "
+                        f"font-size:.78rem;'>{txt}</div>",
+                        unsafe_allow_html=True,
+                    )
+            with row[14]:
+                color = "#00a651" if pnl > 0 else ("#d32f2f" if pnl < 0 else "#333")
+                st.markdown(
+                    f"<div style='padding-top:6px; {gray}; font-weight:700; "
+                    f"color:{color};'>{pnl:+,.2f} ₽</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # =========================================================
+        # ИТОГИ ПОРТФЕЛЯ
+        # =========================================================
+        st.markdown("---")
+        st.markdown("### Итоги портфеля")
+
         total_com = 0.0
         total_pnl = 0.0
         total_delta = 0.0
         total_gamma = 0.0
         total_vega  = 0.0
         total_theta = 0.0
-        total_rho   = 0.0
 
-        # ---------- Функция subtotals ----------
-        def _subtotals(positions_subset):
-            sub = {
-                "com": 0.0, "pnl": 0.0,
-                "delta": 0.0, "gamma": 0.0,
-                "vega": 0.0, "theta": 0.0, "rho": 0.0,
-            }
-            for p in positions_subset:
-                qty = int(p["Кол-во"])
-                price = float(p["Цена"])
-                theor = float(p["Теор.цена"])
-                com = calc_commission(price, min_comm)
-                pnl = (theor - price) * qty - com * abs(qty)
-                sub["com"]   += com * abs(qty)
-                sub["pnl"]   += pnl
-                sub["delta"] += (p.get("Дельта") or 0) * qty
-                sub["gamma"] += (p.get("Гамма")  or 0) * qty
-                sub["vega"]  += (p.get("Вега")   or 0) * qty
-                sub["theta"] += (p.get("Тета")   or 0) * qty
-                sub["rho"]   += (p.get("Ро")     or 0) * qty
-            return sub
+        for p in st.session_state.positions:
+            qty = int(p.get("Кол-во", 0))
+            price = float(p.get("Цена", 0))
+            theor = float(p.get("Теор.цена", 0))
+            com = calc_commission(price, min_comm)
+            pnl = (theor - price) * qty - com * qty
 
-        # ---------- Показать каждую конструкцию ----------
-        for constr_name in unique_constructions:
-            legs = [p for p in st.session_state.positions
-                    if p.get("Конструкция", "Без названия") == constr_name]
-
-            st.markdown(f"#### {constr_name}")
-
-            group_rows = []
-            for idx_in_group, p in enumerate(legs, start=1):
-                qty = int(p["Кол-во"])
-                abs_qty = abs(qty)
-                price = float(p["Цена"])
-                theor = float(p["Теор.цена"])
-                com = calc_commission(price, min_comm)
-                pnl = (theor - price) * qty - com * abs_qty
-
-                total_com   += com * abs_qty
-                total_pnl   += pnl
-                total_delta += (p.get("Дельта") or 0) * qty
-                total_gamma += (p.get("Гамма")  or 0) * qty
-                total_vega  += (p.get("Вега")   or 0) * qty
-                total_theta += (p.get("Тета")   or 0) * qty
-                total_rho   += (p.get("Ро")     or 0) * qty
-
-                group_rows.append({
-                    "#":           idx_in_group,
-                    "Опцион":      p["Опцион"],
-                    "Страйк":      p["Страйк"],
-                    "Эксп.":       p["Эксп."],
-                    "Тикер":       p["Тикер"],
-                    "Кол-во":      qty,
-                    "Цена":        price,
-                    "Комиссия":    com,
-                    "Эфф. цена":   price + com,
-                    "Теор.цена":   theor,
-                    "P&L":         pnl,
-                    "Дельта":      p.get("Дельта"),
-                    "Гамма":       p.get("Гамма"),
-                    "Вега":        p.get("Вега"),
-                    "Тета":        p.get("Тета"),
-                    "Ро":          p.get("Ро"),
-                })
-
-            df_group = pd.DataFrame(group_rows)
-
-            st.dataframe(
-                df_group.style.format({
-                    "Страйк":     "{:.0f}",
-                    "Цена":       "{:.4f}",
-                    "Комиссия":   "{:.4f}",
-                    "Эфф. цена":  "{:.4f}",
-                    "Теор.цена":  "{:.4f}",
-                    "P&L":        "{:.2f}",
-                    "Дельта":     "{:.4f}",
-                    "Гамма":      "{:.4f}",
-                    "Вега":       "{:.4f}",
-                    "Тета":       "{:.4f}",
-                    "Ро":         "{:.4f}",
-                }, na_rep="—"),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            s = _subtotals(legs)
-            st.markdown(
-                f"<div style='font-size:.82rem; color:#4a6f8a; "
-                f"background:#eef6fb; border-radius:10px; "
-                f"padding:6px 12px; display:inline-block; margin-bottom:14px;'>"
-                f"<b>{constr_name}</b>: "
-                f"P&L <b>{s['pnl']:+,.2f} ₽</b> · "
-                f"Дельта {s['delta']:+.3f} · "
-                f"Гамма {s['gamma']:+.4f} · "
-                f"Вега {s['vega']:+.3f} · "
-                f"Тета {s['theta']:+.3f}"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-        # ---------- Общий итог ----------
-        st.markdown("### Итоги портфеля (общие)")
+            total_com   += com * qty
+            total_pnl   += pnl
+            total_delta += (p.get("Дельта") or 0) * qty
+            total_gamma += (p.get("Гамма")  or 0) * qty
+            total_vega  += (p.get("Вега")   or 0) * qty
+            total_theta += (p.get("Тета")   or 0) * qty
 
         p1, p2 = st.columns(2)
         with p1:
@@ -1879,7 +2147,6 @@ with tab_position:
         with p2:
             st.metric("Комиссии", f"{total_com:,.4f} ₽")
 
-        # ---------- Цветовые коды ----------
         def _color_delta(d):
             d = abs(d)
             if 0.25 <= d <= 0.45:
@@ -1937,27 +2204,24 @@ with tab_position:
                 unsafe_allow_html=True,
             )
 
-        c_delta = _color_delta(total_delta)
-        c_gamma = _color_gamma(total_gamma)
-        c_vega  = _color_vega(total_vega)
-        c_theta = _color_theta(total_theta, total_vega)
-
         g1, g2, g3, g4 = st.columns(4)
         with g1:
-            _greek_card("Дельта (Σ)", f"{total_delta:+.3f}", c_delta)
+            _greek_card("Дельта (Σ)", f"{total_delta:+.3f}",
+                        _color_delta(total_delta))
         with g2:
-            _greek_card("Гамма (Σ)", f"{total_gamma:+.4f}", c_gamma)
+            _greek_card("Гамма (Σ)", f"{total_gamma:+.4f}",
+                        _color_gamma(total_gamma))
         with g3:
-            _greek_card("Вега (Σ)", f"{total_vega:+.3f}", c_vega)
+            _greek_card("Вега (Σ)", f"{total_vega:+.3f}",
+                        _color_vega(total_vega))
         with g4:
-            _greek_card("Тета (Σ)", f"{total_theta:+.3f}", c_theta)
+            _greek_card("Тета (Σ)", f"{total_theta:+.3f}",
+                        _color_theta(total_theta, total_vega))
 
-        # ---------- Проверка риска ----------
-        max_loss = sum(
-            calc_commission(p["Цена"], min_comm) * abs(int(p["Кол-во"]))
-            + p["Цена"] * abs(int(p["Кол-во"]))
-            for p in st.session_state.positions
-        )
+        # Проверка риска
+        max_loss = sum(calc_commission(p["Цена"], min_comm) * abs(p["Кол-во"])
+                       + p["Цена"] * abs(p["Кол-во"])
+                       for p in st.session_state.positions)
         if max_loss > risk_amount:
             st.error(
                 f"Превышен риск: потенциальный макс. убыток "
@@ -1970,14 +2234,13 @@ with tab_position:
                 f"({max_loss / risk_amount * 100:.1f}% от допустимого)"
             )
 
-        # ---------- Управление портфелем ----------
+        # Управление портфелем
         st.markdown("#### Управление")
-
         mc1, mc2 = st.columns([3, 2])
         with mc1:
             constr_to_delete = st.selectbox(
                 "Удалить конструкцию",
-                ["— выберите —"] + unique_constructions,
+                ["— выберите —"] + _existing_constructions,
                 key="pos_delete_constr",
             )
         with mc2:
@@ -2002,20 +2265,19 @@ with tab_position:
                 st.session_state.positions = []
                 st.rerun()
 
-        # ---------- Экспорт CSV ----------
+        # Экспорт CSV
         _export_rows = []
         for i, p in enumerate(st.session_state.positions):
             qty = int(p["Кол-во"])
-            abs_qty = abs(qty)
             price = float(p["Цена"])
             theor = float(p["Теор.цена"])
             com = calc_commission(price, min_comm)
-            pnl = (theor - price) * qty - com * abs_qty
+            pnl = (theor - price) * qty - com * qty
             _export_rows.append({
                 "#":           i + 1,
                 "Конструкция": p.get("Конструкция", "Без названия"),
-                "Направление": p.get("Направление", "Buy"),
                 "Опцион":      p["Опцион"],
+                "Направление": p.get("Направление", _side_from_qty(qty)),
                 "Страйк":      p["Страйк"],
                 "Эксп.":       p["Эксп."],
                 "Тикер":       p["Тикер"],
@@ -2040,190 +2302,207 @@ with tab_position:
             mime="text/csv",
         )
 
-        # ---------- Payoff-диаграмма ----------
-        st.markdown("### Payoff-диаграмма")
+        # =========================================================
+        # ГРАФИК ПРОФИЛЯ ПОЗИЦИИ (Payoff)
+        # =========================================================
+        st.markdown("---")
+        st.markdown("### График профиля позиции")
 
+        # Собираем уникальные конструкции
+        unique_constr_list = []
+        for _p in st.session_state.positions:
+            _c = _p.get("Конструкция", "Без названия")
+            if _c not in unique_constr_list:
+                unique_constr_list.append(_c)
+
+        scope_options = ["Все видимые позиции"] + unique_constr_list
         payoff_scope = st.selectbox(
             "Что показать",
-            ["Все конструкции"] + unique_constructions,
+            scope_options,
             key="payoff_scope",
         )
 
-        if payoff_scope == "Все конструкции":
-            payoff_positions = list(st.session_state.positions)
+        # Определяем, какие позиции участвуют в профиле
+        if payoff_scope == "Все видимые позиции":
+            payoff_positions = [
+                p for p in st.session_state.positions
+                if p.get("visible", True)
+            ]
         else:
             payoff_positions = [
                 p for p in st.session_state.positions
-                if p.get("Конструкция", "Без названия") == payoff_scope
+                if p.get("visible", True)
+                and p.get("Конструкция", "Без названия") == payoff_scope
             ]
 
-        all_pos_strikes = sorted({
-            float(p["Страйк"]) for p in payoff_positions
-            if p.get("Страйк") is not None
-        })
-
-        if not all_pos_strikes:
-            st.caption("Нет данных для построения Payoff-диаграммы.")
-        else:
-            s_min = min(all_pos_strikes) * 0.85
-            s_max = max(all_pos_strikes) * 1.15
-            S_arr = np.linspace(s_min, s_max, 500)
-
-            def _payoff_at_expiry(S_vals, positions_subset):
-                S_vals = np.asarray(S_vals, dtype=float)
-                pnl_arr = np.zeros_like(S_vals)
-                for p in positions_subset:
-                    K = float(p["Страйк"])
-                    qty = int(p["Кол-во"])       # может быть отрицательным
-                    price = float(p["Цена"])
-                    abs_qty = abs(qty)
-                    com = calc_commission(price, min_comm)
-                    if p["Опцион"] == "Call":
-                        intrinsic = np.maximum(0.0, S_vals - K)
-                    else:
-                        intrinsic = np.maximum(0.0, K - S_vals)
-                    # Знаковое количество уже учитывает Buy/Sell
-                    pnl_arr += (intrinsic - price) * qty - com * abs_qty
-                return pnl_arr
-
-            pnl_arr = _payoff_at_expiry(S_arr, payoff_positions)
-
-            max_profit = float(np.max(pnl_arr))
-            max_loss_pf = float(np.min(pnl_arr))
-
-            be_points = []
-            for i in range(1, len(S_arr)):
-                if pnl_arr[i - 1] * pnl_arr[i] < 0:
-                    denom = pnl_arr[i] - pnl_arr[i - 1]
-                    if abs(denom) > 1e-12:
-                        x0 = (S_arr[i - 1]
-                              + (S_arr[i] - S_arr[i - 1])
-                              * (-pnl_arr[i - 1]) / denom)
-                        be_points.append(float(x0))
-
-            # Текущая цена БА через паритет call-put
-            F_current = None
-            try:
-                board_pf = fetch_optionboard(
-                    st.session_state.get("selected_asset", ""),
-                    st.session_state.get("selected_asset_type_ui", ""),
-                    st.session_state.get("selected_series_code", ""),
-                )
-                c_map_p = {
-                    c['strike']: c
-                    for c in (board_pf.get('call') or [])
-                    if c.get('theorprice') and c.get('strike') is not None
-                }
-                p_map_p = {
-                    p2['strike']: p2
-                    for p2 in (board_pf.get('put') or [])
-                    if p2.get('theorprice') and p2.get('strike') is not None
-                }
-                common_p = sorted(set(c_map_p.keys()) & set(p_map_p.keys()))
-                fs_est = []
-                for k in common_p:
-                    ct = c_map_p[k]['theorprice']
-                    pt = p_map_p[k]['theorprice']
-                    if ct and pt and ct > 0 and pt > 0:
-                        fs_est.append(ct - pt + float(k))
-                if fs_est:
-                    fs_est.sort()
-                    F_current = fs_est[len(fs_est) // 2]
-            except Exception:
-                F_current = None
-
-            fig_pf = go.Figure()
-
-            fig_pf.add_trace(go.Scatter(
-                x=S_arr,
-                y=np.where(pnl_arr >= 0, pnl_arr, 0),
-                fill='tozeroy',
-                fillcolor='rgba(0,255,12,0.20)',
-                line=dict(width=0),
-                mode='lines',
-                name='Прибыль',
-                hoverinfo='skip',
-            ))
-
-            fig_pf.add_trace(go.Scatter(
-                x=S_arr,
-                y=np.where(pnl_arr <= 0, pnl_arr, 0),
-                fill='tozeroy',
-                fillcolor='rgba(255,0,0,0.20)',
-                line=dict(width=0),
-                mode='lines',
-                name='Убыток',
-                hoverinfo='skip',
-            ))
-
-            fig_pf.add_trace(go.Scatter(
-                x=S_arr,
-                y=pnl_arr,
-                mode='lines',
-                line=dict(color='#1e5a7a', width=3),
-                name='P&L на экспирации',
-                hovertemplate='БА: %{x:.2f} ₽<br>P&L: %{y:.2f} ₽<extra></extra>',
-            ))
-
-            fig_pf.add_hline(y=0, line_dash='dot',
-                             line_color='#7f9bb3', line_width=1)
-
-            for k in all_pos_strikes:
-                fig_pf.add_vline(
-                    x=k,
-                    line_dash='dash',
-                    line_color='#9c00ff',
-                    line_width=1,
-                    opacity=0.5,
-                    annotation_text=f"K {k:.0f}",
-                    annotation_position="top",
-                    annotation_font_size=10,
-                )
-
-            if F_current is not None:
-                fig_pf.add_vline(
-                    x=F_current,
-                    line_dash='dot',
-                    line_color='#1e88e5',
-                    line_width=2,
-                    annotation_text=f"Тек. {F_current:.0f}",
-                    annotation_position="bottom right",
-                    annotation_font_size=11,
-                )
-
-            for be in be_points:
-                fig_pf.add_vline(
-                    x=be,
-                    line_dash='dot',
-                    line_color='#00a651',
-                    line_width=1.5,
-                    opacity=0.8,
-                )
-
-            fig_pf.update_layout(
-                title=f"Payoff: {payoff_scope}",
-                xaxis_title="Цена базового актива, ₽",
-                yaxis_title="Прибыль / Убыток, ₽",
-                height=500,
-                margin=dict(l=20, r=20, t=60, b=20),
-                xaxis=dict(tickformat=".0f", hoverformat=".2f"),
-                yaxis=dict(tickformat=".2f", hoverformat=".2f"),
-                legend=dict(orientation="h", yanchor="bottom",
-                            y=1.02, xanchor="left", x=0),
-                hovermode='x unified',
+        if not payoff_positions:
+            st.info(
+                "Нет видимых позиций для построения графика. "
+                "Включите 👁 хотя бы у одной позиции выше."
             )
-            st.plotly_chart(fig_pf, use_container_width=True)
+        else:
+            all_pos_strikes = sorted({
+                float(p["Страйк"]) for p in payoff_positions
+                if p.get("Страйк") is not None
+            })
 
-            pm1, pm2 = st.columns(2)
-            with pm1:
-                st.metric("Макс. прибыль (в диапазоне)",
-                          f"{max_profit:+,.2f} ₽")
-            with pm2:
-                st.metric("Макс. убыток (в диапазоне)",
-                          f"{max_loss_pf:+,.2f} ₽")
-
-            if be_points:
-                be_str = " · ".join(f"**{be:,.2f} ₽**" for be in be_points)
-                st.caption(f"Точки безубыточности: {be_str}")
+            if not all_pos_strikes:
+                st.caption("Нет страйков для построения профиля.")
             else:
-                st.caption("Точки безубыточности в выбранном диапазоне не найдены.")
+                s_min = min(all_pos_strikes) * 0.85
+                s_max = max(all_pos_strikes) * 1.15
+                S_arr = np.linspace(s_min, s_max, 500)
+
+                def _payoff_at_expiry(S_vals, positions_subset):
+                    S_vals = np.asarray(S_vals, dtype=float)
+                    pnl_arr = np.zeros_like(S_vals)
+                    for p in positions_subset:
+                        K = float(p["Страйк"])
+                        qty = int(p["Кол-во"])
+                        price = float(p["Цена"])
+                        com = calc_commission(price, min_comm)
+                        if p["Опцион"] == "Call":
+                            intrinsic = np.maximum(0.0, S_vals - K)
+                        else:
+                            intrinsic = np.maximum(0.0, K - S_vals)
+                        pnl_arr += (intrinsic - price - com) * qty
+                    return pnl_arr
+
+                pnl_arr = _payoff_at_expiry(S_arr, payoff_positions)
+
+                max_profit = float(np.max(pnl_arr))
+                max_loss_pf = float(np.min(pnl_arr))
+
+                be_points = []
+                for i in range(1, len(S_arr)):
+                    if pnl_arr[i - 1] * pnl_arr[i] < 0:
+                        denom = pnl_arr[i] - pnl_arr[i - 1]
+                        if abs(denom) > 1e-12:
+                            x0 = (S_arr[i - 1]
+                                  + (S_arr[i] - S_arr[i - 1])
+                                  * (-pnl_arr[i - 1]) / denom)
+                            be_points.append(float(x0))
+
+                # Текущая цена БА через паритет call-put
+                F_current = None
+                try:
+                    c_map_p = {
+                        c['strike']: c
+                        for c in calls_pos
+                        if c.get('theorprice') and c.get('strike') is not None
+                    }
+                    p_map_p = {
+                        p2['strike']: p2
+                        for p2 in puts_pos
+                        if p2.get('theorprice') and p2.get('strike') is not None
+                    }
+                    common_p = sorted(set(c_map_p.keys()) & set(p_map_p.keys()))
+                    fs_est = []
+                    for k in common_p:
+                        ct = c_map_p[k]['theorprice']
+                        pt = p_map_p[k]['theorprice']
+                        if ct and pt and ct > 0 and pt > 0:
+                            fs_est.append(ct - pt + float(k))
+                    if fs_est:
+                        fs_est.sort()
+                        F_current = fs_est[len(fs_est) // 2]
+                except Exception:
+                    F_current = None
+
+                fig_pf = go.Figure()
+
+                fig_pf.add_trace(go.Scatter(
+                    x=S_arr,
+                    y=np.where(pnl_arr >= 0, pnl_arr, 0),
+                    fill='tozeroy',
+                    fillcolor='rgba(0,255,12,0.20)',
+                    line=dict(width=0),
+                    mode='lines',
+                    name='Прибыль',
+                    hoverinfo='skip',
+                ))
+
+                fig_pf.add_trace(go.Scatter(
+                    x=S_arr,
+                    y=np.where(pnl_arr <= 0, pnl_arr, 0),
+                    fill='tozeroy',
+                    fillcolor='rgba(255,0,0,0.20)',
+                    line=dict(width=0),
+                    mode='lines',
+                    name='Убыток',
+                    hoverinfo='skip',
+                ))
+
+                fig_pf.add_trace(go.Scatter(
+                    x=S_arr,
+                    y=pnl_arr,
+                    mode='lines',
+                    line=dict(color='#1e5a7a', width=3),
+                    name='P&L на экспирации',
+                    hovertemplate='БА: %{x:.2f} ₽<br>P&L: %{y:.2f} ₽<extra></extra>',
+                ))
+
+                fig_pf.add_hline(y=0, line_dash='dot',
+                                 line_color='#7f9bb3', line_width=1)
+
+                for k in all_pos_strikes:
+                    fig_pf.add_vline(
+                        x=k,
+                        line_dash='dash',
+                        line_color='#9c00ff',
+                        line_width=1,
+                        opacity=0.5,
+                        annotation_text=f"K {k:.0f}",
+                        annotation_position="top",
+                        annotation_font_size=10,
+                    )
+
+                if F_current is not None:
+                    fig_pf.add_vline(
+                        x=F_current,
+                        line_dash='dot',
+                        line_color='#1e88e5',
+                        line_width=2,
+                        annotation_text=f"Тек. {F_current:.0f}",
+                        annotation_position="bottom right",
+                        annotation_font_size=11,
+                    )
+
+                for be in be_points:
+                    fig_pf.add_vline(
+                        x=be,
+                        line_dash='dot',
+                        line_color='#00a651',
+                        line_width=1.5,
+                        opacity=0.8,
+                    )
+
+                fig_pf.update_layout(
+                    title=f"График профиля позиции — {payoff_scope}",
+                    xaxis_title="Цена базового актива, ₽",
+                    yaxis_title="Прибыль / Убыток, ₽",
+                    height=500,
+                    margin=dict(l=20, r=20, t=60, b=20),
+                    xaxis=dict(tickformat=".0f", hoverformat=".2f"),
+                    yaxis=dict(tickformat=".2f", hoverformat=".2f"),
+                    legend=dict(orientation="h", yanchor="bottom",
+                                y=1.02, xanchor="left", x=0),
+                    hovermode='x unified',
+                )
+                st.plotly_chart(fig_pf, use_container_width=True)
+
+                pm1, pm2 = st.columns(2)
+                with pm1:
+                    st.metric("Макс. прибыль (в диапазоне)",
+                              f"{max_profit:+,.2f} ₽")
+                with pm2:
+                    st.metric("Макс. убыток (в диапазоне)",
+                              f"{max_loss_pf:+,.2f} ₽")
+
+                if be_points:
+                    be_str = " · ".join(f"**{be:,.2f} ₽**" for be in be_points)
+                    st.caption(f"Точки безубыточности: {be_str}")
+                else:
+                    st.caption(
+                        "Точки безубыточности в выбранном диапазоне не найдены."
+                    )
