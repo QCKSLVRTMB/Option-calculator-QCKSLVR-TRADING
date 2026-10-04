@@ -264,11 +264,10 @@ TV_TICKER_MAP = {
 
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-
-
-# ================= Предустановленные конструкции =================
+    # ================= Предустановленные конструкции =================
 
 PREDEFINED_STRATEGIES = {
+    # ===== Одиночные опционы =====
     "Long Call": {
         "category": "Одиночные",
         "description": "Покупка опциона Call — ставка на рост",
@@ -305,6 +304,8 @@ PREDEFINED_STRATEGIES = {
              "side": "Sell", "qty": 1, "strike_group": "K"},
         ],
     },
+
+    # ===== Вертикальные спреды =====
     "Bull Call Spread": {
         "category": "Вертикальные спреды",
         "description": "Buy Call (низ) + Sell Call (верх) — бычий",
@@ -349,9 +350,11 @@ PREDEFINED_STRATEGIES = {
              "side": "Buy", "qty": 1, "strike_group": "K_high"},
         ],
     },
+
+    # ===== Butterfly (Бабочка) =====
     "Long Butterfly (Call)": {
         "category": "Бабочки",
-        "description": "Buy 1 Call (K1) + Sell 2 Call (K2) + Buy 1 Call (K3)",
+        "description": "Buy 1 Call (K1) + Sell 2 Call (K2) + Buy 1 Call (K3). K1<K2<K3",
         "strike_order": ["K1", "K2", "K3"],
         "legs": [
             {"label": "Buy Call (K1 — низ)", "option": "Call",
@@ -401,9 +404,11 @@ PREDEFINED_STRATEGIES = {
              "side": "Sell", "qty": 1, "strike_group": "K3"},
         ],
     },
+
+    # ===== Кошка (Cat) =====
     "Short Cat (Кошка)": {
         "category": "Кошка",
-        "description": "Buy Put (K1) + Sell Put (K2) + Sell Call (K3) + Buy Call (K4)",
+        "description": "Buy Put (K1) + Sell Put (K2) + Sell Call (K3) + Buy Call (K4). Кредитный вход.",
         "strike_order": ["K1", "K2", "K3", "K4"],
         "legs": [
             {"label": "Buy Put (K1 — защита)", "option": "Put",
@@ -431,6 +436,8 @@ PREDEFINED_STRATEGIES = {
              "side": "Sell", "qty": 1, "strike_group": "K4"},
         ],
     },
+
+    # ===== Кондоры =====
     "Long Condor": {
         "category": "Кондоры",
         "description": "Buy Put / Sell Put / Sell Call / Buy Call",
@@ -476,6 +483,8 @@ PREDEFINED_STRATEGIES = {
              "side": "Buy", "qty": 1, "strike_group": "K4"},
         ],
     },
+
+    # ===== Straddle / Strangle =====
     "Long Straddle": {
         "category": "Straddle / Strangle",
         "description": "Buy Call + Buy Put на одном страйке",
@@ -520,6 +529,8 @@ PREDEFINED_STRATEGIES = {
              "side": "Sell", "qty": 1, "strike_group": "K_high"},
         ],
     },
+
+    # ===== Ratio / Backspread =====
     "Call Ratio Spread": {
         "category": "Ratio / Backspread",
         "description": "Buy 1 Call (низ) + Sell 2 Call (верх)",
@@ -564,6 +575,8 @@ PREDEFINED_STRATEGIES = {
              "side": "Sell", "qty": 1, "strike_group": "K_high"},
         ],
     },
+
+    # ===== Синтетика =====
     "Synthetic Long Futures": {
         "category": "Синтетика",
         "description": "Buy Call + Sell Put на одном страйке",
@@ -586,6 +599,8 @@ PREDEFINED_STRATEGIES = {
              "side": "Buy", "qty": 1, "strike_group": "K"},
         ],
     },
+
+    # ===== Strap / Strip =====
     "Strap": {
         "category": "Strap / Strip",
         "description": "Buy 2 Call + Buy 1 Put на одном страйке",
@@ -608,6 +623,8 @@ PREDEFINED_STRATEGIES = {
              "side": "Buy", "qty": 2, "strike_group": "K"},
         ],
     },
+
+    # ===== Ladder =====
     "Ladder Call": {
         "category": "Ladder",
         "description": "Buy 1 Call (K1) + Sell Call (K2) + Sell Call (K3)",
@@ -648,12 +665,15 @@ def fetch_dividends_smartlab() -> pd.DataFrame:
         r.raise_for_status()
     except Exception as e:
         st.warning(f"Не удалось загрузить таблицу дивидендов: {e}")
-        return pd.DataFrame(columns=["ticker", "dividend_rub", "record_date", "stock_price"])
+        return pd.DataFrame(columns=["ticker", "dividend_rub",
+                                     "record_date", "stock_price"])
 
-    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', r.text, flags=re.DOTALL | re.IGNORECASE)
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', r.text,
+                      flags=re.DOTALL | re.IGNORECASE)
     records = []
     for row_html in rows:
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, flags=re.DOTALL | re.IGNORECASE)
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html,
+                           flags=re.DOTALL | re.IGNORECASE)
         if len(cells) < 10:
             continue
         clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
@@ -714,7 +734,7 @@ def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
     return q, float(price), row["record_date"]
 
 
-# ================= G-кривая =================
+# ================= G-кривая (безрисковая ставка) =================
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_g_curve_params():
@@ -789,7 +809,7 @@ def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
         return None
 
 
-# ================= Цветовые маркеры дат =================
+# ================= Цветовые маркеры дат экспирации =================
 
 def expiry_marker(expiry_str: str) -> str:
     try:
@@ -845,11 +865,13 @@ def fetch_optionseries(asset: str, asset_type_ui: str):
     if isinstance(data, list):
         for item in data:
             if 'optionseries_code' in item and 'expiration_date' in item:
-                series.append({'code': item['optionseries_code'], 'expiry': item['expiration_date']})
+                series.append({'code': item['optionseries_code'],
+                               'expiry': item['expiration_date']})
     elif isinstance(data, dict) and 'data' in data:
         for item in data['data']:
             if 'optionseries_code' in item and 'expiration_date' in item:
-                series.append({'code': item['optionseries_code'], 'expiry': item['expiration_date']})
+                series.append({'code': item['optionseries_code'],
+                               'expiry': item['expiration_date']})
     return series
 
 
@@ -910,7 +932,8 @@ def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
             continue
     if not board_data:
         raise RuntimeError("Не удалось получить доску опционов")
-    board_data['central_strike'] = fetch_central_strike(asset_code, series_code, used_asset_type)
+    board_data['central_strike'] = fetch_central_strike(asset_code, series_code,
+                                                        used_asset_type)
     board_data['series_code'] = series_code
     return board_data
 
@@ -1048,12 +1071,9 @@ def match_strategy_with_positions(strategy_def, positions):
             total_covered += best_cover
             grp = leg["strike_group"]
             if grp not in matched_strikes_by_group:
-                matched_strikes_by_group[grp] = float(
-                    positions[best_pi]["Страйк"]
-                )
+                matched_strikes_by_group[grp] = float(positions[best_pi]["Страйк"])
 
-    missing = [i for i in range(len(strategy_def["legs"]))
-               if i not in matched]
+    missing = [i for i in range(len(strategy_def["legs"])) if i not in matched]
     weight = total_covered / total_required if total_required else 0.0
 
     return {
@@ -1079,9 +1099,9 @@ def validate_strike_order(strategy_def, strike_values):
         if vals[i] <= vals[i - 1]:
             grps_txt = " < ".join(order)
             return False, (f"Нарушен порядок страйков: требуется {grps_txt}. "
-                           f"Сейчас: "
-                           + " < ".join(f"{order[j]}={int(vals[j])}"
-                                        for j in range(len(vals))))
+                           f"Сейчас: " + " < ".join(
+                               f"{order[j]}={int(vals[j])}"
+                               for j in range(len(vals))))
     return True, ""
 
 
@@ -1158,6 +1178,34 @@ def _side_from_qty(qty: int) -> str:
 
 def _new_position_id() -> str:
     return uuid.uuid4().hex[:8]
+
+
+def _parse_alert_num(v):
+    """Парсит числа с точкой или запятой в качестве разделителя."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if pd.isna(v):
+            return None
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    s = (s.replace("₽", "").replace("$", "").replace("€", "")
+           .replace(" ", "").replace("\u00a0", "").replace("'", ""))
+    has_comma = "," in s
+    has_dot = "." in s
+    if has_comma and not has_dot:
+        s = s.replace(",", ".")
+    elif has_comma and has_dot:
+        if s.rfind(",") < s.rfind("."):
+            s = s.replace(",", "")
+        else:
+            s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return None
 
 
 # ================= Экспорт полного отчёта =================
@@ -1367,8 +1415,10 @@ def push_report_data():
             if last and last > 0 and lvl_buy is not None and lvl_sell is not None:
                 buy_dev_pct = (lvl_buy - last) / last * 100.0
                 sell_dev_pct = (lvl_sell - last) / last * 100.0
-                buy_active = lvl_buy <= last
-                sell_active = lvl_sell >= last
+                # Покупка активна: рыночная цена ≤ уровень покупок
+                buy_active = last <= lvl_buy
+                # Продажа активна: рыночная цена ≥ уровень продаж
+                sell_active = last >= lvl_sell
 
             alerts_payload.append({
                 "ticker": ticker,
@@ -1394,11 +1444,7 @@ def push_report_data():
     }, delays=(1000, 2500, 4500, 7000))
     # ================= UI =================
 
-_hdr_left, _hdr_right = st.columns([3, 1])
-with _hdr_left:
-    st.title("MOEX Options & Black-Scholes")
-with _hdr_right:
-    st.write("")
+st.title("MOEX Options & Black-Scholes")
 
 tab_calc, tab_board, tab_position, tab_alerts = st.tabs([
     "Калькулятор",
@@ -1598,7 +1644,7 @@ with tab_board:
         st.markdown(f"### Доска опционов — **{asset}** "
                     f"(серия `{series_code}`, экспирация {expiry_str})")
 
-        # ---------- Текущая цена БА и информация о страйках ----------
+        # ---------- Текущая цена БА + инфо о страйках ----------
         try:
             _board_for_price = fetch_optionboard(asset, asset_type_ui, series_code)
             _calls_p = _board_for_price.get('call') or []
@@ -1812,9 +1858,9 @@ with tab_board:
                         elif col in ("Call_Bid", "Call_Offer",
                                      "Put_Bid", "Put_Offer"):
                             theor_col = "Call_Theor" if col.startswith("Call_") else "Put_Theor"
-                            pair_col = col.replace("_Bid", "_Offer") \
-                                       if col.endswith("_Bid") \
-                                       else col.replace("_Offer", "_Bid")
+                            pair_col = (col.replace("_Bid", "_Offer")
+                                        if col.endswith("_Bid")
+                                        else col.replace("_Offer", "_Bid"))
                             c = _liquidity_color(row[col], row.get(pair_col),
                                                  row.get(theor_col))
                             if c:
@@ -2186,7 +2232,7 @@ with tab_position:
                                 key=f"strat_strike_{grp}",
                             )
 
-                    # ---------- Множитель и количества ног ----------
+                    # Множитель + количества ног
                     st.markdown("**Множитель комплекта и количества ног:**")
                     mult_col1, mult_col2 = st.columns([1, 3])
                     with mult_col1:
@@ -2213,11 +2259,10 @@ with tab_position:
                                     f"{leg['side']} {leg['option']}",
                                     min_value=0, max_value=10000,
                                     value=int(st.session_state[key_q]),
-                                    step=1,
-                                    key=key_q,
+                                    step=1, key=key_q,
                                 )
 
-                    # ---------- Цены ног ----------
+                    # Цены ног
                     st.markdown("**Цены ног (по умолчанию — теоретические):**")
                     leg_prices = {}
                     cols_prices = st.columns(len(strat_def["legs"]))
@@ -2248,7 +2293,6 @@ with tab_position:
                         key="strat_final_name",
                     ).strip() or auto_name
 
-                    # Показать суммарный дебет/кредит
                     _preview_debit = 0.0
                     _all_prices_ok = True
                     for i, leg in enumerate(strat_def["legs"]):
@@ -2467,7 +2511,7 @@ with tab_position:
                     unsafe_allow_html=True,
                 )
 
-    # ---------- Итоги / Греки / Риск / Управление ----------
+    # ---------- Итоги / Греки / Риск / Управление / Payoff ----------
     if st.session_state.positions:
         st.markdown("### Итоги портфеля")
 
@@ -2676,7 +2720,7 @@ with tab_position:
                 be_str = " · ".join(f"**{be:,.2f} ₽**" for be in be_points)
                 st.caption(f"Точки безубыточности: {be_str}")
 
-        # ---------- Экспорт ----------
+        # ---------- Экспорт портфеля ----------
         _export_rows = []
         for i, p in enumerate(st.session_state.positions):
             qty = int(p.get("Кол-во", 0))
@@ -2756,12 +2800,8 @@ with tab_alerts:
             if missing:
                 st.error(f"В файле нет колонок: {', '.join(missing)}")
             else:
-                _xls["Уровень покупок"] = pd.to_numeric(
-                    _xls["Уровень покупок"], errors="coerce"
-                )
-                _xls["Уровень продаж"] = pd.to_numeric(
-                    _xls["Уровень продаж"], errors="coerce"
-                )
+                _xls["Уровень покупок"] = _xls["Уровень покупок"].apply(_parse_alert_num)
+                _xls["Уровень продаж"] = _xls["Уровень продаж"].apply(_parse_alert_num)
                 _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок",
                                            "Уровень продаж"])
                 st.session_state.alerts_df = _xls
@@ -2805,8 +2845,10 @@ with tab_alerts:
             if last and last > 0:
                 buy_dev_pct = (lvl_buy - last) / last * 100.0
                 sell_dev_pct = (lvl_sell - last) / last * 100.0
-                buy_active = lvl_buy <= last
-                sell_active = lvl_sell >= last
+                # Покупка активна: рыночная цена ≤ уровень покупок
+                buy_active = last <= lvl_buy
+                # Продажа активна: рыночная цена ≥ уровень продаж
+                sell_active = last >= lvl_sell
             else:
                 buy_dev_pct = sell_dev_pct = None
                 buy_active = sell_active = False
@@ -2829,31 +2871,37 @@ with tab_alerts:
             styles = []
             for col in row.index:
                 style = ""
-                if col == "Покупка активна" and row[col]:
-                    style = "background-color:#00ff0c; color:#0a3d0e; font-weight:700;"
-                elif col == "Продажа активна" and row[col]:
-                    style = "background-color:#00ff0c; color:#0a3d0e; font-weight:700;"
+                if col == "Покупка активна":
+                    if bool(row[col]):
+                        style = ("background-color:#00ff0c; "
+                                 "color:#0a3d0e; font-weight:700;")
+                elif col == "Продажа активна":
+                    if bool(row[col]):
+                        style = ("background-color:#00ff0c; "
+                                 "color:#0a3d0e; font-weight:700;")
                 elif col == "Откл. покупок, %" and row[col] is not None:
-                    style = "color:#00a651; font-weight:700;" if row[col] <= 0 \
-                            else "color:#d32f2f;"
+                    if row[col] >= 0:
+                        style = "color:#00a651; font-weight:700;"
+                    else:
+                        style = "color:#4a6f8a;"
                 elif col == "Откл. продаж, %" and row[col] is not None:
-                    style = "color:#00a651; font-weight:700;" if row[col] >= 0 \
-                            else "color:#d32f2f;"
+                    if row[col] <= 0:
+                        style = "color:#00a651; font-weight:700;"
+                    else:
+                        style = "color:#4a6f8a;"
                 styles.append(style)
             return styles
 
         st.dataframe(
-            df_out.style
-                 .apply(_style_alert_row, axis=1)
-                 .format({
-                     "Уровень покупок":  "{:,.2f}",
-                     "Уровень продаж":   "{:,.2f}",
-                     "Откл. покупок, %": "{:+.2f} %",
-                     "Откл. продаж, %":  "{:+.2f} %",
-                     "Рыночная цена":    "{:,.2f}",
-                     "Покупка активна":  lambda v: "АКТИВНО" if v else "—",
-                     "Продажа активна":  lambda v: "АКТИВНО" if v else "—",
-                 }, na_rep="—"),
+            df_out.style.apply(_style_alert_row, axis=1).format({
+                "Уровень покупок":  "{:,.2f}",
+                "Уровень продаж":   "{:,.2f}",
+                "Откл. покупок, %": "{:+.2f} %",
+                "Откл. продаж, %":  "{:+.2f} %",
+                "Рыночная цена":    "{:,.2f}",
+                "Покупка активна":  lambda v: "АКТИВНО" if v else "—",
+                "Продажа активна":  lambda v: "АКТИВНО" if v else "—",
+            }, na_rep="—"),
             use_container_width=True, hide_index=True,
         )
 
@@ -2879,8 +2927,4 @@ with tab_alerts:
 # ==================================================================
 # ============ ФИНАЛЬНЫЙ PUSH ДАННЫХ ДЛЯ ЭКСПОРТА =================
 # ==================================================================
-# Собираем данные со всех вкладок и отправляем в iframe.
-# Кнопка «Экспорт полного отчёта (CSV)» внутри iframe
-# формирует единый CSV со всех разделов.
-
 push_report_data()
