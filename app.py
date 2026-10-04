@@ -163,7 +163,7 @@ MOEX_INSTRUMENTS = {
     },
 }
 
-# ================= Соответствие MOEX-код → тикер TradingView =================
+# ================= Тикеры TradingView =================
 TV_TICKER_MAP = {
     "Акция": {
         "GAZP": "MOEX:GAZP", "SBER": "MOEX:SBER", "SBERP": "MOEX:SBERP",
@@ -268,19 +268,10 @@ def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_dividends_smartlab() -> pd.DataFrame:
-    """Загружает таблицу дивидендов с smart-lab.ru.
-
-    Возвращает DataFrame с колонками:
-      ticker, dividend_rub, record_date, stock_price
-    """
     url = "https://smart-lab.ru/dividends/index/order_by_ticker/desc/"
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0 Safari/537.36"
-        )
-    }
+    headers = {"User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/120.0 Safari/537.36")}
     try:
         r = requests.get(url, headers=headers, timeout=20)
         r.raise_for_status()
@@ -289,25 +280,19 @@ def fetch_dividends_smartlab() -> pd.DataFrame:
         return pd.DataFrame(columns=["ticker", "dividend_rub", "record_date", "stock_price"])
 
     rows = re.findall(r'<tr[^>]*>(.*?)</tr>', r.text, flags=re.DOTALL | re.IGNORECASE)
-
     records = []
     for row_html in rows:
         cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, flags=re.DOTALL | re.IGNORECASE)
         if len(cells) < 10:
             continue
         clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
-
         ticker = clean[1].upper() if len(clean) > 1 else ""
         if not ticker or not re.match(r'^[A-Z0-9]+$', ticker):
             continue
-
-        # Дивиденд, руб (индекс 3)
         try:
             dividend = float(clean[3].replace(",", ".").replace(" ", ""))
         except Exception:
             continue
-
-        # Дата закрытия реестра (индекс 7)
         date_str = None
         for idx in (7, 6, 8):
             if idx < len(clean) and re.match(r'\d{2}\.\d{2}\.\d{4}', clean[idx]):
@@ -319,47 +304,29 @@ def fetch_dividends_smartlab() -> pd.DataFrame:
             record_date = datetime.strptime(date_str, "%d.%m.%Y").date()
         except Exception:
             continue
-
-        # Цена акции (индекс 9 — последний столбец)
         stock_price = None
         try:
             price_str = clean[9].replace(",", ".").replace(" ", "").replace("₽", "")
             stock_price = float(price_str)
         except Exception:
             pass
-
         records.append({
             "ticker": ticker,
             "dividend_rub": dividend,
             "record_date": record_date,
             "stock_price": stock_price,
         })
-
     return pd.DataFrame(records)
 
 
 def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
-    """Возвращает дивидендную доходность (в долях) для опциона на акцию.
-
-    Условия:
-      * опцион на акцию (проверяется вызывающим кодом),
-      * тикер совпадает с тикером со smart-lab,
-      * дата закрытия реестра ≤ дата экспирации опциона,
-      * дата закрытия реестра ≥ сегодняшней даты.
-
-    Расчёт: q = дивиденд / цена_акции (из таблицы).
-
-    Возвращает (q, stock_price, record_date) или (None, None, None).
-    """
     df = fetch_dividends_smartlab()
     if df.empty:
         return None, None, None
-
     try:
         exp_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
     except Exception:
         return None, None, None
-
     candidates = df[
         (df["ticker"] == ticker.upper())
         & (df["record_date"] <= exp_date)
@@ -367,23 +334,19 @@ def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
     ]
     if candidates.empty:
         return None, None, None
-
     row = candidates.sort_values("record_date").iloc[0]
     div = float(row["dividend_rub"])
     price = row["stock_price"]
-
     if price is None or price <= 0:
         return None, None, None
-
     q = div / price
     return q, float(price), row["record_date"]
 
 
-# ================= G-кривая MOEX → безрисковая ставка =================
+# ================= G-кривая =================
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_g_curve_params():
-    """Загружает актуальные параметры G-кривой (КБД ОФЗ) с MOEX ISS."""
     url = "https://iss.moex.com/iss/engines/stock/zcyc/securities.json"
     try:
         r = requests.get(url, timeout=15)
@@ -392,16 +355,13 @@ def fetch_g_curve_params():
     except Exception as e:
         st.warning(f"Не удалось загрузить параметры G-кривой: {e}")
         return None
-
     params = data.get('params', {})
     columns = params.get('columns', [])
     values = params.get('data', [])
     if not columns or not values:
         return None
-
     df = pd.DataFrame(values, columns=columns)
     row = df.iloc[0]
-
     try:
         return {
             'beta0': float(row['B1']),
@@ -409,8 +369,6 @@ def fetch_g_curve_params():
             'beta2': float(row['B3']),
             'tau':   float(row['T1']),
             'g':     [float(row[f'G{i}']) for i in range(1, 10)],
-            'tradedate': str(row.get('tradedate', '')),
-            'tradetime': str(row.get('tradetime', '')),
         }
     except Exception as e:
         st.warning(f"Ошибка разбора параметров G-кривой: {e}")
@@ -422,28 +380,21 @@ _GC_B = [0.4, 0.6, 1.0, 1.6, 2.4, 4.0, 6.4, 9.6, 16.0]
 
 
 def g_curve_yield(t_years: float, p: dict):
-    """Доходность КБД ОФЗ (%) на срок t_years лет (модель Нельсона-Сигеля MOEX)."""
     if p is None or t_years <= 0:
         return None
-
     b0, b1, b2, tau = p['beta0'], p['beta1'], p['beta2'], p['tau']
     g = p['g']
-
     if tau <= 0:
         tau = 1.0
-
     exp_term = math.exp(-t_years / tau)
     frac = (1 - exp_term) * tau / t_years
-
     term1 = b0
     term2 = b1 * frac
     term3 = b2 * (frac - exp_term)
-
     term4 = 0.0
     for i in range(9):
         if _GC_B[i] != 0:
             term4 += g[i] * math.exp(-((t_years - _GC_A[i]) ** 2) / (_GC_B[i] ** 2))
-
     raw = term1 + term2 + term3 + term4
     rate_pct = raw / 10000.0
     if rate_pct < 0.5 or rate_pct > 50:
@@ -452,7 +403,6 @@ def g_curve_yield(t_years: float, p: dict):
 
 
 def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
-    """Безрисковая ставка (%) для даты экспирации. None — если не удалось."""
     params = fetch_g_curve_params()
     if params is None:
         return None
@@ -468,26 +418,25 @@ def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
         return None
 
 
-# ================= Цветовые маркеры дат экспирации =================
+# ================= Цветовые маркеры дат =================
 
 def expiry_marker(expiry_str: str) -> str:
-    """Цветовой маркер даты экспирации (по неделям, Пн–Вс)."""
     try:
         d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
     except Exception:
         return "⚪"
-
     today = date.today()
     monday_this_week = today - timedelta(days=today.weekday())
     end_next_week = monday_this_week + timedelta(days=13)
     end_week_after = monday_this_week + timedelta(days=20)
-
     if d <= end_next_week:
         return "🔴"
     if d <= end_week_after:
         return "🔵"
     return "🟢"
 
+
+# ================= MOEX fetch =================
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
@@ -656,7 +605,6 @@ def push_strikes_to_calculator(strikes_iv: list, central_strike):
 
 
 def push_risk_free_rate(rate_value):
-    """Отправляет безрисковую ставку в iframe (0 — если None)."""
     payload_value = float(rate_value) if rate_value is not None else 0.0
     _send_to_iframes({
         "type": "setRiskFree",
@@ -665,7 +613,6 @@ def push_risk_free_rate(rate_value):
 
 
 def push_dividend_yield(q_value):
-    """Отправляет дивидендную доходность (в долях) в iframe."""
     payload_value = float(q_value) if q_value is not None else 0.0
     _send_to_iframes({
         "type": "setDividend",
@@ -678,7 +625,7 @@ def push_dividend_yield(q_value):
 st.title("Калькулятор опционов QCKSLVR TRADING")
 
 calc_html = Path("index.html").read_text(encoding="utf-8")
-components.html(calc_html, height=1000, scrolling=True)
+components.html(calc_html, height=1100, scrolling=True)
 
 st.markdown("---")
 st.header("Выберите опционную серию")
@@ -709,7 +656,6 @@ with st.expander("📖 Справочник инструментов MOEX — к
             if not filtered:
                 st.caption("Ничего не найдено.")
                 continue
-
             n_cols = 4
             cols = st.columns(n_cols)
             for i, (code, (asset_type, name)) in enumerate(filtered.items()):
@@ -757,6 +703,17 @@ if load_btn and asset:
         st.error(f"Ошибка загрузки серий: {e}")
         st.session_state.series_list = []
 
+# ---------- Читаем уровни из query params (синхронизируются из iframe) ----------
+try:
+    buy_level = float(st.query_params.get("level_buy", 0) or 0)
+except (TypeError, ValueError):
+    buy_level = 0.0
+try:
+    sell_level = float(st.query_params.get("level_sell", 0) or 0)
+except (TypeError, ValueError):
+    sell_level = 0.0
+
+
 if st.session_state.series_list:
     sorted_series = sorted(
         st.session_state.series_list,
@@ -776,7 +733,7 @@ if st.session_state.series_list:
 
     push_expiry_to_calculator(expiry_str, series_code)
 
-    # --- Безрисковая ставка: только для опционов на акции ---
+    # Безрисковая ставка
     if asset_type_ui == "Акция":
         rfr = get_risk_free_rate_for_expiry(expiry_str)
         push_risk_free_rate(rfr)
@@ -787,7 +744,7 @@ if st.session_state.series_list:
     else:
         push_risk_free_rate(0.0)
 
-    # --- Дивидендная доходность: только для опционов на акции ---
+    # Дивидендная доходность
     if asset_type_ui == "Акция":
         q, stock_price, rec_date = get_dividend_yield_for_ticker(asset, expiry_str)
         push_dividend_yield(q)
@@ -838,6 +795,15 @@ if st.session_state.series_list:
         c_map = {c['strike']: c for c in calls}
         p_map = {p['strike']: p for p in puts}
 
+        # ---------- Определяем ближайшие страйки к уровням покупок/продаж ----------
+        def nearest_strike(level, strikes_list):
+            if level is None or level <= 0 or not strikes_list:
+                return None
+            return min(strikes_list, key=lambda s: abs(float(s) - float(level)))
+
+        buy_strike_match = nearest_strike(buy_level, strikes)
+        sell_strike_match = nearest_strike(sell_level, strikes)
+
         strikes_iv = []
         for k in strikes:
             c = c_map.get(k, {})
@@ -881,17 +847,33 @@ if st.session_state.series_list:
         df = pd.DataFrame(rows)
 
         def style_row(row):
-            strike = row["Strike"]
-            is_central = central is not None and abs(strike - central) < 0.01
+            strike = float(row["Strike"])
+            is_central = central is not None and abs(strike - float(central)) < 0.01
+            is_buy_strike = (buy_strike_match is not None
+                             and abs(strike - float(buy_strike_match)) < 0.01)
+            is_sell_strike = (sell_strike_match is not None
+                              and abs(strike - float(sell_strike_match)) < 0.01)
+
             call_bg = "#e1e3fb" if is_central else "#dbf3df"
             put_bg  = "#fee5cd" if is_central else "#ffcdce"
+
             styles = []
             for col in row.index:
                 if col.startswith("Call_"):
                     styles.append(f"background-color: {call_bg}")
                 elif col.startswith("Put_"):
                     styles.append(f"background-color: {put_bg}")
-                elif col in ("Strike", "IV_%") and is_central:
+                elif col == "Strike":
+                    # Приоритет: продажа → покупка → центральный страйк
+                    if is_sell_strike:
+                        styles.append("background-color: #fb92f0; color: white; font-weight: bold")
+                    elif is_buy_strike:
+                        styles.append("background-color: #9c00ff; color: white; font-weight: bold")
+                    elif is_central:
+                        styles.append("background-color: #e3e7ec; font-weight: bold")
+                    else:
+                        styles.append("")
+                elif col == "IV_%" and is_central:
                     styles.append("background-color: #e3e7ec; font-weight: bold")
                 else:
                     styles.append("")
@@ -923,8 +905,16 @@ if st.session_state.series_list:
         }
 
         st.subheader("Доска опционов")
+        caption_extra = ""
+        if buy_strike_match is not None:
+            caption_extra += (f" · страйк покупок ≈ **{buy_strike_match}** "
+                              f"(уровень {buy_level})")
+        if sell_strike_match is not None:
+            caption_extra += (f" · страйк продаж ≈ **{sell_strike_match}** "
+                              f"(уровень {sell_level})")
         st.caption(f"Центральный страйк: **{central if central is not None else 'не определён'}** · "
-                   f"всего страйков: {len(df)}")
+                   f"всего страйков: {len(df)}{caption_extra}")
+
         st.dataframe(
             df.style
               .apply(style_row, axis=1)
