@@ -48,6 +48,13 @@
   .commission-block { background: #fff7e6; border: 1px solid #ffe0a3; border-radius: 16px; padding: 12px 14px; margin-bottom: 16px; }
   .commission-block label { color: #8a5a00; }
   .commission-block input { border-color: #ffe0a3; background: #fffdf7; }
+  .commission-note {
+    font-size: .7rem;
+    color: #8a5a00;
+    margin-top: 6px;
+    font-style: italic;
+    line-height: 1.35;
+  }
 
   /* Точка безубыточности */
   .breakeven {
@@ -60,6 +67,11 @@
     display: inline-block;
   }
   .breakeven b { color: #1c5a7a; }
+  .breakeven .commission-val {
+    font-size: .75rem;
+    color: #8a5a00;
+    margin-left: 4px;
+  }
 
   .chart-ticker { font-size: .8rem; font-weight: 400; color: #4a6f8a; margin-left: 6px; }
   .charts-container { display: flex; flex-direction: column; gap: 10px; }
@@ -137,20 +149,24 @@
       <div class="card-title">Результаты расчёта</div>
 
       <div class="commission-block">
-        <label>Комиссия (₽ за контракт)</label>
-        <input type="number" id="commission" value="0" step="0.01">
+        <label>Комиссия, ₽/контракт — для Т-Инвестиции (тариф «Инвестор»)</label>
+        <input type="number" id="commission" value="0.02" step="0.01" min="0">
+        <div class="commission-note">
+          Тариф: <b>3% от премии, минимум 0,02 ₽ за 1 контракт</b>.<br>
+          Формула: <code>max(3% × премия, мин. значение из поля)</code>.
+        </div>
       </div>
 
       <div class="price-block">
         <div>Цена покупки опциона (На уровне = <span id="buyLevelVal">150</span>)</div>
         <div class="price-value" id="priceBuyResult">— ₽</div>
-        <div class="breakeven">Точка безубыточности: <b id="beBuy">— ₽</b></div>
+        <div class="breakeven">Точка безубыточности: <b id="beBuy">— ₽</b><span class="commission-val" id="commBuyInfo"></span></div>
         <div class="greeks" id="greeksBuy"></div>
       </div>
       <div class="price-block">
         <div>Цена продажи опциона (На уровне = <span id="sellLevelVal">163</span>)</div>
         <div class="price-value" id="priceSellResult">— ₽</div>
-        <div class="breakeven">Точка безубыточности: <b id="beSell">— ₽</b></div>
+        <div class="breakeven">Точка безубыточности: <b id="beSell">— ₽</b><span class="commission-val" id="commSellInfo"></span></div>
         <div class="greeks" id="greeksSell"></div>
       </div>
       <div class="price-block">
@@ -189,6 +205,17 @@
   function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-spot*Math.pow(u,step-i)*Math.pow(d,i));values[i]=Math.max(hold,exer);}}return values[0];}
   function calcGreeks(spot,strike,T,rate,vol,div,type){if(T<=1e-6)return{delta:'n/a',gamma:'n/a',theta:'n/a',vega:'n/a'};const r=rate/100,q=div/100,sigma=vol/100;const sqrtT=Math.sqrt(T);const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*sqrtT);const d2=d1-sigma*sqrtT;const nd1=normCDF(d1);const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);const delta=type==='call'?Math.exp(-q*T)*nd1:Math.exp(-q*T)*(nd1-1);const gamma=pdf*Math.exp(-q*T)/(spot*sigma*sqrtT);const vega=spot*pdf*Math.exp(-q*T)*sqrtT/100;const thetaCall=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)-r*strike*Math.exp(-r*T)*normCDF(d2)+q*spot*Math.exp(-q*T)*nd1;const thetaPut=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)+r*strike*Math.exp(-r*T)*normCDF(-d2)-q*spot*Math.exp(-q*T)*normCDF(-d1);const theta=(type==='call'?thetaCall:thetaPut)/365;return{delta:delta.toFixed(3),gamma:gamma.toFixed(3),vega:vega.toFixed(2),theta:theta.toFixed(3)};}
   function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
+
+  // ---------- Комиссия по тарифу «Инвестор» Т-Инвестиции ----------
+  // Формула: max(0.03 × премия, минимум_из_поля)
+  // Минимум по умолчанию 0.02 ₽ за 1 контракт.
+  const COMMISSION_RATE = 0.03;
+
+  function calcCommission(premium, minCommission) {
+    if (!isFinite(premium) || premium < 0) return 0;
+    const byRate = COMMISSION_RATE * premium;
+    return Math.max(byRate, minCommission);
+  }
 
   // ---------- Состояние страйков ----------
   let __strikeList = [];
@@ -312,7 +339,7 @@
         pUrl.searchParams.set('level_buy', String(buy));
         pUrl.searchParams.set('level_sell', String(sell));
         window.parent.history.replaceState({}, '', pUrl.toString());
-      } catch (e) { /* cross-origin или ещё не загружено */ }
+      } catch (e) { /* cross-origin */ }
     }, 500);
   }
 
@@ -327,13 +354,15 @@
     const Ssell=parseFloat(document.getElementById('priceSell').value);
     const expiryDate=document.getElementById('expiryDate').value;
     const currentDate=document.getElementById('currentDate').value;
-    const commission=parseFloat(document.getElementById('commission').value) || 0;
+    const minCommission=parseFloat(document.getElementById('commission').value) || 0;
 
     if(!expiryDate){
       document.getElementById('priceBuyResult').innerHTML='— ₽';
       document.getElementById('priceSellResult').innerHTML='— ₽';
       document.getElementById('beBuy').innerHTML='— ₽';
       document.getElementById('beSell').innerHTML='— ₽';
+      document.getElementById('commBuyInfo').innerText='';
+      document.getElementById('commSellInfo').innerText='';
       return;
     }
     const T=getTimeYears(currentDate,expiryDate);
@@ -351,19 +380,27 @@
     document.getElementById('buyLevelVal').innerText=Sbuy;
     document.getElementById('sellLevelVal').innerText=Ssell;
 
+    // Комиссии по тарифу
+    const commBuy  = calcCommission(priceBuy,  minCommission);
+    const commSell = calcCommission(priceSell, minCommission);
+
     // Точка безубыточности с учётом премии и комиссии
     // Call: BE = K + Premium + Commission
     // Put:  BE = K - Premium - Commission
     let beBuy, beSell;
     if (type === 'call') {
-      beBuy  = K + priceBuy  + commission;
-      beSell = K + priceSell + commission;
+      beBuy  = K + priceBuy  + commBuy;
+      beSell = K + priceSell + commSell;
     } else {
-      beBuy  = K - priceBuy  - commission;
-      beSell = K - priceSell - commission;
+      beBuy  = K - priceBuy  - commBuy;
+      beSell = K - priceSell - commSell;
     }
     document.getElementById('beBuy').innerText  = beBuy.toFixed(2) + ' ₽';
     document.getElementById('beSell').innerText = beSell.toFixed(2) + ' ₽';
+
+    // Инфо о применённой комиссии
+    document.getElementById('commBuyInfo').innerText  = ` (комиссия: ${commBuy.toFixed(4)} ₽)`;
+    document.getElementById('commSellInfo').innerText = ` (комиссия: ${commSell.toFixed(4)} ₽)`;
 
     const spread=priceSell-priceBuy;
     document.getElementById('spreadResult').innerHTML=spread.toFixed(2)+' ₽';
@@ -371,19 +408,21 @@
     document.getElementById('recommendMsg').innerHTML=`Внутренняя стоимость: ${intrinsic.toFixed(2)} ₽, временная: ${(priceSell-intrinsic).toFixed(2)} ₽ | Спред: ${spread.toFixed(2)} ₽`;
 
     const gB=calcGreeks(Sbuy,K,T,r,vol,div,type), gS=calcGreeks(Ssell,K,T,r,vol,div,type);
-    document.getElementById('greeksBuy').innerHTML=`<div class="greek">Δ ${gB.delta}</div><div class="greek">Γ ${gB.gamma}</div><div class="greek">Θ ${gB.theta}</div><div class="greek">ν ${gB.vega}</div>`;
-    document.getElementById('greeksSell').innerHTML=`<div class="greek">Δ ${gS.delta}</div><div class="greek">Γ ${gS.gamma}</div><div class="greek">Θ ${gS.theta}</div><div class="greek">ν ${gS.vega}</div>`;
+    document.getElementById('greeksBuy').innerHTML=`<div class="greek">Дельта ${gB.delta}</div><div class="greek">Гамма ${gB.gamma}</div><div class="greek">Тета ${gB.theta}</div><div class="greek">Вега ${gB.vega}</div>`;
+    document.getElementById('greeksSell').innerHTML=`<div class="greek">Дельта ${gS.delta}</div><div class="greek">Гамма ${gS.gamma}</div><div class="greek">Тета ${gS.theta}</div><div class="greek">Вега ${gS.vega}</div>`;
   }
 
   function saveSettings(){localStorage.setItem('optionCalcSettings',JSON.stringify({optionType:document.getElementById('optionType').value,strike:document.getElementById('strike').value,priceBuy:document.getElementById('priceBuy').value,priceSell:document.getElementById('priceSell').value,expiryDate:document.getElementById('expiryDate').value,riskFree:document.getElementById('riskFree').value,volatility:document.getElementById('volatility').value,dividend:document.getElementById('dividend').value,commission:document.getElementById('commission').value,pricingModel:document.getElementById('pricingModel').value}));}
   function loadSettings(){
     const s=JSON.parse(localStorage.getItem('optionCalcSettings')||'{}');
-    // currentDate НЕ загружаем — всегда выставляем сегодня
     ['optionType','priceBuy','priceSell','expiryDate','riskFree','volatility','dividend','commission','pricingModel'].forEach(k=>{if(s[k]!==undefined)document.getElementById(k).value=s[k];});
     updatePrices();
   }
-  function resetToExample(){document.getElementById('optionType').value='call';document.getElementById('priceBuy').value='150';document.getElementById('priceSell').value='163';document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);document.getElementById('riskFree').value='10';document.getElementById('volatility').value='30';document.getElementById('dividend').value='0';document.getElementById('commission').value='0';document.getElementById('pricingModel').value='bs';document.getElementById('expirySource').innerText='';renderStrikes();updatePrices();}
-  function exportCSV(){const rows=[['Параметр','Значение'],['Тип',document.getElementById('optionType').value],['Страйк',document.getElementById('strike').value],['S покупка',document.getElementById('priceBuy').value],['S продажа',document.getElementById('priceSell').value],['Экспирация',document.getElementById('expiryDate').value],['Текущая дата',document.getElementById('currentDate').value],['Ставка %',document.getElementById('riskFree').value],['Волатильность %',document.getElementById('volatility').value],['Модель',document.getElementById('pricingModel').value],['Комиссия',document.getElementById('commission').value],['Цена (покупка)',document.getElementById('priceBuyResult').innerText],['Цена (продажа)',document.getElementById('priceSellResult').innerText],['Спред',document.getElementById('spreadResult').innerText],['BE (покупка)',document.getElementById('beBuy').innerText],['BE (продажа)',document.getElementById('beSell').innerText]];const csv=rows.map(r=>r.join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='option_calc.csv';a.click();}
+  function resetToExample(){document.getElementById('optionType').value='call';document.getElementById('priceBuy').value='150';document.getElementById('priceSell').value='163';document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);document.getElementById('riskFree').value='10';document.getElementById('volatility').value='30';document.getElementById('dividend').value='0';document.getElementById('commission').value='0.02';document.getElementById('pricingModel').value='bs';document.getElementById('expirySource').innerText='';renderStrikes();updatePrices();}
+  function exportCSV(){
+    const rows=[['Параметр','Значение'],['Тип',document.getElementById('optionType').value],['Страйк',document.getElementById('strike').value],['S покупка',document.getElementById('priceBuy').value],['S продажа',document.getElementById('priceSell').value],['Экспирация',document.getElementById('expiryDate').value],['Текущая дата',document.getElementById('currentDate').value],['Ставка %',document.getElementById('riskFree').value],['Волатильность %',document.getElementById('volatility').value],['Модель',document.getElementById('pricingModel').value],['Мин. комиссия',document.getElementById('commission').value],['Цена (покупка)',document.getElementById('priceBuyResult').innerText],['Цена (продажа)',document.getElementById('priceSellResult').innerText],['Спред',document.getElementById('spreadResult').innerText],['BE (покупка)',document.getElementById('beBuy').innerText],['BE (продажа)',document.getElementById('beSell').innerText]];
+    const csv=rows.map(r=>r.join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='option_calc.csv';a.click();
+  }
 
   document.getElementById('calcBtn').addEventListener('click',updatePrices);
   document.getElementById('resetBtn').addEventListener('click',resetToExample);
@@ -393,7 +432,6 @@
   ['priceBuy','priceSell','currentDate','expiryDate','riskFree','volatility','dividend','commission','pricingModel']
     .forEach(id => document.getElementById(id).addEventListener('input', updatePrices));
 
-  // Синхронизируем уровни в родительский URL при изменении
   ['priceBuy','priceSell'].forEach(id =>
     document.getElementById(id).addEventListener('input', syncLevelsToParent));
 
@@ -412,21 +450,13 @@
   });
 
   // ---------- Инициализация ----------
-  // 1) Устанавливаем сегодняшнюю дату в поле «Текущая дата» ПРИНУДИТЕЛЬНО
   document.getElementById('currentDate').value = new Date().toISOString().slice(0,10);
-
-  // 2) Дату экспирации ставим по умолчанию +30 дней (если пусто)
   if(!document.getElementById('expiryDate').value) {
     document.getElementById('expiryDate').value = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
   }
-
-  // 3) Загружаем сохранённые настройки и сразу переустанавливаем текущую дату
   loadSettings();
   document.getElementById('currentDate').value = new Date().toISOString().slice(0,10);
   updatePrices();
-
-  // 4) Один раз синхронизируем уровни в родительский URL, чтобы
-  //    после первого рендера данные уже были доступны Streamlit
   syncLevelsToParent();
 
   // ---------- TradingView Widget ----------
