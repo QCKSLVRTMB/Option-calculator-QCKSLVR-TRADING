@@ -21,6 +21,12 @@
   .btn-secondary { background: #eef2f7; color: #1f3e54; border: 1px solid #cbdde8; }
   .price-block { background: #f9fbfd; border-radius: 20px; padding: 16px; margin-bottom: 20px; border: 1px solid #e2edf4; }
   .price-value { font-size: 1.8rem; font-weight: 700; color: #1c5a7a; }
+  .price-note {
+    margin-top: 4px;
+    font-size: .82rem;
+    color: #4a6f8a;
+  }
+  .price-note b { color: #1c5a7a; }
   .greeks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
   .greek { background: white; border-radius: 24px; padding: 6px 14px; border: 1px solid #dee9f0; font-size: .8rem; }
   .flex-btns { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
@@ -160,15 +166,19 @@
       <div class="price-block">
         <div>Цена покупки опциона (На уровне = <span id="buyLevelVal">150</span>)</div>
         <div class="price-value" id="priceBuyResult">— ₽</div>
+        <div class="price-note">С учётом комиссии: <b id="priceBuyWithComm">— ₽</b></div>
         <div class="breakeven">Точка безубыточности: <b id="beBuy">— ₽</b><span class="commission-val" id="commBuyInfo"></span></div>
         <div class="greeks" id="greeksBuy"></div>
       </div>
+
       <div class="price-block">
         <div>Цена продажи опциона (На уровне = <span id="sellLevelVal">163</span>)</div>
         <div class="price-value" id="priceSellResult">— ₽</div>
+        <div class="price-note">С учётом комиссии: <b id="priceSellWithComm">— ₽</b></div>
         <div class="breakeven">Точка безубыточности: <b id="beSell">— ₽</b><span class="commission-val" id="commSellInfo"></span></div>
         <div class="greeks" id="greeksSell"></div>
       </div>
+
       <div class="price-block">
         <div>Прибыль/Убыток</div>
         <div class="price-value" id="spreadResult">— ₽</div>
@@ -207,10 +217,7 @@
   function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
 
   // ---------- Комиссия по тарифу «Инвестор» Т-Инвестиции ----------
-  // Формула: max(0.03 × премия, минимум_из_поля)
-  // Минимум по умолчанию 0.02 ₽ за 1 контракт.
   const COMMISSION_RATE = 0.03;
-
   function calcCommission(premium, minCommission) {
     if (!isFinite(premium) || premium < 0) return 0;
     const byRate = COMMISSION_RATE * premium;
@@ -359,6 +366,8 @@
     if(!expiryDate){
       document.getElementById('priceBuyResult').innerHTML='— ₽';
       document.getElementById('priceSellResult').innerHTML='— ₽';
+      document.getElementById('priceBuyWithComm').innerHTML='— ₽';
+      document.getElementById('priceSellWithComm').innerHTML='— ₽';
       document.getElementById('beBuy').innerHTML='— ₽';
       document.getElementById('beSell').innerHTML='— ₽';
       document.getElementById('commBuyInfo').innerText='';
@@ -380,9 +389,18 @@
     document.getElementById('buyLevelVal').innerText=Sbuy;
     document.getElementById('sellLevelVal').innerText=Ssell;
 
-    // Комиссии по тарифу
+    // Комиссии по тарифу (отдельно для каждой ноги)
     const commBuy  = calcCommission(priceBuy,  minCommission);
     const commSell = calcCommission(priceSell, minCommission);
+
+    // Итого с учётом комиссии
+    // Покупка: сколько реально заплатит покупатель (премия + комиссия)
+    // Продажа: сколько реально получит продавец (премия − комиссия)
+    const priceBuyWithComm  = priceBuy  + commBuy;
+    const priceSellWithComm = priceSell - commSell;
+
+    document.getElementById('priceBuyWithComm').innerText  = priceBuyWithComm.toFixed(2)  + ' ₽';
+    document.getElementById('priceSellWithComm').innerText = priceSellWithComm.toFixed(2) + ' ₽';
 
     // Точка безубыточности с учётом премии и комиссии
     // Call: BE = K + Premium + Commission
@@ -420,8 +438,32 @@
   }
   function resetToExample(){document.getElementById('optionType').value='call';document.getElementById('priceBuy').value='150';document.getElementById('priceSell').value='163';document.getElementById('currentDate').value=new Date().toISOString().slice(0,10);document.getElementById('riskFree').value='10';document.getElementById('volatility').value='30';document.getElementById('dividend').value='0';document.getElementById('commission').value='0.02';document.getElementById('pricingModel').value='bs';document.getElementById('expirySource').innerText='';renderStrikes();updatePrices();}
   function exportCSV(){
-    const rows=[['Параметр','Значение'],['Тип',document.getElementById('optionType').value],['Страйк',document.getElementById('strike').value],['S покупка',document.getElementById('priceBuy').value],['S продажа',document.getElementById('priceSell').value],['Экспирация',document.getElementById('expiryDate').value],['Текущая дата',document.getElementById('currentDate').value],['Ставка %',document.getElementById('riskFree').value],['Волатильность %',document.getElementById('volatility').value],['Модель',document.getElementById('pricingModel').value],['Мин. комиссия',document.getElementById('commission').value],['Цена (покупка)',document.getElementById('priceBuyResult').innerText],['Цена (продажа)',document.getElementById('priceSellResult').innerText],['Спред',document.getElementById('spreadResult').innerText],['BE (покупка)',document.getElementById('beBuy').innerText],['BE (продажа)',document.getElementById('beSell').innerText]];
-    const csv=rows.map(r=>r.join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='option_calc.csv';a.click();
+    const rows=[
+      ['Параметр','Значение'],
+      ['Тип',document.getElementById('optionType').value],
+      ['Страйк',document.getElementById('strike').value],
+      ['S покупка',document.getElementById('priceBuy').value],
+      ['S продажа',document.getElementById('priceSell').value],
+      ['Экспирация',document.getElementById('expiryDate').value],
+      ['Текущая дата',document.getElementById('currentDate').value],
+      ['Ставка %',document.getElementById('riskFree').value],
+      ['Волатильность %',document.getElementById('volatility').value],
+      ['Модель',document.getElementById('pricingModel').value],
+      ['Мин. комиссия',document.getElementById('commission').value],
+      ['Цена (покупка, БШ)',document.getElementById('priceBuyResult').innerText],
+      ['Цена (покупка, с комиссией)',document.getElementById('priceBuyWithComm').innerText],
+      ['Цена (продажа, БШ)',document.getElementById('priceSellResult').innerText],
+      ['Цена (продажа, с комиссией)',document.getElementById('priceSellWithComm').innerText],
+      ['Спред',document.getElementById('spreadResult').innerText],
+      ['BE (покупка)',document.getElementById('beBuy').innerText],
+      ['BE (продажа)',document.getElementById('beSell').innerText]
+    ];
+    const csv=rows.map(r=>r.join(',')).join('\n');
+    const blob=new Blob([csv],{type:'text/csv'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='option_calc.csv';
+    a.click();
   }
 
   document.getElementById('calcBtn').addEventListener('click',updatePrices);
