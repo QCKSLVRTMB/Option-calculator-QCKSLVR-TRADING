@@ -21,11 +21,7 @@
   .btn-secondary { background: #eef2f7; color: #1f3e54; border: 1px solid #cbdde8; }
   .price-block { background: #f9fbfd; border-radius: 20px; padding: 16px; margin-bottom: 20px; border: 1px solid #e2edf4; }
   .price-value { font-size: 1.8rem; font-weight: 700; color: #1c5a7a; }
-  .price-note {
-    margin-top: 4px;
-    font-size: .82rem;
-    color: #4a6f8a;
-  }
+  .price-note { margin-top: 4px; font-size: .82rem; color: #4a6f8a; }
   .price-note b { color: #1c5a7a; }
   .greeks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
   .greek { background: white; border-radius: 24px; padding: 6px 14px; border: 1px solid #dee9f0; font-size: .8rem; }
@@ -34,7 +30,6 @@
   .model-note { font-size: .7rem; color: #5f7f9e; margin-top: 6px; font-style: italic; }
   .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 4px; }
 
-  /* Валидация */
   input.input-error {
     color: #d32f2f !important;
     border-color: #d32f2f !important;
@@ -50,7 +45,6 @@
 
   #strike { font-weight: 700; transition: color .12s ease; }
 
-  /* Точка безубыточности */
   .breakeven {
     margin-top: 6px;
     font-size: .82rem;
@@ -96,7 +90,7 @@
         </div>
       </div>
       <div class="validation-msg" id="levelsValidation">
-        ⚠ «Уровень покупок» должен быть строго меньше «Уровень продаж».
+        «Уровень покупок» должен быть строго меньше «Уровень продаж».
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -110,7 +104,7 @@
         </div>
       </div>
       <div class="validation-msg" id="dateValidation">
-        ⚠ «Текущая дата» должна совпадать с сегодняшней датой.
+        «Текущая дата» должна совпадать с сегодняшней датой.
       </div>
       <div class="form-row">
         <div class="form-group"><label>Безрисковая ставка %</label><input type="number" id="riskFree" value="0" step="0.0001"></div>
@@ -175,20 +169,17 @@
 </div>
 
 <script>
-  // ---------- Палитра ATM/ITM/OTM ----------
   const COLOR_ATM = '#1e88e5';
   const COLOR_ITM = '#2e7d32';
   const COLOR_OTM = '#d32f2f';
   const COLOR_NEUTRAL = '#333333';
 
-  // ---------- Black-Scholes / биномиальная ----------
   function normCDF(x){const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;}
   function blackScholes(spot,strike,T,rate,vol,div,type){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));const d2=d1-sigma*Math.sqrt(T);if(type==='call')return spot*Math.exp(-q*T)*normCDF(d1)-strike*Math.exp(-r*T)*normCDF(d2);return strike*Math.exp(-r*T)*normCDF(-d2)-spot*Math.exp(-q*T)*normCDF(-d1);}
   function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0)return type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot);const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-spot*Math.pow(u,step-i)*Math.pow(d,i));values[i]=Math.max(hold,exer);}}return values[0];}
   function calcGreeks(spot,strike,T,rate,vol,div,type){if(T<=1e-6)return{delta:'n/a',gamma:'n/a',theta:'n/a',vega:'n/a'};const r=rate/100,q=div/100,sigma=vol/100;const sqrtT=Math.sqrt(T);const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*sqrtT);const d2=d1-sigma*sqrtT;const nd1=normCDF(d1);const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);const delta=type==='call'?Math.exp(-q*T)*nd1:Math.exp(-q*T)*(nd1-1);const gamma=pdf*Math.exp(-q*T)/(spot*sigma*sqrtT);const vega=spot*pdf*Math.exp(-q*T)*sqrtT/100;const thetaCall=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)-r*strike*Math.exp(-r*T)*normCDF(d2)+q*spot*Math.exp(-q*T)*nd1;const thetaPut=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)+r*strike*Math.exp(-r*T)*normCDF(-d2)-q*spot*Math.exp(-q*T)*normCDF(-d1);const theta=(type==='call'?thetaCall:thetaPut)/365;return{delta:delta.toFixed(3),gamma:gamma.toFixed(3),vega:vega.toFixed(2),theta:theta.toFixed(3)};}
   function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
 
-  // ---------- Состояние страйков ----------
   let __strikeList = [];
   let __centralStrike = null;
 
@@ -252,7 +243,6 @@
     if (iv != null) document.getElementById('volatility').value = iv;
   }
 
-  // ---------- Валидация ----------
   function validateLevels() {
     const buyEl = document.getElementById('priceBuy');
     const sellEl = document.getElementById('priceSell');
@@ -295,7 +285,6 @@
     return !invalid;
   }
 
-  // ---------- Синхронизация уровней в родительский URL ----------
   let __syncTimeout = null;
   function syncLevelsToParent() {
     if (__syncTimeout) clearTimeout(__syncTimeout);
@@ -310,11 +299,10 @@
         pUrl.searchParams.set('level_buy', String(buy));
         pUrl.searchParams.set('level_sell', String(sell));
         window.parent.history.replaceState({}, '', pUrl.toString());
-      } catch (e) { /* cross-origin */ }
+      } catch (e) { }
     }, 500);
   }
 
-  // ---------- Расчёт цен / BE ----------
   function updatePrices(){
     validateLevels();
     validateCurrentDate();
@@ -348,9 +336,6 @@
     document.getElementById('buyLevelVal').innerText=Sbuy;
     document.getElementById('sellLevelVal').innerText=Ssell;
 
-    // Точка безубыточности — без комиссии (комиссия переехала на вкладку «Позиция»)
-    // Call: BE = K + Premium
-    // Put:  BE = K - Premium
     let beBuy, beSell;
     if (type === 'call') {
       beBuy  = K + priceBuy;
@@ -430,7 +415,6 @@
     updatePrices();
   });
 
-  // ---------- Инициализация ----------
   document.getElementById('currentDate').value = new Date().toISOString().slice(0,10);
   if(!document.getElementById('expiryDate').value) {
     document.getElementById('expiryDate').value = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
@@ -440,7 +424,6 @@
   updatePrices();
   syncLevelsToParent();
 
-  // ---------- TradingView Widget ----------
   function renderTVChart(containerId, symbol, interval) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -481,7 +464,6 @@
     container.appendChild(iframe);
   }
 
-  // ---------- Мост с родителем Streamlit ----------
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data) return;
@@ -512,8 +494,8 @@
         el.value = data.value;
         const source = document.getElementById('expirySource');
         if (source) source.innerText = data.series_code
-          ? `↳ из MOEX: серия ${data.series_code}`
-          : '↳ из MOEX';
+          ? `из MOEX: серия ${data.series_code}`
+          : 'из MOEX';
         updatePrices();
         try { saveSettings(); } catch (_) {}
       }
