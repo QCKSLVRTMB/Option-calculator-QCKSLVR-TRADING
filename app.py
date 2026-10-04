@@ -1302,18 +1302,85 @@ with tab_position:
             hide_index=True,
         )
 
-        st.markdown("### 💼 Итоги портфеля")
-        s1, s2, s3, s4 = st.columns(4)
-        with s1:
+                st.markdown("### Итоги портфеля")
+
+        # P&L и комиссии — две метрики
+        p1, p2 = st.columns(2)
+        with p1:
             st.metric("P&L", f"{total_pnl:,.2f} ₽")
-        with s2:
+        with p2:
             st.metric("Комиссии", f"{total_com:,.4f} ₽")
-        with s3:
-            st.metric("Греки (Σ)",
-                      f"Δ {total_delta:+.3f} · Γ {total_gamma:+.4f}")
-        with s4:
-            st.metric("Греки (Σ)",
-                      f"ν {total_vega:+.3f} · Θ {total_theta:+.3f}")
+
+        # ---------- Цветовые коды для греков (по стратегии) ----------
+        def _color_delta(d):
+            d = abs(d)
+            if 0.25 <= d <= 0.45:
+                return "#2e7d32"      # зелёный — целевой OTM
+            if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
+                return "#b8860b"      # жёлтый — пограничная зона
+            return "#d32f2f"          # красный — вне диапазона
+
+        def _color_gamma(g):
+            g = abs(g)
+            if g < 0.001:
+                return "#2e7d32"      # низкая гамма — спокойно
+            if g < 0.005:
+                return "#b8860b"      # средний риск
+            return "#d32f2f"          # высокая гамма — опасно
+
+        def _color_vega(v):
+            v = abs(v)
+            if v < 20:
+                return "#2e7d32"      # вега мала — ближний срок
+            if v < 60:
+                return "#b8860b"
+            return "#d32f2f"          # большая вега — далёкий срок
+
+        def _color_theta(theta, vega):
+            if abs(vega) < 1e-9:
+                return "#4a6f8a"      # нет данных
+            ratio = abs(theta) / abs(vega)
+            if ratio > 1.0:
+                return "#2e7d32"      # Тета доминирует — по стратегии
+            if ratio > 0.5:
+                return "#b8860b"
+            return "#d32f2f"          # Вега ещё влияет
+
+        def _greek_card(title, value, color):
+            """Плитка с цветным числом грека."""
+            st.markdown(
+                f"""
+                <div style="background:#f9fbfd; border-radius:16px;
+                            padding:14px 16px; border:1px solid #e2edf4;
+                            height:100%;">
+                    <div style="font-size:.72rem; font-weight:700;
+                                color:#2c506d; text-transform:uppercase;
+                                letter-spacing:.05em; margin-bottom:6px;">
+                        {title}
+                    </div>
+                    <div style="font-size:1.6rem; font-weight:700;
+                                color:{color};">
+                        {value}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        c_delta = _color_delta(total_delta)
+        c_gamma = _color_gamma(total_gamma)
+        c_vega  = _color_vega(total_vega)
+        c_theta = _color_theta(total_theta, total_vega)
+
+        g1, g2, g3, g4 = st.columns(4)
+        with g1:
+            _greek_card("Дельта (Σ)", f"{total_delta:+.3f}", c_delta)
+        with g2:
+            _greek_card("Гамма (Σ)", f"{total_gamma:+.4f}", c_gamma)
+        with g3:
+            _greek_card("Вега (Σ)", f"{total_vega:+.3f}", c_vega)
+        with g4:
+            _greek_card("Тета (Σ)", f"{total_theta:+.3f}", c_theta)
 
         max_loss = sum(calc_commission(p["Цена"], min_comm) * p["Кол-во"]
                        + p["Цена"] * p["Кол-во"]
