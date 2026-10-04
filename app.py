@@ -622,333 +622,390 @@ def push_dividend_yield(q_value):
 
 # ================= UI =================
 
-st.title("Калькулятор опционов QCKSLVR TRADING")
+st.title("MOEX Options & Black-Scholes")
 
-calc_html = Path("index.html").read_text(encoding="utf-8")
-components.html(calc_html, height=1100, scrolling=True)
+tab_calc, tab_board = st.tabs([
+    "Калькулятор",
+    "Доска опционов и кривая волатильности",
+])
 
-st.markdown("---")
-st.header("Выберите опционную серию")
+# ==================================================================
+# ============ ВКЛАДКА 1: КАЛЬКУЛЯТОР =============================
+# ==================================================================
+with tab_calc:
+    st.header("Выберите опционную серию")
 
-if "asset_input" not in st.session_state:
-    st.session_state.asset_input = "RTS"
-if "asset_type_ui" not in st.session_state:
-    st.session_state.asset_type_ui = "Фьючерс"
+    if "asset_input" not in st.session_state:
+        st.session_state.asset_input = "RTS"
+    if "asset_type_ui" not in st.session_state:
+        st.session_state.asset_type_ui = "Фьючерс"
 
-with st.expander("📖 Справочник инструментов MOEX — кликните по тикеру, "
-                 "чтобы подставить его и категорию в поля ниже", expanded=False):
-    filter_text = st.text_input(
-        "🔍 Поиск по коду или названию",
-        key="dict_filter",
-        placeholder="GAZP, Сбер, золото…",
-    ).strip().lower()
+    with st.expander("📖 Справочник инструментов MOEX — кликните по тикеру, "
+                     "чтобы подставить его и категорию в поля ниже", expanded=False):
+        filter_text = st.text_input(
+            "🔍 Поиск по коду или названию",
+            key="dict_filter",
+            placeholder="GAZP, Сбер, золото…",
+        ).strip().lower()
 
-    dict_tabs = st.tabs(list(MOEX_INSTRUMENTS.keys()))
-    for tab, (category, items) in zip(dict_tabs, MOEX_INSTRUMENTS.items()):
-        with tab:
-            filtered = {
-                code: (atype, name)
-                for code, (atype, name) in items.items()
-                if not filter_text
-                or filter_text in code.lower()
-                or filter_text in name.lower()
-            }
-            if not filtered:
-                st.caption("Ничего не найдено.")
-                continue
-            n_cols = 4
-            cols = st.columns(n_cols)
-            for i, (code, (asset_type, name)) in enumerate(filtered.items()):
-                with cols[i % n_cols]:
-                    if st.button(
-                        code,
-                        key=f"dict_{category}_{code}",
-                        use_container_width=True,
-                        help=f"{name} → категория «{asset_type}»",
-                    ):
-                        st.session_state.asset_input = code
-                        st.session_state.asset_type_ui = asset_type
-                        st.rerun()
-                    st.caption(name)
+        dict_tabs = st.tabs(list(MOEX_INSTRUMENTS.keys()))
+        for tab, (category, items) in zip(dict_tabs, MOEX_INSTRUMENTS.items()):
+            with tab:
+                filtered = {
+                    code: (atype, name)
+                    for code, (atype, name) in items.items()
+                    if not filter_text
+                    or filter_text in code.lower()
+                    or filter_text in name.lower()
+                }
+                if not filtered:
+                    st.caption("Ничего не найдено.")
+                    continue
+                n_cols = 4
+                cols = st.columns(n_cols)
+                for i, (code, (asset_type, name)) in enumerate(filtered.items()):
+                    with cols[i % n_cols]:
+                        if st.button(
+                            code,
+                            key=f"dict_{category}_{code}",
+                            use_container_width=True,
+                            help=f"{name} → категория «{asset_type}»",
+                        ):
+                            st.session_state.asset_input = code
+                            st.session_state.asset_type_ui = asset_type
+                            st.rerun()
+                        st.caption(name)
 
-col1, col2, col3 = st.columns([2, 2, 3])
-with col1:
-    asset = st.text_input(
-        "Базовый актив",
-        key="asset_input",
-        placeholder="RTS, Si, GAZR…",
-    ).strip().upper()
-with col2:
-    asset_type_ui = st.selectbox(
-        "Категория базового актива",
-        ["Фьючерс", "Акция", "Валюта", "Товар", "Индекс"],
-        key="asset_type_ui",
-    )
-with col3:
-    st.write("")
-    load_btn = st.button("Загрузить доску опционов", use_container_width=True)
+    col1, col2, col3 = st.columns([2, 2, 3])
+    with col1:
+        asset = st.text_input(
+            "Базовый актив",
+            key="asset_input",
+            placeholder="RTS, Si, GAZR…",
+        ).strip().upper()
+    with col2:
+        asset_type_ui = st.selectbox(
+            "Категория базового актива",
+            ["Фьючерс", "Акция", "Валюта", "Товар", "Индекс"],
+            key="asset_type_ui",
+        )
+    with col3:
+        st.write("")
+        load_btn = st.button("Загрузить доску опционов", use_container_width=True)
 
-if st.button("Сбросить кэш MOEX"):
-    st.cache_data.clear()
-    st.rerun()
+    if st.button("Сбросить кэш MOEX"):
+        st.cache_data.clear()
+        st.rerun()
 
-if "series_list" not in st.session_state:
-    st.session_state.series_list = []
-
-if load_btn and asset:
-    try:
-        with st.spinner("Загрузка серий..."):
-            st.session_state.series_list = fetch_optionseries(asset, asset_type_ui)
-    except Exception as e:
-        st.error(f"Ошибка загрузки серий: {e}")
+    if "series_list" not in st.session_state:
         st.session_state.series_list = []
 
-# ---------- Читаем уровни из query params (синхронизируются из iframe) ----------
-try:
-    buy_level = float(st.query_params.get("level_buy", 0) or 0)
-except (TypeError, ValueError):
-    buy_level = 0.0
-try:
-    sell_level = float(st.query_params.get("level_sell", 0) or 0)
-except (TypeError, ValueError):
-    sell_level = 0.0
+    if load_btn and asset:
+        try:
+            with st.spinner("Загрузка серий..."):
+                st.session_state.series_list = fetch_optionseries(asset, asset_type_ui)
+        except Exception as e:
+            st.error(f"Ошибка загрузки серий: {e}")
+            st.session_state.series_list = []
 
-
-if st.session_state.series_list:
-    sorted_series = sorted(
-        st.session_state.series_list,
-        key=lambda x: x.get("expiry", "")
-    )
-
-    option_labels = [
-        f"{expiry_marker(s['expiry'])} {s['expiry']} — {s['code']}"
-        for s in sorted_series
-    ]
-
-    chosen = st.selectbox("Дата экспирации (серия)", option_labels, index=0)
-    chosen_idx = option_labels.index(chosen)
-    selected = sorted_series[chosen_idx]
-    series_code = selected["code"]
-    expiry_str = selected["expiry"]
-
-    push_expiry_to_calculator(expiry_str, series_code)
-
-    # Безрисковая ставка
-    if asset_type_ui == "Акция":
-        rfr = get_risk_free_rate_for_expiry(expiry_str)
-        push_risk_free_rate(rfr)
-        if rfr is not None:
-            st.caption(f"Безрисковая ставка (G-кривая ОФЗ MOEX): **{rfr:.4f} %**")
-        else:
-            st.caption("⚠ Не удалось получить ставку из G-кривой — оставлено 0.")
-    else:
-        push_risk_free_rate(0.0)
-
-    # Дивидендная доходность
-    if asset_type_ui == "Акция":
-        q, stock_price, rec_date = get_dividend_yield_for_ticker(asset, expiry_str)
-        push_dividend_yield(q)
-        if q is not None and stock_price is not None:
-            st.caption(
-                f"Дивидендная доходность (smart-lab.ru): "
-                f"q = **{q:.4f}** ({q*100:.2f} %) · "
-                f"цена акции = {stock_price:.2f} ₽ · "
-                f"закрытие реестра: {rec_date.strftime('%d.%m.%Y')}"
-            )
-        else:
-            st.caption("Дивиденды по этому тикеру до экспирации не найдены — q = 0.")
-    else:
-        push_dividend_yield(0.0)
-
-    st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
-               f"(серия `{series_code}`)")
-
-    tv_symbol = resolve_tv_ticker(asset, asset_type_ui)
-    if tv_symbol:
-        push_tv_ticker(asset, tv_symbol)
-        st.caption(f"Тикер TradingView: `{tv_symbol}`")
-    else:
-        st.warning(
-            f"⚠️ Для «{asset}» ({asset_type_ui}) не задан тикер TradingView. "
-            f"Добавьте его в `TV_TICKER_MAP[\"{asset_type_ui}\"]` в `app.py`."
+    # ---------- Выбор серии и вычисления ----------
+    if st.session_state.series_list:
+        sorted_series = sorted(
+            st.session_state.series_list,
+            key=lambda x: x.get("expiry", "")
         )
 
-    try:
-        info = fetch_series_info(asset, asset_type_ui, series_code)
-        with st.expander("Об опционной серии", expanded=False):
-            st.json(info, expanded=True)
-    except Exception as e:
-        st.warning(f"Не удалось загрузить информацию о серии: {e}")
+        option_labels = [
+            f"{expiry_marker(s['expiry'])} {s['expiry']} — {s['code']}"
+            for s in sorted_series
+        ]
 
-    try:
-        board = fetch_optionboard(asset, asset_type_ui, series_code)
-    except Exception as e:
-        st.error(f"Не удалось загрузить доску: {e}")
-        board = None
+        chosen = st.selectbox("Дата экспирации (серия)", option_labels, index=0)
+        chosen_idx = option_labels.index(chosen)
+        selected = sorted_series[chosen_idx]
+        series_code = selected["code"]
+        expiry_str = selected["expiry"]
 
-    if board:
-        calls = board.get('call') or []
-        puts = board.get('put') or []
-        central = board.get('central_strike')
+        # Сохраняем в session_state, чтобы вкладка «Доска» имела доступ
+        st.session_state.selected_asset = asset
+        st.session_state.selected_asset_type_ui = asset_type_ui
+        st.session_state.selected_series_code = series_code
+        st.session_state.selected_expiry = expiry_str
 
-        strikes = sorted({c['strike'] for c in calls} | {p['strike'] for p in puts})
-        c_map = {c['strike']: c for c in calls}
-        p_map = {p['strike']: p for p in puts}
+        st.caption(f"Выбрана дата экспирации: **{expiry_str}** "
+                   f"(серия `{series_code}`)")
 
-        # ---------- Определяем ближайшие страйки к уровням покупок/продаж ----------
-        def nearest_strike(level, strikes_list):
-            if level is None or level <= 0 or not strikes_list:
-                return None
-            return min(strikes_list, key=lambda s: abs(float(s) - float(level)))
+        # --- Безрисковая ставка: только для опционов на акции ---
+        if asset_type_ui == "Акция":
+            rfr = get_risk_free_rate_for_expiry(expiry_str)
+            if rfr is not None:
+                st.caption(f"Безрисковая ставка (G-кривая ОФЗ MOEX): **{rfr:.4f} %**")
+            else:
+                st.caption("⚠ Не удалось получить ставку из G-кривой — оставлено 0.")
+        else:
+            rfr = None
 
-        buy_strike_match = nearest_strike(buy_level, strikes)
-        sell_strike_match = nearest_strike(sell_level, strikes)
+        # --- Дивидендная доходность: только для опционов на акции ---
+        if asset_type_ui == "Акция":
+            q, stock_price, rec_date = get_dividend_yield_for_ticker(asset, expiry_str)
+            if q is not None and stock_price is not None:
+                st.caption(
+                    f"Дивидендная доходность (smart-lab.ru): "
+                    f"q = **{q:.4f}** ({q*100:.2f} %) · "
+                    f"цена акции = {stock_price:.2f} ₽ · "
+                    f"закрытие реестра: {rec_date.strftime('%d.%m.%Y')}"
+                )
+            else:
+                st.caption("Дивиденды по этому тикеру до экспирации не найдены — q = 0.")
+                q = None
+        else:
+            q = None
 
-        strikes_iv = []
-        for k in strikes:
-            c = c_map.get(k, {})
-            p = p_map.get(k, {})
-            iv = c.get('volatility') or p.get('volatility')
-            strikes_iv.append({
-                "strike": int(k) if float(k).is_integer() else k,
-                "iv": float(iv) if iv is not None else None,
-            })
-        push_strikes_to_calculator(strikes_iv, central)
+        # --- Тикер TradingView ---
+        tv_symbol = resolve_tv_ticker(asset, asset_type_ui)
+        if tv_symbol:
+            st.caption(f"Тикер TradingView: `{tv_symbol}`")
+        else:
+            st.warning(
+                f"⚠️ Для «{asset}» ({asset_type_ui}) не задан тикер TradingView. "
+                f"Добавьте его в `TV_TICKER_MAP[\"{asset_type_ui}\"]` в `app.py`."
+            )
 
-        rows = []
-        for k in strikes:
-            c = c_map.get(k, {})
-            p = p_map.get(k, {})
-            iv = c.get('volatility') or p.get('volatility')
-            rows.append({
-                "Call_Ticker": c.get('secid', '—'),
-                "Call_Rho":   c.get('rho'),
-                "Call_Theta": c.get('theta'),
-                "Call_Vega":  c.get('vega'),
-                "Call_Gamma": c.get('gamma'),
-                "Call_Delta": c.get('delta'),
-                "Call_Theor": c.get('theorprice'),
-                "Call_Last":  c.get('last'),
-                "Call_Offer": c.get('offer'),
-                "Call_Bid":   c.get('bid'),
-                "Strike":     k,
-                "IV_%":       iv,
-                "Put_Bid":    p.get('bid'),
-                "Put_Offer":  p.get('offer'),
-                "Put_Last":   p.get('last'),
-                "Put_Theor":  p.get('theorprice'),
-                "Put_Delta":  p.get('delta'),
-                "Put_Gamma":  p.get('gamma'),
-                "Put_Vega":   p.get('vega'),
-                "Put_Theta":  p.get('theta'),
-                "Put_Rho":    p.get('rho'),
-                "Put_Ticker": p.get('secid', '—'),
-            })
-        df = pd.DataFrame(rows)
+        # --- Информация о серии ---
+        try:
+            info = fetch_series_info(asset, asset_type_ui, series_code)
+            with st.expander("Об опционной серии", expanded=False):
+                st.json(info, expanded=True)
+        except Exception as e:
+            st.warning(f"Не удалось загрузить информацию о серии: {e}")
 
-        def style_row(row):
-            strike = float(row["Strike"])
-            is_central = central is not None and abs(strike - float(central)) < 0.01
-            is_buy_strike = (buy_strike_match is not None
-                             and abs(strike - float(buy_strike_match)) < 0.01)
-            is_sell_strike = (sell_strike_match is not None
-                              and abs(strike - float(sell_strike_match)) < 0.01)
+    else:
+        st.info("Введите тикер базового актива и нажмите «Загрузить доску опционов».")
 
-            call_bg = "#e1e3fb" if is_central else "#dbf3df"
-            put_bg  = "#fee5cd" if is_central else "#ffcdce"
+    # ---------- Калькулятор ----------
+    st.markdown("---")
+    calc_html = Path("index.html").read_text(encoding="utf-8")
+    components.html(calc_html, height=1100, scrolling=True)
 
-            styles = []
-            for col in row.index:
-                if col.startswith("Call_"):
-                    styles.append(f"background-color: {call_bg}")
-                elif col.startswith("Put_"):
-                    styles.append(f"background-color: {put_bg}")
-                elif col == "Strike":
-                    # Приоритет: продажа → покупка → центральный страйк
-                    if is_sell_strike:
-                        styles.append("background-color: #fb92f0; color: white; font-weight: bold")
-                    elif is_buy_strike:
-                        styles.append("background-color: #9c00ff; color: white; font-weight: bold")
-                    elif is_central:
+    # ---------- Push'и в калькулятор (после iframe) ----------
+    if st.session_state.series_list and "selected_expiry" in st.session_state:
+        _expiry_str = st.session_state.selected_expiry
+        _series_code = st.session_state.selected_series_code
+
+        push_expiry_to_calculator(_expiry_str, _series_code)
+
+        if asset_type_ui == "Акция":
+            push_risk_free_rate(rfr)
+        else:
+            push_risk_free_rate(0.0)
+
+        if asset_type_ui == "Акция":
+            push_dividend_yield(q)
+        else:
+            push_dividend_yield(0.0)
+
+        tv_symbol = resolve_tv_ticker(asset, asset_type_ui)
+        if tv_symbol:
+            push_tv_ticker(asset, tv_symbol)
+
+
+# ==================================================================
+# ============ ВКЛАДКА 2: ДОСКА И УЛЫБКА ==========================
+# ==================================================================
+with tab_board:
+    if not st.session_state.get("series_list"):
+        st.info("Сначала выберите опционную серию на вкладке «Калькулятор».")
+    elif "selected_series_code" not in st.session_state:
+        st.info("Выберите конкретную дату экспирации на вкладке «Калькулятор».")
+    else:
+        asset = st.session_state.get("selected_asset", "")
+        asset_type_ui = st.session_state.get("selected_asset_type_ui", "")
+        series_code = st.session_state.get("selected_series_code", "")
+        expiry_str = st.session_state.get("selected_expiry", "")
+
+        # Читаем уровни из query params (синхронизируются из iframe)
+        try:
+            buy_level = float(st.query_params.get("level_buy", 0) or 0)
+        except (TypeError, ValueError):
+            buy_level = 0.0
+        try:
+            sell_level = float(st.query_params.get("level_sell", 0) or 0)
+        except (TypeError, ValueError):
+            sell_level = 0.0
+
+        st.markdown(f"### Доска опционов — **{asset}** "
+                    f"(серия `{series_code}`, экспирация {expiry_str})")
+
+        try:
+            board = fetch_optionboard(asset, asset_type_ui, series_code)
+        except Exception as e:
+            st.error(f"Не удалось загрузить доску: {e}")
+            board = None
+
+        if board:
+            calls = board.get('call') or []
+            puts = board.get('put') or []
+            central = board.get('central_strike')
+
+            strikes = sorted({c['strike'] for c in calls} | {p['strike'] for p in puts})
+            c_map = {c['strike']: c for c in calls}
+            p_map = {p['strike']: p for p in puts}
+
+            # ---------- Ближайшие страйки к уровням покупок/продаж ----------
+            def nearest_strike(level, strikes_list):
+                if level is None or level <= 0 or not strikes_list:
+                    return None
+                return min(strikes_list, key=lambda s: abs(float(s) - float(level)))
+
+            buy_strike_match = nearest_strike(buy_level, strikes)
+            sell_strike_match = nearest_strike(sell_level, strikes)
+
+            # ---------- Push страйков в калькулятор ----------
+            strikes_iv = []
+            for k in strikes:
+                c = c_map.get(k, {})
+                p = p_map.get(k, {})
+                iv = c.get('volatility') or p.get('volatility')
+                strikes_iv.append({
+                    "strike": int(k) if float(k).is_integer() else k,
+                    "iv": float(iv) if iv is not None else None,
+                })
+            push_strikes_to_calculator(strikes_iv, central)
+
+            rows = []
+            for k in strikes:
+                c = c_map.get(k, {})
+                p = p_map.get(k, {})
+                iv = c.get('volatility') or p.get('volatility')
+                rows.append({
+                    "Call_Ticker": c.get('secid', '—'),
+                    "Call_Rho":   c.get('rho'),
+                    "Call_Theta": c.get('theta'),
+                    "Call_Vega":  c.get('vega'),
+                    "Call_Gamma": c.get('gamma'),
+                    "Call_Delta": c.get('delta'),
+                    "Call_Theor": c.get('theorprice'),
+                    "Call_Last":  c.get('last'),
+                    "Call_Offer": c.get('offer'),
+                    "Call_Bid":   c.get('bid'),
+                    "Strike":     k,
+                    "IV_%":       iv,
+                    "Put_Bid":    p.get('bid'),
+                    "Put_Offer":  p.get('offer'),
+                    "Put_Last":   p.get('last'),
+                    "Put_Theor":  p.get('theorprice'),
+                    "Put_Delta":  p.get('delta'),
+                    "Put_Gamma":  p.get('gamma'),
+                    "Put_Vega":   p.get('vega'),
+                    "Put_Theta":  p.get('theta'),
+                    "Put_Rho":    p.get('rho'),
+                    "Put_Ticker": p.get('secid', '—'),
+                })
+            df = pd.DataFrame(rows)
+
+            def style_row(row):
+                strike = float(row["Strike"])
+                is_central = central is not None and abs(strike - float(central)) < 0.01
+                is_buy_strike = (buy_strike_match is not None
+                                 and abs(strike - float(buy_strike_match)) < 0.01)
+                is_sell_strike = (sell_strike_match is not None
+                                  and abs(strike - float(sell_strike_match)) < 0.01)
+
+                call_bg = "#e1e3fb" if is_central else "#dbf3df"
+                put_bg  = "#fee5cd" if is_central else "#ffcdce"
+
+                styles = []
+                for col in row.index:
+                    if col.startswith("Call_"):
+                        styles.append(f"background-color: {call_bg}")
+                    elif col.startswith("Put_"):
+                        styles.append(f"background-color: {put_bg}")
+                    elif col == "Strike":
+                        if is_sell_strike:
+                            styles.append("background-color: #fb92f0; color: white; font-weight: bold")
+                        elif is_buy_strike:
+                            styles.append("background-color: #9c00ff; color: white; font-weight: bold")
+                        elif is_central:
+                            styles.append("background-color: #e3e7ec; font-weight: bold")
+                        else:
+                            styles.append("")
+                    elif col == "IV_%" and is_central:
                         styles.append("background-color: #e3e7ec; font-weight: bold")
                     else:
                         styles.append("")
-                elif col == "IV_%" and is_central:
-                    styles.append("background-color: #e3e7ec; font-weight: bold")
-                else:
-                    styles.append("")
-            return styles
+                return styles
 
-        column_display = {
-            "Call_Ticker": "Тикер",
-            "Call_Rho":    "Ро",
-            "Call_Theta":  "Тета",
-            "Call_Vega":   "Вега",
-            "Call_Gamma":  "Гамма",
-            "Call_Delta":  "Дельта",
-            "Call_Theor":  "Теор.Ц",
-            "Call_Last":   "Посл.Ц",
-            "Call_Offer":  "Offer",
-            "Call_Bid":    "Bid",
-            "Strike":      "Страйк",
-            "IV_%":        "IV%",
-            "Put_Bid":     "Bid",
-            "Put_Offer":   "Offer",
-            "Put_Last":    "Посл.Ц",
-            "Put_Theor":   "Теор.Ц",
-            "Put_Delta":   "Дельта",
-            "Put_Gamma":   "Гамма",
-            "Put_Vega":    "Вега",
-            "Put_Theta":   "Тета",
-            "Put_Rho":     "Ро",
-            "Put_Ticker":  "Тикер",
-        }
+            column_display = {
+                "Call_Ticker": "Тикер",
+                "Call_Rho":    "Ро",
+                "Call_Theta":  "Тета",
+                "Call_Vega":   "Вега",
+                "Call_Gamma":  "Гамма",
+                "Call_Delta":  "Дельта",
+                "Call_Theor":  "Теор.Ц",
+                "Call_Last":   "Посл.Ц",
+                "Call_Offer":  "Offer",
+                "Call_Bid":    "Bid",
+                "Strike":      "Страйк",
+                "IV_%":        "IV%",
+                "Put_Bid":     "Bid",
+                "Put_Offer":   "Offer",
+                "Put_Last":    "Посл.Ц",
+                "Put_Theor":   "Теор.Ц",
+                "Put_Delta":   "Дельта",
+                "Put_Gamma":   "Гамма",
+                "Put_Vega":    "Вега",
+                "Put_Theta":   "Тета",
+                "Put_Rho":     "Ро",
+                "Put_Ticker":  "Тикер",
+            }
 
-        st.subheader("Доска опционов")
-        caption_extra = ""
-        if buy_strike_match is not None:
-            caption_extra += (f" · страйк покупок ≈ **{buy_strike_match}** "
-                              f"(уровень {buy_level})")
-        if sell_strike_match is not None:
-            caption_extra += (f" · страйк продаж ≈ **{sell_strike_match}** "
-                              f"(уровень {sell_level})")
-        st.caption(f"Центральный страйк: **{central if central is not None else 'не определён'}** · "
-                   f"всего страйков: {len(df)}{caption_extra}")
+            caption_extra = ""
+            if buy_strike_match is not None:
+                caption_extra += (f" · страйк покупок ≈ **{buy_strike_match}** "
+                                  f"(уровень {buy_level})")
+            if sell_strike_match is not None:
+                caption_extra += (f" · страйк продаж ≈ **{sell_strike_match}** "
+                                  f"(уровень {sell_level})")
+            st.caption(f"Центральный страйк: **{central if central is not None else 'не определён'}** · "
+                       f"всего страйков: {len(df)}{caption_extra}")
 
-        st.dataframe(
-            df.style
-              .apply(style_row, axis=1)
-              .format(
-                  {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
-                  precision=4,
-                  na_rep="—",
-              ),
-            column_config=column_display,
-            use_container_width=True,
-            height=600,
-        )
-
-        try:
-            points = fetch_volatility_graph(asset, series_code, asset_type_ui)
-        except Exception:
-            points = []
-        if points:
-            strikes_g = [p['strike'] for p in points]
-            vols_g = [p['volatility'] for p in points]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=strikes_g, y=vols_g, mode='lines+markers',
-                line=dict(color='#2c7da0', width=2),
-                fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
-                name='IV, %',
-            ))
-            fig.update_layout(
-                title="Улыбка волатильности",
-                xaxis_title="Страйк", yaxis_title="IV, %",
-                height=380, margin=dict(l=20, r=20, t=50, b=20),
-                xaxis=dict(tickformat=".0f", hoverformat=".0f"),
-                yaxis=dict(tickformat=".2f", hoverformat=".2f"),
+            st.dataframe(
+                df.style
+                  .apply(style_row, axis=1)
+                  .format(
+                      {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
+                      precision=4,
+                      na_rep="—",
+                  ),
+                column_config=column_display,
+                use_container_width=True,
+                height=600,
             )
-            st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("Введите тикер базового актива и нажмите «Загрузить серии».")
+
+            # ---------- Улыбка волатильности ----------
+            st.markdown("### Улыбка волатильности")
+            try:
+                points = fetch_volatility_graph(asset, series_code, asset_type_ui)
+            except Exception:
+                points = []
+            if points:
+                strikes_g = [p['strike'] for p in points]
+                vols_g = [p['volatility'] for p in points]
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=strikes_g, y=vols_g, mode='lines+markers',
+                    line=dict(color='#2c7da0', width=2),
+                    fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
+                    name='IV, %',
+                ))
+                fig.update_layout(
+                    title="Улыбка волатильности",
+                    xaxis_title="Страйк", yaxis_title="IV, %",
+                    height=380, margin=dict(l=20, r=20, t=50, b=20),
+                    xaxis=dict(tickformat=".0f", hoverformat=".0f"),
+                    yaxis=dict(tickformat=".2f", hoverformat=".2f"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Данные для улыбки волатильности недоступны.")
