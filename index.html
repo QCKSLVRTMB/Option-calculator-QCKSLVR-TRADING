@@ -9,72 +9,105 @@
   .container { max-width: 1600px; margin: 0 auto; }
   h1 { font-size: 1.6rem; font-weight: 600; margin: 0 0 .2rem; color: #1a3b4f; }
   .sub { color: #4a6f8a; margin-bottom: 20px; border-left: 4px solid #2c7da0; padding-left: 14px; font-size: .9rem; }
-  .two-columns { display: flex; flex-wrap: wrap; gap: 20px; }
-  .settings-panel, .results-panel, .charts-panel { flex: 1; min-width: 320px; background: white; border-radius: 24px; box-shadow: 0 10px 25px -8px rgba(0,0,0,.08); padding: 20px 22px; }
-  .card-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 16px; border-bottom: 2px solid #e6edf4; padding-bottom: 8px; }
-  .form-row { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; align-items: flex-end; }
-  .form-group { flex: 1; min-width: 140px; }
-  label { font-size: .7rem; text-transform: uppercase; font-weight: 700; color: #2c506d; margin-bottom: 6px; display: block; }
-  input, select, button { width: 100%; padding: 9px 14px; border-radius: 18px; border: 1px solid #cfdfe9; background: #fff; font-size: .9rem; }
+
+  /* Модель */
+  .model-panel {
+    background: white; border-radius: 20px; padding: 14px 20px;
+    margin-bottom: 18px; border: 1px solid #e2edf4;
+    display: flex; gap: 20px; align-items: center;
+  }
+  .model-panel label { margin: 0; font-size: .78rem; }
+  .model-panel select { max-width: 340px; }
+
+  .two-columns { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 18px; }
+  .panel {
+    flex: 1; min-width: 380px; background: white; border-radius: 20px;
+    box-shadow: 0 10px 25px -8px rgba(0,0,0,.08); overflow: hidden;
+  }
+  .panel-buy .panel-header { background: #9c00ff; }
+  .panel-sell .panel-header { background: #fb92f0; }
+  .panel-header {
+    color: white; padding: 10px 20px;
+    font-size: 1rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .panel-body { padding: 18px 22px; }
+
+  .form-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; align-items: flex-end; }
+  .form-group { flex: 1; min-width: 130px; }
+  label { font-size: .7rem; text-transform: uppercase; font-weight: 700;
+          color: #2c506d; margin-bottom: 5px; display: block; }
+  input, select, button { width: 100%; padding: 8px 12px; border-radius: 16px;
+                          border: 1px solid #cfdfe9; background: #fff; font-size: .88rem; }
   button { background: #1e5a7a; color: white; font-weight: 600; border: none; cursor: pointer; }
   button:hover { background: #0f425c; }
   .btn-secondary { background: #eef2f7; color: #1f3e54; border: 1px solid #cbdde8; }
 
-  .price-block { border-radius: 20px; padding: 0; margin-bottom: 20px; overflow: hidden; border: 1px solid #e2edf4; }
-  .price-block-header {
-    font-size: .95rem; font-weight: 700; color: white;
-    padding: 8px 16px; text-transform: uppercase; letter-spacing: .04em;
-  }
-  .price-block-body { padding: 14px 16px; }
-  .price-block-buy .price-block-header { background: #9c00ff; }
-  .price-block-buy .price-block-body { background: #f9f3ff; }
-  .price-block-sell .price-block-header { background: #fb92f0; }
-  .price-block-sell .price-block-body { background: #fff3fe; }
-  .price-block-neutral { background: #f9fbfd; padding: 16px; border: 1px solid #e2edf4; }
-
-  .price-value { font-size: 1.8rem; font-weight: 700; color: #1c5a7a; }
-  .price-block-buy .price-value { color: #5c0099; }
-  .price-block-sell .price-value { color: #a3139e; }
-
-  .greeks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
-  .greek { background: white; border-radius: 24px; padding: 6px 14px; border: 1px solid #dee9f0; font-size: .8rem; }
-  .flex-btns { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
-  .badge { background: #eef3fc; border-radius: 30px; padding: 4px 12px; font-size: .7rem; display: inline-block; }
-  .model-note { font-size: .7rem; color: #5f7f9e; margin-top: 6px; font-style: italic; }
-  .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 4px; }
-
-  input.input-error {
-    color: #d32f2f !important;
-    border-color: #d32f2f !important;
-    background: #fdecec !important;
-  }
-  .validation-msg {
-    color: #d32f2f;
-    font-size: .78rem;
-    margin: -10px 0 14px 0;
-    display: none;
-  }
+  input.input-error { color: #d32f2f !important; border-color: #d32f2f !important;
+                      background: #fdecec !important; }
+  .validation-msg { color: #d32f2f; font-size: .75rem; margin: -6px 0 10px 0;
+                    display: none; }
   .validation-msg.show { display: block; }
+
+  .expiry-source { font-size: .7rem; color: #2c7da0; margin-top: 3px;
+                   min-height: 14px; }
 
   #strikeBuy, #strikeSell { font-weight: 700; transition: color .12s ease; }
 
+  /* Результаты внутри каждого блока */
+  .result-block {
+    margin-top: 12px; border-radius: 16px; padding: 14px 16px;
+    border: 1px solid #e2edf4;
+  }
+  .panel-buy .result-block { background: #f9f3ff; }
+  .panel-sell .result-block { background: #fff3fe; }
+
+  .price-value { font-size: 1.7rem; font-weight: 700; }
+  .panel-buy .price-value { color: #5c0099; }
+  .panel-sell .price-value { color: #a3139e; }
+
   .breakeven {
-    margin-top: 6px;
-    font-size: .82rem;
-    color: #4a6f8a;
-    background: #eef6fb;
-    border-radius: 12px;
-    padding: 6px 12px;
+    margin-top: 6px; font-size: .82rem; color: #4a6f8a;
+    background: #eef6fb; border-radius: 10px; padding: 5px 12px;
     display: inline-block;
   }
   .breakeven b { color: #1c5a7a; }
+  .greeks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .greek { background: white; border-radius: 20px; padding: 5px 12px;
+           border: 1px solid #dee9f0; font-size: .78rem; }
 
-  .chart-ticker { font-size: .8rem; font-weight: 400; color: #4a6f8a; margin-left: 6px; }
-  .charts-container { display: flex; flex-direction: column; gap: 10px; }
+  /* Кнопки */
+  .buttons-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .buttons-row button { width: auto; padding: 10px 24px; }
+
+  /* Прибыль/Убыток */
+  .spread-panel {
+    background: #f9fbfd; border-radius: 20px; padding: 18px 22px;
+    border: 1px solid #e2edf4; margin-bottom: 20px;
+  }
+  .spread-panel .price-value { color: #1c5a7a; }
+  .badge { background: #eef3fc; border-radius: 30px; padding: 4px 12px;
+           font-size: .72rem; display: inline-block; margin-top: 6px; }
+
+  /* Графики */
+  .charts-panel {
+    background: white; border-radius: 20px; padding: 18px 22px;
+    box-shadow: 0 10px 25px -8px rgba(0,0,0,.08);
+  }
+  .card-title { font-size: 1.15rem; font-weight: 600;
+                margin-bottom: 14px; padding-bottom: 8px;
+                border-bottom: 2px solid #e6edf4; color: #1a3b4f; }
+  .chart-ticker { font-size: .8rem; color: #4a6f8a; margin-left: 6px; font-weight: 400; }
+  .charts-container { display: flex; flex-direction: column; gap: 12px; }
   .chart-block { border: 1px solid #e6edf4; border-radius: 12px; overflow: hidden; }
-  .chart-label { font-size: .7rem; font-weight: 700; color: #2c506d; padding: 5px 10px; background: #f9fbfd; border-bottom: 1px solid #e6edf4; text-transform: uppercase; letter-spacing: .04em; }
+  .chart-label { font-size: .7rem; font-weight: 700; color: #2c506d;
+                 padding: 5px 10px; background: #f9fbfd;
+                 border-bottom: 1px solid #e6edf4; text-transform: uppercase; }
   .chart-inner { height: 280px; position: relative; }
-  .chart-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #7f9bb3; font-size: .85rem; text-align: center; padding: 0 10px; }
+  .chart-empty { display: flex; align-items: center; justify-content: center;
+                 height: 100%; color: #7f9bb3; font-size: .85rem; }
 </style>
 </head>
 <body>
@@ -82,130 +115,174 @@
   <h1>Калькулятор опционов QCKSLVR TRADING</h1>
   <div class="sub">https://vk.ru/qckslvrtrading</div>
 
-  <div class="two-columns">
-    <!-- ================== НАСТРОЙКИ ================== -->
-    <div class="settings-panel">
-      <div class="card-title">Введите данные опциона</div>
-
-      <div class="form-row">
-        <div class="form-group"><label>Тип опциона (Call/Put)</label>
-          <select id="optionType"><option value="call">Call</option><option value="put">Put</option></select>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label>Дата исполнения опциона</label>
-          <input type="date" id="expiryDate">
-          <div class="expiry-source" id="expirySource"></div>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group"><label>Безрисковая ставка %</label>
-          <input type="number" id="riskFree" value="0" step="0.0001"></div>
-        <div class="form-group"><label>Волатильность %</label>
-          <input type="number" id="volatility" value="0" step="0.1"></div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group"><label>Дивидендная доходность %</label>
-          <input type="number" id="dividend" value="0" step="0.0001"></div>
-        <div class="form-group"><label>Модель</label>
-          <select id="pricingModel">
-            <option value="bs">Black‑Scholes (европейский)</option>
-            <option value="binom">Биномиальная (американский)</option>
-          </select>
-          <div class="model-note">BS — для европейских опционов; биномиальная — для американских.</div>
-        </div>
-      </div>
-
-      <div class="flex-btns">
-        <button id="calcBtn">Рассчитать</button>
-        <button id="resetBtn" class="btn-secondary">Сброс</button>
-        <button id="saveSettingsBtn" class="btn-secondary">Сохранить</button>
-        <button id="exportCsvBtn" class="btn-secondary">Экспорт полного отчёта (CSV)</button>
-      </div>
+  <!-- Модель (общая) -->
+  <div class="model-panel">
+    <div>
+      <label>Модель расчёта (общая для покупки и продажи)</label>
+      <select id="pricingModel">
+        <option value="bs">Black‑Scholes (европейский)</option>
+        <option value="binom">Биномиальная (американский)</option>
+      </select>
     </div>
+    <div style="font-size:.72rem; color:#5f7f9e; font-style:italic; margin-top:12px;">
+      BS — для европейских опционов; биномиальная — для американских.
+    </div>
+  </div>
 
-    <!-- ================== РЕЗУЛЬТАТЫ ================== -->
-    <div class="results-panel">
-      <div class="card-title">Результаты расчёта</div>
+  <!-- Два блока: покупка/продажа -->
+  <div class="two-columns">
 
-      <!-- Верхний блок: ПОКУПКА -->
-      <div class="price-block price-block-buy">
-        <div class="price-block-header">Покупка опциона</div>
-        <div class="price-block-body">
-          <div class="form-row" style="margin-bottom:12px;">
-            <div class="form-group">
-              <label>Страйк покупки</label>
-              <select id="strikeBuy"><option value="0">Загрузка…</option></select>
-            </div>
-            <div class="form-group">
-              <label>Уровень покупок</label>
-              <input type="number" id="priceBuy" value="0" step="0.1">
-            </div>
-            <div class="form-group">
-              <label>Дата</label>
-              <input type="date" id="currentDateBuy">
-            </div>
+    <!-- ============ УРОВЕНЬ ПОКУПОК ============ -->
+    <div class="panel panel-buy">
+      <div class="panel-header">Уровень покупок</div>
+      <div class="panel-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Тип опциона</label>
+            <select id="optionTypeBuy">
+              <option value="call">Call</option>
+              <option value="put">Put</option>
+            </select>
           </div>
-          <div class="validation-msg" id="dateValidationBuy">
-            Дата изменена
+          <div class="form-group">
+            <label>Страйк</label>
+            <select id="strikeBuy"><option value="0">Загрузка…</option></select>
           </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Уровень (цена БА)</label>
+            <input type="number" id="priceBuy" value="0" step="0.1">
+          </div>
+          <div class="form-group">
+            <label>Дата</label>
+            <input type="date" id="currentDateBuy">
+          </div>
+        </div>
+        <div class="validation-msg" id="dateValidationBuy">Дата изменена</div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Дата исполнения опциона</label>
+            <input type="date" id="expiryDateBuy">
+            <div class="expiry-source" id="expirySourceBuy"></div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Безрисковая ставка %</label>
+            <input type="number" id="riskFreeBuy" value="0" step="0.0001">
+          </div>
+          <div class="form-group">
+            <label>Волатильность %</label>
+            <input type="number" id="volatilityBuy" value="30" step="0.1">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Дивидендная доходность %</label>
+            <input type="number" id="dividendBuy" value="0" step="0.0001">
+          </div>
+        </div>
+
+        <div class="result-block">
           <div class="price-value" id="priceBuyResult">— ₽</div>
           <div class="breakeven">Точка безубыточности: <b id="beBuy">— ₽</b></div>
           <div class="greeks" id="greeksBuy"></div>
         </div>
       </div>
+    </div>
 
-      <!-- Нижний блок: ПРОДАЖА -->
-      <div class="price-block price-block-sell">
-        <div class="price-block-header">Продажа опциона</div>
-        <div class="price-block-body">
-          <div class="form-row" style="margin-bottom:12px;">
-            <div class="form-group">
-              <label>Страйк продажи</label>
-              <select id="strikeSell"><option value="0">Загрузка…</option></select>
-            </div>
-            <div class="form-group">
-              <label>Уровень продаж</label>
-              <input type="number" id="priceSell" value="0" step="0.1">
-            </div>
-            <div class="form-group">
-              <label>Дата</label>
-              <input type="date" id="currentDateSell">
-            </div>
+    <!-- ============ УРОВЕНЬ ПРОДАЖ ============ -->
+    <div class="panel panel-sell">
+      <div class="panel-header">Уровень продаж</div>
+      <div class="panel-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Тип опциона</label>
+            <select id="optionTypeSell">
+              <option value="call">Call</option>
+              <option value="put">Put</option>
+            </select>
           </div>
-          <div class="validation-msg" id="dateValidationSell">
-            Дата изменена
+          <div class="form-group">
+            <label>Страйк</label>
+            <select id="strikeSell"><option value="0">Загрузка…</option></select>
           </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Уровень (цена БА)</label>
+            <input type="number" id="priceSell" value="0" step="0.1">
+          </div>
+          <div class="form-group">
+            <label>Дата</label>
+            <input type="date" id="currentDateSell">
+          </div>
+        </div>
+        <div class="validation-msg" id="dateValidationSell">Дата изменена</div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Дата исполнения опциона</label>
+            <input type="date" id="expiryDateSell">
+            <div class="expiry-source" id="expirySourceSell"></div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Безрисковая ставка %</label>
+            <input type="number" id="riskFreeSell" value="0" step="0.0001">
+          </div>
+          <div class="form-group">
+            <label>Волатильность %</label>
+            <input type="number" id="volatilitySell" value="30" step="0.1">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Дивидендная доходность %</label>
+            <input type="number" id="dividendSell" value="0" step="0.0001">
+          </div>
+        </div>
+
+        <div class="result-block">
           <div class="price-value" id="priceSellResult">— ₽</div>
           <div class="breakeven">Точка безубыточности: <b id="beSell">— ₽</b></div>
           <div class="greeks" id="greeksSell"></div>
         </div>
       </div>
-
-      <!-- Итог: P&L -->
-      <div class="price-block price-block-neutral">
-        <div>Прибыль/Убыток</div>
-        <div class="price-value" id="spreadResult">— ₽</div>
-        <div id="recommendMsg" class="badge" style="margin-top:8px;"></div>
-      </div>
     </div>
+  </div>
 
-    <!-- ================== ГРАФИКИ ================== -->
-    <div class="charts-panel">
-      <div class="card-title">Биржевые графики<span class="chart-ticker" id="chartTicker"></span></div>
-      <div class="charts-container">
-        <div class="chart-block">
-          <div class="chart-label">Дневной таймфрейм (D1)</div>
-          <div class="chart-inner" id="chartD1"><div class="chart-empty">Выберите базовый актив</div></div>
-        </div>
-        <div class="chart-block">
-          <div class="chart-label">Часовой таймфрейм (H1)</div>
-          <div class="chart-inner" id="chartH1"><div class="chart-empty">Выберите базовый актив</div></div>
-        </div>
+  <!-- Кнопки -->
+  <div class="buttons-row">
+    <button id="resetBtn" class="btn-secondary">Сброс</button>
+    <button id="importCsvBtn" class="btn-secondary">Импорт из CSV</button>
+    <input type="file" id="importCsvInput" accept=".csv" style="display:none;">
+    <button id="exportCsvBtn">Экспорт отчёта (CSV)</button>
+  </div>
+
+  <!-- Прибыль/Убыток -->
+  <div class="spread-panel">
+    <div class="card-title">Прибыль / Убыток</div>
+    <div class="price-value" id="spreadResult">— ₽</div>
+    <div id="recommendMsg" class="badge"></div>
+  </div>
+
+  <!-- Графики -->
+  <div class="charts-panel">
+    <div class="card-title">Биржевые графики<span class="chart-ticker" id="chartTicker"></span></div>
+    <div class="charts-container">
+      <div class="chart-block">
+        <div class="chart-label">Дневной таймфрейм (D1)</div>
+        <div class="chart-inner" id="chartD1"><div class="chart-empty">Выберите базовый актив</div></div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-label">Часовой таймфрейм (H1)</div>
+        <div class="chart-inner" id="chartH1"><div class="chart-empty">Выберите базовый актив</div></div>
       </div>
     </div>
   </div>
@@ -222,11 +299,60 @@
   const COLOR_OTM = '#d32f2f';
   const COLOR_NEUTRAL = '#333333';
 
+  // ---------- BS / Binomial ----------
   function normCDF(x){const t=1/(1+0.2316419*Math.abs(x));const d=0.3989423*Math.exp(-x*x/2);const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p;}
-  function blackScholes(spot,strike,T,rate,vol,div,type){if(T<=0||!isFinite(spot)||!isFinite(strike)||strike<=0)return (type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot));const r=rate/100,q=div/100,sigma=vol/100;const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));const d2=d1-sigma*Math.sqrt(T);if(type==='call')return spot*Math.exp(-q*T)*normCDF(d1)-strike*Math.exp(-r*T)*normCDF(d2);return strike*Math.exp(-r*T)*normCDF(-d2)-spot*Math.exp(-q*T)*normCDF(-d1);}
-  function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){if(T<=0||!isFinite(spot)||!isFinite(strike)||strike<=0)return (type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot));const r=rate/100,q=div/100,sigma=vol/100;const dt=T/steps;const u=Math.exp(sigma*Math.sqrt(dt));const d=1/u;const p=(Math.exp((r-q)*dt)-d)/(u-d);const disc=Math.exp(-r*dt);let prices=Array(steps+1);for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);let values=Array(steps+1);for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);for(let step=steps-1;step>=0;step--){for(let i=0;i<=step;i++){const hold=disc*(p*values[i]+(1-p)*values[i+1]);const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-spot*Math.pow(u,step-i)*Math.pow(d,i));values[i]=Math.max(hold,exer);}}return values[0];}
-  function calcGreeks(spot,strike,T,rate,vol,div,type){if(T<=1e-6||!isFinite(spot)||!isFinite(strike)||strike<=0)return{delta:'—',gamma:'—',theta:'—',vega:'—'};const r=rate/100,q=div/100,sigma=vol/100;const sqrtT=Math.sqrt(T);const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*sqrtT);const d2=d1-sigma*sqrtT;const nd1=normCDF(d1);const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);const delta=type==='call'?Math.exp(-q*T)*nd1:Math.exp(-q*T)*(nd1-1);const gamma=pdf*Math.exp(-q*T)/(spot*sigma*sqrtT);const vega=spot*pdf*Math.exp(-q*T)*sqrtT/100;const thetaCall=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)-r*strike*Math.exp(-r*T)*normCDF(d2)+q*spot*Math.exp(-q*T)*nd1;const thetaPut=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)+r*strike*Math.exp(-r*T)*normCDF(-d2)-q*spot*Math.exp(-q*T)*normCDF(-d1);const theta=(type==='call'?thetaCall:thetaPut)/365;return{delta:delta.toFixed(3),gamma:gamma.toFixed(3),vega:vega.toFixed(2),theta:theta.toFixed(3)};}
-  function getTimeYears(now,exp){return (new Date(exp)-new Date(now))/(1000*3600*24*365);}
+  function blackScholes(spot,strike,T,rate,vol,div,type){
+    if(T<=0||!isFinite(spot)||!isFinite(strike)||strike<=0||vol<=0)
+      return (type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot));
+    const r=rate/100,q=div/100,sigma=vol/100;
+    const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));
+    const d2=d1-sigma*Math.sqrt(T);
+    if(type==='call')return spot*Math.exp(-q*T)*normCDF(d1)-strike*Math.exp(-r*T)*normCDF(d2);
+    return strike*Math.exp(-r*T)*normCDF(-d2)-spot*Math.exp(-q*T)*normCDF(-d1);
+  }
+  function binomialAmerican(spot,strike,T,rate,vol,div,type,steps=200){
+    if(T<=0||!isFinite(spot)||!isFinite(strike)||strike<=0||vol<=0)
+      return (type==='call'?Math.max(0,spot-strike):Math.max(0,strike-spot));
+    const r=rate/100,q=div/100,sigma=vol/100;
+    const dt=T/steps;
+    const u=Math.exp(sigma*Math.sqrt(dt));
+    const d=1/u;
+    const p=(Math.exp((r-q)*dt)-d)/(u-d);
+    const disc=Math.exp(-r*dt);
+    let prices=Array(steps+1);
+    for(let i=0;i<=steps;i++)prices[i]=spot*Math.pow(u,steps-i)*Math.pow(d,i);
+    let values=Array(steps+1);
+    for(let i=0;i<=steps;i++)values[i]=type==='call'?Math.max(0,prices[i]-strike):Math.max(0,strike-prices[i]);
+    for(let step=steps-1;step>=0;step--){
+      for(let i=0;i<=step;i++){
+        const hold=disc*(p*values[i]+(1-p)*values[i+1]);
+        const exer=type==='call'?Math.max(0,spot*Math.pow(u,step-i)*Math.pow(d,i)-strike):Math.max(0,strike-spot*Math.pow(u,step-i)*Math.pow(d,i));
+        values[i]=Math.max(hold,exer);
+      }
+    }
+    return values[0];
+  }
+  function calcGreeks(spot,strike,T,rate,vol,div,type){
+    if(T<=1e-6||!isFinite(spot)||!isFinite(strike)||strike<=0||vol<=0)
+      return{delta:'—',gamma:'—',theta:'—',vega:'—'};
+    const r=rate/100,q=div/100,sigma=vol/100;
+    const sqrtT=Math.sqrt(T);
+    const d1=(Math.log(spot/strike)+(r-q+sigma*sigma/2)*T)/(sigma*sqrtT);
+    const d2=d1-sigma*sqrtT;
+    const nd1=normCDF(d1);
+    const pdf=Math.exp(-d1*d1/2)/Math.sqrt(2*Math.PI);
+    const delta=type==='call'?Math.exp(-q*T)*nd1:Math.exp(-q*T)*(nd1-1);
+    const gamma=pdf*Math.exp(-q*T)/(spot*sigma*sqrtT);
+    const vega=spot*pdf*Math.exp(-q*T)*sqrtT/100;
+    const thetaCall=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)-r*strike*Math.exp(-r*T)*normCDF(d2)+q*spot*Math.exp(-q*T)*nd1;
+    const thetaPut=-spot*pdf*sigma*Math.exp(-q*T)/(2*sqrtT)+r*strike*Math.exp(-r*T)*normCDF(-d2)-q*spot*Math.exp(-q*T)*normCDF(-d1);
+    const theta=(type==='call'?thetaCall:thetaPut)/365;
+    return{delta:delta.toFixed(3),gamma:gamma.toFixed(3),vega:vega.toFixed(2),theta:theta.toFixed(3)};
+  }
+  function getTimeYears(now,exp){
+    if(!now||!exp)return 0;
+    return (new Date(exp)-new Date(now))/(1000*3600*24*365);
+  }
 
   let __strikeList = [];
   let __centralStrike = null;
@@ -261,9 +387,7 @@
     const sel = document.getElementById(selectId);
     if (!sel) return;
     const prevVal = sel.value;
-
     sel.innerHTML = '';
-
     __strikeList.forEach(s => {
       const cls = classifyStrike(s.strike, __centralStrike, optionType);
       const opt = document.createElement('option');
@@ -274,7 +398,6 @@
       opt.dataset.cls = cls.label;
       sel.appendChild(opt);
     });
-
     let target = null;
     if (prevVal && __strikeList.some(x => String(x.strike) === String(prevVal))) {
       target = prevVal;
@@ -284,19 +407,16 @@
       target = __strikeList[0].strike;
     }
     if (target != null) sel.value = target;
-
     applySelectColor(sel);
   }
 
   function renderStrikes() {
-    const optionType = document.getElementById('optionType').value;
-    renderStrikesFor('strikeBuy', optionType);
-    renderStrikesFor('strikeSell', optionType);
-    const iv = getIVForStrike(document.getElementById('strikeBuy').value);
-    if (iv != null) document.getElementById('volatility').value = iv;
+    const tBuy = document.getElementById('optionTypeBuy').value;
+    const tSell = document.getElementById('optionTypeSell').value;
+    renderStrikesFor('strikeBuy', tBuy);
+    renderStrikesFor('strikeSell', tSell);
   }
 
-  // Отдельная валидация для каждой даты
   function validateDateField(fieldId, msgId) {
     const el = document.getElementById(fieldId);
     const msgEl = document.getElementById(msgId);
@@ -319,142 +439,175 @@
   }
 
   let __syncTimeout = null;
-  function syncLevelsToParent() {
+  function syncToParent() {
     if (__syncTimeout) clearTimeout(__syncTimeout);
     __syncTimeout = setTimeout(() => {
       try {
-        const buy = parseFloat(document.getElementById('priceBuy').value) || 0;
-        const sell = parseFloat(document.getElementById('priceSell').value) || 0;
-        const rf = parseFloat(document.getElementById('riskFree').value) || 0;
-        const vol = parseFloat(document.getElementById('volatility').value) || 0;
-        const div = parseFloat(document.getElementById('dividend').value) || 0;
+        const get = id => document.getElementById(id)?.value || '';
+        const params = {
+          level_buy: parseFloat(get('priceBuy')) || 0,
+          level_sell: parseFloat(get('priceSell')) || 0,
+          rf_buy:  parseFloat(get('riskFreeBuy')) || 0,
+          rf_sell: parseFloat(get('riskFreeSell')) || 0,
+          vol_buy: parseFloat(get('volatilityBuy')) || 0,
+          vol_sell: parseFloat(get('volatilitySell')) || 0,
+          div_buy: parseFloat(get('dividendBuy')) || 0,
+          div_sell: parseFloat(get('dividendSell')) || 0,
+        };
         const pUrl = new URL(window.parent.location.href);
-        const curBuy = pUrl.searchParams.get('level_buy');
-        const curSell = pUrl.searchParams.get('level_sell');
-        if (curBuy === String(buy) && curSell === String(sell)
-            && pUrl.searchParams.get('rf') === String(rf)
-            && pUrl.searchParams.get('vol') === String(vol)
-            && pUrl.searchParams.get('div') === String(div)) return;
-        pUrl.searchParams.set('level_buy', String(buy));
-        pUrl.searchParams.set('level_sell', String(sell));
-        pUrl.searchParams.set('rf', String(rf));
-        pUrl.searchParams.set('vol', String(vol));
-        pUrl.searchParams.set('div', String(div));
-        window.parent.history.replaceState({}, '', pUrl.toString());
+        let changed = false;
+        for (const k in params) {
+          if (pUrl.searchParams.get(k) !== String(params[k])) {
+            pUrl.searchParams.set(k, String(params[k]));
+            changed = true;
+          }
+        }
+        if (changed) {
+          window.parent.history.replaceState({}, '', pUrl.toString());
+        }
       } catch (e) { }
     }, 500);
   }
 
   function updatePrices(){
     validateCurrentDates();
-
-    const type = document.getElementById('optionType').value;
-    const K_buy = parseFloat(document.getElementById('strikeBuy').value);
-    const K_sell = parseFloat(document.getElementById('strikeSell').value);
-    const S_buy = parseFloat(document.getElementById('priceBuy').value);
-    const S_sell = parseFloat(document.getElementById('priceSell').value);
-    const expiryDate = document.getElementById('expiryDate').value;
-    const dateBuy = document.getElementById('currentDateBuy').value;
-    const dateSell = document.getElementById('currentDateSell').value;
-
-    if (!expiryDate || isNaN(K_buy) || isNaN(K_sell)) {
-      ['priceBuyResult', 'priceSellResult', 'beBuy', 'beSell', 'spreadResult']
-        .forEach(id => document.getElementById(id).innerHTML = '— ₽');
-      ['greeksBuy', 'greeksSell'].forEach(id => document.getElementById(id).innerHTML = '');
-      document.getElementById('recommendMsg').innerHTML = '';
-      return;
-    }
-
-    const T_buy = getTimeYears(dateBuy, expiryDate);
-    const T_sell = getTimeYears(dateSell, expiryDate);
-    const r = parseFloat(document.getElementById('riskFree').value);
-    const vol = parseFloat(document.getElementById('volatility').value);
-    const div = parseFloat(document.getElementById('dividend').value);
     const model = document.getElementById('pricingModel').value;
 
-    let priceBuy, priceSell;
-    if (model === 'bs') {
-      priceBuy = blackScholes(S_buy, K_buy, T_buy, r, vol, div, type);
-      priceSell = blackScholes(S_sell, K_sell, T_sell, r, vol, div, type);
-    } else {
-      priceBuy = binomialAmerican(S_buy, K_buy, T_buy, r, vol, div, type);
-      priceSell = binomialAmerican(S_sell, K_sell, T_sell, r, vol, div, type);
+    // --- Покупка ---
+    const typeBuy = document.getElementById('optionTypeBuy').value;
+    const KBuy = parseFloat(document.getElementById('strikeBuy').value);
+    const SBuy = parseFloat(document.getElementById('priceBuy').value);
+    const expBuy = document.getElementById('expiryDateBuy').value;
+    const dateBuy = document.getElementById('currentDateBuy').value;
+    const rBuy = parseFloat(document.getElementById('riskFreeBuy').value);
+    const volBuy = parseFloat(document.getElementById('volatilityBuy').value);
+    const divBuy = parseFloat(document.getElementById('dividendBuy').value);
+
+    let priceBuy = NaN;
+    if (expBuy && !isNaN(KBuy)) {
+      const T = getTimeYears(dateBuy, expBuy);
+      if (model === 'bs') priceBuy = blackScholes(SBuy, KBuy, T, rBuy, volBuy, divBuy, typeBuy);
+      else priceBuy = binomialAmerican(SBuy, KBuy, T, rBuy, volBuy, divBuy, typeBuy);
     }
-
-    document.getElementById('priceBuyResult').innerHTML = isFinite(priceBuy) ? priceBuy.toFixed(2) + ' ₽' : '— ₽';
-    document.getElementById('priceSellResult').innerHTML = isFinite(priceSell) ? priceSell.toFixed(2) + ' ₽' : '— ₽';
-
-    let beBuy, beSell;
-    if (type === 'call') {
-      beBuy  = K_buy + priceBuy;
-      beSell = K_sell + priceSell;
-    } else {
-      beBuy  = K_buy - priceBuy;
-      beSell = K_sell - priceSell;
+    document.getElementById('priceBuyResult').innerHTML =
+      isFinite(priceBuy) ? priceBuy.toFixed(2) + ' ₽' : '— ₽';
+    let beBuy = NaN;
+    if (isFinite(priceBuy) && !isNaN(KBuy)) {
+      beBuy = typeBuy === 'call' ? KBuy + priceBuy : KBuy - priceBuy;
     }
-    document.getElementById('beBuy').innerText  = isFinite(beBuy) ? beBuy.toFixed(2) + ' ₽' : '— ₽';
-    document.getElementById('beSell').innerText = isFinite(beSell) ? beSell.toFixed(2) + ' ₽' : '— ₽';
+    document.getElementById('beBuy').innerText =
+      isFinite(beBuy) ? beBuy.toFixed(2) + ' ₽' : '— ₽';
 
-    const spread = priceSell - priceBuy;
-    document.getElementById('spreadResult').innerHTML = isFinite(spread) ? spread.toFixed(2) + ' ₽' : '— ₽';
-    const intrinsic = Math.max(0, S_sell - K_sell);
-    document.getElementById('recommendMsg').innerHTML =
-      `Внутренняя стоимость: ${intrinsic.toFixed(2)} ₽, ` +
-      `временная: ${(priceSell - intrinsic).toFixed(2)} ₽ | ` +
-      `Спред: ${spread.toFixed(2)} ₽`;
-
-    const gB = calcGreeks(S_buy, K_buy, T_buy, r, vol, div, type);
-    const gS = calcGreeks(S_sell, K_sell, T_sell, r, vol, div, type);
+    const gB = (expBuy && !isNaN(KBuy))
+      ? calcGreeks(SBuy, KBuy, getTimeYears(dateBuy, expBuy),
+                   rBuy, volBuy, divBuy, typeBuy)
+      : {delta:'—',gamma:'—',theta:'—',vega:'—'};
     document.getElementById('greeksBuy').innerHTML =
       `<div class="greek">Дельта ${gB.delta}</div>` +
       `<div class="greek">Гамма ${gB.gamma}</div>` +
       `<div class="greek">Тета ${gB.theta}</div>` +
       `<div class="greek">Вега ${gB.vega}</div>`;
+
+    // --- Продажа ---
+    const typeSell = document.getElementById('optionTypeSell').value;
+    const KSell = parseFloat(document.getElementById('strikeSell').value);
+    const SSell = parseFloat(document.getElementById('priceSell').value);
+    const expSell = document.getElementById('expiryDateSell').value;
+    const dateSell = document.getElementById('currentDateSell').value;
+    const rSell = parseFloat(document.getElementById('riskFreeSell').value);
+    const volSell = parseFloat(document.getElementById('volatilitySell').value);
+    const divSell = parseFloat(document.getElementById('dividendSell').value);
+
+    let priceSell = NaN;
+    if (expSell && !isNaN(KSell)) {
+      const T = getTimeYears(dateSell, expSell);
+      if (model === 'bs') priceSell = blackScholes(SSell, KSell, T, rSell, volSell, divSell, typeSell);
+      else priceSell = binomialAmerican(SSell, KSell, T, rSell, volSell, divSell, typeSell);
+    }
+    document.getElementById('priceSellResult').innerHTML =
+      isFinite(priceSell) ? priceSell.toFixed(2) + ' ₽' : '— ₽';
+    let beSell = NaN;
+    if (isFinite(priceSell) && !isNaN(KSell)) {
+      beSell = typeSell === 'call' ? KSell + priceSell : KSell - priceSell;
+    }
+    document.getElementById('beSell').innerText =
+      isFinite(beSell) ? beSell.toFixed(2) + ' ₽' : '— ₽';
+
+    const gS = (expSell && !isNaN(KSell))
+      ? calcGreeks(SSell, KSell, getTimeYears(dateSell, expSell),
+                   rSell, volSell, divSell, typeSell)
+      : {delta:'—',gamma:'—',theta:'—',vega:'—'};
     document.getElementById('greeksSell').innerHTML =
       `<div class="greek">Дельта ${gS.delta}</div>` +
       `<div class="greek">Гамма ${gS.gamma}</div>` +
       `<div class="greek">Тета ${gS.theta}</div>` +
       `<div class="greek">Вега ${gS.vega}</div>`;
+
+    // --- Спред ---
+    const spread = (isFinite(priceSell) && isFinite(priceBuy)) ? priceSell - priceBuy : NaN;
+    document.getElementById('spreadResult').innerHTML =
+      isFinite(spread) ? spread.toFixed(2) + ' ₽' : '— ₽';
+    const intrinsic = Math.max(0, (isFinite(SSell) && !isNaN(KSell)) ? SSell - KSell : 0);
+    document.getElementById('recommendMsg').innerHTML = isFinite(priceSell)
+      ? `Внутренняя стоимость: ${intrinsic.toFixed(2)} ₽ · ` +
+        `Спред: ${isFinite(spread) ? spread.toFixed(2) : '—'} ₽`
+      : '';
   }
 
   function saveSettings(){
-    localStorage.setItem('optionCalcSettings', JSON.stringify({
-      optionType: document.getElementById('optionType').value,
+    const data = {
+      model: document.getElementById('pricingModel').value,
+      optionTypeBuy: document.getElementById('optionTypeBuy').value,
       strikeBuy: document.getElementById('strikeBuy').value,
-      strikeSell: document.getElementById('strikeSell').value,
       priceBuy: document.getElementById('priceBuy').value,
+      expiryDateBuy: document.getElementById('expiryDateBuy').value,
+      currentDateBuy: document.getElementById('currentDateBuy').value,
+      riskFreeBuy: document.getElementById('riskFreeBuy').value,
+      volatilityBuy: document.getElementById('volatilityBuy').value,
+      dividendBuy: document.getElementById('dividendBuy').value,
+      optionTypeSell: document.getElementById('optionTypeSell').value,
+      strikeSell: document.getElementById('strikeSell').value,
       priceSell: document.getElementById('priceSell').value,
-      expiryDate: document.getElementById('expiryDate').value,
-      dateBuy: document.getElementById('currentDateBuy').value,
-      dateSell: document.getElementById('currentDateSell').value,
-      riskFree: document.getElementById('riskFree').value,
-      volatility: document.getElementById('volatility').value,
-      dividend: document.getElementById('dividend').value,
-      pricingModel: document.getElementById('pricingModel').value
-    }));
+      expiryDateSell: document.getElementById('expiryDateSell').value,
+      currentDateSell: document.getElementById('currentDateSell').value,
+      riskFreeSell: document.getElementById('riskFreeSell').value,
+      volatilitySell: document.getElementById('volatilitySell').value,
+      dividendSell: document.getElementById('dividendSell').value,
+    };
+    localStorage.setItem('optionCalcSettings_v2', JSON.stringify(data));
   }
+
   function loadSettings(){
-    const s = JSON.parse(localStorage.getItem('optionCalcSettings') || '{}');
-    ['optionType','priceBuy','priceSell','expiryDate','riskFree','volatility','dividend','pricingModel']
-      .forEach(k => { if (s[k] !== undefined) document.getElementById(k).value = s[k]; });
-    updatePrices();
-  }
-  function resetToExample(){
-    document.getElementById('optionType').value = 'call';
-    document.getElementById('priceBuy').value = '150';
-    document.getElementById('priceSell').value = '163';
-    document.getElementById('currentDateBuy').value = new Date().toISOString().slice(0,10);
-    document.getElementById('currentDateSell').value = new Date().toISOString().slice(0,10);
-    document.getElementById('riskFree').value = '10';
-    document.getElementById('volatility').value = '30';
-    document.getElementById('dividend').value = '0';
-    document.getElementById('pricingModel').value = 'bs';
-    document.getElementById('expirySource').innerText = '';
-    renderStrikes();
+    const s = JSON.parse(localStorage.getItem('optionCalcSettings_v2') || '{}');
+    for (const k in s) {
+      const el = document.getElementById(k);
+      if (el && s[k] !== undefined) el.value = s[k];
+    }
     updatePrices();
   }
 
-  // ================= Экспорт CSV =================
+  const _today = new Date().toISOString().slice(0,10);
+  const _default_expiry = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+
+  function resetToExample(){
+    document.getElementById('pricingModel').value = 'bs';
+    ['Buy','Sell'].forEach(suf => {
+      document.getElementById('optionType'+suf).value = 'call';
+      document.getElementById('price'+suf).value = '0';
+      document.getElementById('currentDate'+suf).value = _today;
+      document.getElementById('expiryDate'+suf).value = _default_expiry;
+      document.getElementById('riskFree'+suf).value = '10';
+      document.getElementById('volatility'+suf).value = '30';
+      document.getElementById('dividend'+suf).value = '0';
+      document.getElementById('expirySource'+suf).innerText = '';
+    });
+    renderStrikes();
+    updatePrices();
+    saveSettings();
+    syncToParent();
+  }
+
+  // ========== Экспорт CSV ==========
   function _csvEscape(v) {
     const s = String(v ?? '');
     if (s.includes(',') || s.includes('"') || s.includes('\n')) {
@@ -465,85 +618,166 @@
   function _csvRow(arr) { return arr.map(_csvEscape).join(','); }
 
   function exportCSV(){
+    const g = id => document.getElementById(id)?.value || '';
+    const gt = id => document.getElementById(id)?.innerText || '';
     const lines = [];
     lines.push(_csvRow(['ОТЧЁТ КАЛЬКУЛЯТОРА ОПЦИОНОВ QCKSLVR TRADING']));
     lines.push(_csvRow(['Дата экспорта', new Date().toISOString().slice(0,19).replace('T',' ')]));
     lines.push('');
     lines.push(_csvRow(['=== КАЛЬКУЛЯТОР ===']));
-    lines.push(_csvRow(['Тип опциона', document.getElementById('optionType').value]));
-    lines.push(_csvRow(['Страйк покупки', document.getElementById('strikeBuy').value]));
-    lines.push(_csvRow(['Уровень покупок', document.getElementById('priceBuy').value]));
-    lines.push(_csvRow(['Дата покупки', document.getElementById('currentDateBuy').value]));
-    lines.push(_csvRow(['Страйк продажи', document.getElementById('strikeSell').value]));
-    lines.push(_csvRow(['Уровень продаж', document.getElementById('priceSell').value]));
-    lines.push(_csvRow(['Дата продажи', document.getElementById('currentDateSell').value]));
-    lines.push(_csvRow(['Экспирация', document.getElementById('expiryDate').value]));
-    lines.push(_csvRow(['Ставка %', document.getElementById('riskFree').value]));
-    lines.push(_csvRow(['Волатильность %', document.getElementById('volatility').value]));
-    lines.push(_csvRow(['Дивидендная доходность %', document.getElementById('dividend').value]));
-    lines.push(_csvRow(['Модель', document.getElementById('pricingModel').value]));
-    lines.push(_csvRow(['Цена покупки (теор.)', document.getElementById('priceBuyResult').innerText]));
-    lines.push(_csvRow(['Цена продажи (теор.)', document.getElementById('priceSellResult').innerText]));
-    lines.push(_csvRow(['BE (покупка)', document.getElementById('beBuy').innerText]));
-    lines.push(_csvRow(['BE (продажа)', document.getElementById('beSell').innerText]));
-    lines.push(_csvRow(['Спред', document.getElementById('spreadResult').innerText]));
+    lines.push(_csvRow(['Модель', g('pricingModel')]));
+    lines.push(_csvRow(['Тип опциона покупки', g('optionTypeBuy')]));
+    lines.push(_csvRow(['Страйк покупки', g('strikeBuy')]));
+    lines.push(_csvRow(['Уровень покупок', g('priceBuy')]));
+    lines.push(_csvRow(['Экспирация покупки', g('expiryDateBuy')]));
+    lines.push(_csvRow(['Дата покупки', g('currentDateBuy')]));
+    lines.push(_csvRow(['Ставка покупки', g('riskFreeBuy')]));
+    lines.push(_csvRow(['Волатильность покупки', g('volatilityBuy')]));
+    lines.push(_csvRow(['Дивиденды покупки', g('dividendBuy')]));
+    lines.push(_csvRow(['Цена покупки (теор.)', gt('priceBuyResult')]));
+    lines.push(_csvRow(['BE покупки', gt('beBuy')]));
+    lines.push(_csvRow(['Тип опциона продажи', g('optionTypeSell')]));
+    lines.push(_csvRow(['Страйк продажи', g('strikeSell')]));
+    lines.push(_csvRow(['Уровень продаж', g('priceSell')]));
+    lines.push(_csvRow(['Экспирация продажи', g('expiryDateSell')]));
+    lines.push(_csvRow(['Дата продажи', g('currentDateSell')]));
+    lines.push(_csvRow(['Ставка продажи', g('riskFreeSell')]));
+    lines.push(_csvRow(['Волатильность продажи', g('volatilitySell')]));
+    lines.push(_csvRow(['Дивиденды продажи', g('dividendSell')]));
+    lines.push(_csvRow(['Цена продажи (теор.)', gt('priceSellResult')]));
+    lines.push(_csvRow(['BE продажи', gt('beSell')]));
+    lines.push(_csvRow(['Спред', gt('spreadResult')]));
 
     const csv = lines.join('\n');
     const blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8;'});
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = URL.createObjectURL(blob);
     const dateStr = new Date().toISOString().slice(0,16).replace(/[:T]/g, '-');
-    const expiry = document.getElementById('expiryDate').value || 'no-expiry';
-    a.download = `report_${dateStr}_${expiry}.csv`;
+    a.download = `calc_${dateStr}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(a.href);
   }
 
-  document.getElementById('calcBtn').addEventListener('click', updatePrices);
-  document.getElementById('resetBtn').addEventListener('click', resetToExample);
-  document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
-  document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
+  // ========== Импорт CSV ==========
+  function importCSV(file){
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/);
+        const map = {};
+        for (const line of lines) {
+          if (!line || line.startsWith('===') || line.startsWith('ОТЧЁТ')) continue;
+          const idx = line.indexOf(',');
+          if (idx < 0) continue;
+          const key = line.slice(0, idx).trim();
+          const value = line.slice(idx + 1).trim();
+          map[key] = value;
+        }
+        const setV = (id, key) => {
+          if (map[key] !== undefined) {
+            const el = document.getElementById(id);
+            if (el) el.value = map[key];
+          }
+        };
+        setV('pricingModel', 'Модель');
+        setV('optionTypeBuy', 'Тип опциона покупки');
+        setV('priceBuy', 'Уровень покупок');
+        setV('expiryDateBuy', 'Экспирация покупки');
+        setV('currentDateBuy', 'Дата покупки');
+        setV('riskFreeBuy', 'Ставка покупки');
+        setV('volatilityBuy', 'Волатильность покупки');
+        setV('dividendBuy', 'Дивиденды покупки');
+        setV('optionTypeSell', 'Тип опциона продажи');
+        setV('priceSell', 'Уровень продаж');
+        setV('expiryDateSell', 'Экспирация продажи');
+        setV('currentDateSell', 'Дата продажи');
+        setV('riskFreeSell', 'Ставка продажи');
+        setV('volatilitySell', 'Волатильность продажи');
+        setV('dividendSell', 'Дивиденды продажи');
+        // Страйк — попробуем установить после renderStrikes
+        const sb = map['Страйк покупки']; const ss = map['Страйк продажи'];
+        if (sb !== undefined) {
+          const el = document.getElementById('strikeBuy');
+          if (el) {
+            const opt = Array.from(el.options).find(o => o.value === sb);
+            if (opt) el.value = sb;
+          }
+        }
+        if (ss !== undefined) {
+          const el = document.getElementById('strikeSell');
+          if (el) {
+            const opt = Array.from(el.options).find(o => o.value === ss);
+            if (opt) el.value = ss;
+          }
+        }
+        updatePrices();
+        saveSettings();
+        syncToParent();
+      } catch (err) {
+        alert('Ошибка импорта CSV: ' + err.message);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
 
-  ['priceBuy','priceSell','currentDateBuy','currentDateSell','expiryDate',
-   'riskFree','volatility','dividend','pricingModel']
-    .forEach(id => document.getElementById(id).addEventListener('input', updatePrices));
-
-  ['priceBuy','priceSell','riskFree','volatility','dividend'].forEach(id =>
-    document.getElementById(id).addEventListener('input', syncLevelsToParent));
-
-  document.getElementById('optionType').addEventListener('change', function() {
-    renderStrikes();
-    updatePrices();
+  // ========== Инициализация полей ==========
+  ['optionTypeBuy','optionTypeSell','priceBuy','priceSell',
+   'currentDateBuy','currentDateSell','expiryDateBuy','expiryDateSell',
+   'riskFreeBuy','riskFreeSell','volatilityBuy','volatilitySell',
+   'dividendBuy','dividendSell','pricingModel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { updatePrices(); saveSettings(); });
   });
+  ['priceBuy','priceSell','riskFreeBuy','riskFreeSell',
+   'volatilityBuy','volatilitySell','dividendBuy','dividendSell']
+    .forEach(id => document.getElementById(id)?.addEventListener('input', syncToParent));
 
-  document.getElementById('strikeBuy').addEventListener('change', function() {
+  document.getElementById('optionTypeBuy').addEventListener('change', function(){
+    renderStrikesFor('strikeBuy', this.value);
+    updatePrices(); saveSettings();
+  });
+  document.getElementById('optionTypeSell').addEventListener('change', function(){
+    renderStrikesFor('strikeSell', this.value);
+    updatePrices(); saveSettings();
+  });
+  document.getElementById('strikeBuy').addEventListener('change', function(){
     applySelectColor(this);
     const iv = getIVForStrike(this.value);
-    if (iv != null) document.getElementById('volatility').value = iv;
-    updatePrices();
+    if (iv != null) document.getElementById('volatilityBuy').value = iv;
+    updatePrices(); saveSettings();
   });
-
-  document.getElementById('strikeSell').addEventListener('change', function() {
+  document.getElementById('strikeSell').addEventListener('change', function(){
     applySelectColor(this);
-    updatePrices();
+    const iv = getIVForStrike(this.value);
+    if (iv != null) document.getElementById('volatilitySell').value = iv;
+    updatePrices(); saveSettings();
   });
 
-  // ---- Инициализация дат ----
-  const _today = new Date().toISOString().slice(0,10);
+  // Кнопки
+  document.getElementById('resetBtn').addEventListener('click', resetToExample);
+  document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
+  document.getElementById('importCsvBtn').addEventListener('click', () => {
+    document.getElementById('importCsvInput').click();
+  });
+  document.getElementById('importCsvInput').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (f) importCSV(f);
+    e.target.value = '';
+  });
+
+  // Инициализация
   document.getElementById('currentDateBuy').value = _today;
   document.getElementById('currentDateSell').value = _today;
-  if (!document.getElementById('expiryDate').value) {
-    document.getElementById('expiryDate').value =
-      new Date(Date.now()+30*86400000).toISOString().slice(0,10);
-  }
+  document.getElementById('expiryDateBuy').value = _default_expiry;
+  document.getElementById('expiryDateSell').value = _default_expiry;
   loadSettings();
   document.getElementById('currentDateBuy').value = _today;
   document.getElementById('currentDateSell').value = _today;
   updatePrices();
-  syncLevelsToParent();
+  syncToParent();
 
-  // ================= TradingView =================
+  // ========== TradingView ==========
   function renderTVChart(containerId, symbol, interval) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -584,42 +818,41 @@
     container.appendChild(iframe);
   }
 
-  // ================= Мост с родителем =================
+  // ========== Мост с родителем ==========
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data) return;
 
-    if (data.type === 'setRiskFree') {
-      const el = document.getElementById('riskFree');
-      if (el && typeof data.value === 'number') {
-        el.value = data.value.toFixed(4);
-        updatePrices();
-      }
-      return;
-    }
-
-    if (data.type === 'setDividend') {
-      const el = document.getElementById('dividend');
-      if (el && typeof data.value === 'number') {
-        el.value = (data.value * 100).toFixed(4);
-        updatePrices();
-      }
+    if (data.type === 'setCalcParams') {
+      const setIf = (id, val, digits) => {
+        const el = document.getElementById(id);
+        if (el && typeof val === 'number') el.value = val.toFixed(digits);
+      };
+      setIf('riskFreeBuy', data.rf_buy, 4);
+      setIf('riskFreeSell', data.rf_sell, 4);
+      setIf('dividendBuy', data.div_buy, 4);
+      setIf('dividendSell', data.div_sell, 4);
+      setIf('volatilityBuy', data.vol_buy, 2);
+      setIf('volatilitySell', data.vol_sell, 2);
+      updatePrices(); saveSettings();
       return;
     }
 
     if (data.type === 'setExpiry') {
-      const el = document.getElementById('expiryDate');
-      if (!el || typeof data.value !== 'string') return;
+      if (typeof data.value !== 'string') return;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(data.value)) return;
-      if (el.value !== data.value) {
-        el.value = data.value;
-        const source = document.getElementById('expirySource');
-        if (source) source.innerText = data.series_code
-          ? `из MOEX: серия ${data.series_code}`
-          : 'из MOEX';
-        updatePrices();
-        try { saveSettings(); } catch (_) {}
-      }
+      const elBuy = document.getElementById('expiryDateBuy');
+      const elSell = document.getElementById('expiryDateSell');
+      if (elBuy) elBuy.value = data.value;
+      if (elSell) elSell.value = data.value;
+      const srcB = document.getElementById('expirySourceBuy');
+      const srcS = document.getElementById('expirySourceSell');
+      const txt = data.series_code
+        ? `из MOEX: серия ${data.series_code}`
+        : 'из MOEX';
+      if (srcB) srcB.innerText = txt;
+      if (srcS) srcS.innerText = txt;
+      updatePrices(); saveSettings();
       return;
     }
 
@@ -647,7 +880,6 @@
       if (hBuy) hBuy.value = data.buy != null ? String(data.buy) : '';
       if (hSell) hSell.value = data.sell != null ? String(data.sell) : '';
       if (hTicker) hTicker.value = data.ticker || '';
-
       if (data.buy != null) {
         const el = document.getElementById('priceBuy');
         if (el) el.value = Number(data.buy).toFixed(2);
@@ -656,13 +888,11 @@
         const el = document.getElementById('priceSell');
         if (el) el.value = Number(data.sell).toFixed(2);
       }
-      updatePrices();
-      try { saveSettings(); } catch (_) {}
+      updatePrices(); saveSettings();
       return;
     }
   });
 
-  // ================= Retry: request strikes & alerts =================
   let __strikesRetry = 0;
   function __requestStrikes() {
     if (__strikeList.length > 0 || __strikesRetry > 20) return;
@@ -671,15 +901,6 @@
     setTimeout(__requestStrikes, 500);
   }
   __requestStrikes();
-
-  let __alertsRetry = 0;
-  function __requestAlerts() {
-    if (document.getElementById('alertTicker').value || __alertsRetry > 20) return;
-    __alertsRetry++;
-    try { window.parent.postMessage({ type: 'needAlerts' }, '*'); } catch (_) {}
-    setTimeout(__requestAlerts, 700);
-  }
-  __alertsRetry && __requestAlerts();
 
   try { window.parent.postMessage({ type: 'calcReady' }, '*'); } catch (_) {}
 </script>
