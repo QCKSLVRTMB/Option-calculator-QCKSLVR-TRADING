@@ -2842,23 +2842,31 @@ with tab_position:
                                     g = strat_def["legs"][li]["strike_group"]
                                     if g not in groups_with_missing:
                                         groups_with_missing.append(g)
-                                cols_g = st.columns(len(groups_with_missing))
-                                for gi, grp in enumerate(groups_with_missing):
-                                    with cols_g[gi]:
-                                        current = strike_choices.get(grp)
-                                        default_idx = 0
-                                        if current is not None and _all_strikes_for_ref:
-                                            try:
-                                                default_idx = _all_strikes_for_ref.index(
-                                                    min(_all_strikes_for_ref,
-                                                        key=lambda k: abs(float(k) - float(current))))
-                                            except ValueError:
-                                                default_idx = 0
-                                        strike_choices[grp] = st.selectbox(
-                                            f"Страйк «{grp}»",
-                                            _all_strikes_for_ref or ["—"],
-                                            index=default_idx,
-                                            key=f"ref_grp_{strat_name}_{grp}")
+
+                                if not groups_with_missing:
+                                    st.warning(
+                                        "Для этой стратегии нет групп для "
+                                        "добавления — проверьте состав ног."
+                                    )
+                                else:
+                                    cols_g = st.columns(len(groups_with_missing))
+                                    for gi, grp in enumerate(groups_with_missing):
+                                        with cols_g[gi]:
+                                            current = strike_choices.get(grp)
+                                            default_idx = 0
+                                            if current is not None and _all_strikes_for_ref:
+                                                try:
+                                                    default_idx = _all_strikes_for_ref.index(
+                                                        min(_all_strikes_for_ref,
+                                                            key=lambda k: abs(float(k) - float(current)))
+                                                    )
+                                                except ValueError:
+                                                    default_idx = 0
+                                            strike_choices[grp] = st.selectbox(
+                                                f"Страйк «{grp}»",
+                                                _all_strikes_for_ref or ["—"],
+                                                index=default_idx,
+                                                key=f"ref_grp_{strat_name}_{grp}")
                                 order_ok, order_msg = validate_strike_order(
                                     strat_def, strike_choices)
                                 if not order_ok:
