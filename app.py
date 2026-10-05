@@ -15,7 +15,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 st.set_page_config(
-    page_title="MOEX Options & Black-Scholes",
+    page_title="Калькулятор опционов QCKSLVR TRADING",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
