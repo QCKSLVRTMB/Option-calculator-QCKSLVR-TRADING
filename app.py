@@ -3274,7 +3274,7 @@ with tab_board:
                     xaxis_title="Страйк", yaxis_title="IV, %",
                     height=380, margin=dict(l=20, r=20, t=50, b=20),
                     xaxis=dict(tickformat=".0f", hoverformat=".0f"),
-                    yaxis=dict(yaxis=dict(tickformat=".2f", hoverformat=".2f")),
+                    yaxis=dict(tickformat=".2f", hoverformat=".2f"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
