@@ -3432,3 +3432,176 @@ with tab_board:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("Данные для улыбки волатильности недоступны.")
+# ==================================================================
+# ============ ВКЛАДКА 4: ОПОВЕЩЕНИЯ ===============================
+# ==================================================================
+with tab_alerts:
+    st.header("Оповещения по уровням")
+
+    st.markdown(
+        "Загрузите Excel-файл с уровнями. Ожидаемые колонки: "
+        "**Тикер БА · Категория БА · Уровень покупок · Уровень продаж**. "
+        "Сравнение идёт с последней рыночной ценой (LAST) с MOEX ISS."
+    )
+
+    uploaded = st.file_uploader(
+        "Excel-файл (.xlsx)",
+        type=["xlsx", "xls"],
+        key="alerts_xlsx_uploader",
+    )
+
+    if "alerts_df" not in st.session_state:
+        st.session_state.alerts_df = None
+
+    if uploaded is not None:
+        try:
+            _xls = pd.read_excel(uploaded)
+            _col_map = {}
+            for c in _xls.columns:
+                c_str = str(c).strip().lower()
+                if "тикер" in c_str:
+                    _col_map[c] = "Тикер БА"
+                elif "категор" in c_str:
+                    _col_map[c] = "Категория БА"
+                elif "покуп" in c_str or "bid" in c_str:
+                    _col_map[c] = "Уровень покупок"
+                elif "продаж" in c_str or "ask" in c_str:
+                    _col_map[c] = "Уровень продаж"
+            _xls = _xls.rename(columns=_col_map)
+
+            required = ["Тикер БА", "Категория БА",
+                        "Уровень покупок", "Уровень продаж"]
+            missing = [c for c in required if c not in _xls.columns]
+            if missing:
+                st.error(f"В файле нет колонок: {', '.join(missing)}")
+            else:
+                _xls["Уровень покупок"] = pd.to_numeric(
+                    _xls["Уровень покупок"], errors="coerce")
+                _xls["Уровень продаж"] = pd.to_numeric(
+                    _xls["Уровень продаж"], errors="coerce")
+                _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок",
+                                           "Уровень продаж"])
+                st.session_state.alerts_df = _xls
+                st.success(f"Загружено {len(_xls)} строк.")
+        except Exception as e:
+            st.error(f"Не удалось прочитать файл: {e}")
+
+    if st.session_state.alerts_df is not None:
+        if st.button("Очистить таблицу оповещений"):
+            st.session_state.alerts_df = None
+            st.rerun()
+
+    if st.session_state.alerts_df is None:
+        st.info("Загрузите Excel-файл, чтобы увидеть оповещения.")
+    else:
+        df_alerts = st.session_state.alerts_df.copy()
+
+        if "alerts_price_cache" not in st.session_state:
+            st.session_state.alerts_price_cache = {}
+
+        def _get_price_for_alert(ticker, category):
+            key = (ticker.upper(), category)
+            cache = st.session_state.alerts_price_cache
+            if key in cache:
+                return cache[key]
+            secid = resolve_underlying_secid(ticker.upper(), category)
+            info = fetch_last_price_from_iss(secid, category)
+            cache[key] = info
+            return info
+
+        out_rows = []
+        for _, row in df_alerts.iterrows():
+            ticker = str(row["Тикер БА"]).strip()
+            category = str(row["Категория БА"]).strip()
+            lvl_buy = float(row["Уровень покупок"])
+            lvl_sell = float(row["Уровень продаж"])
+
+            info = _get_price_for_alert(ticker, category)
+            last = info.get("last") if info else None
+
+            if last and last > 0:
+                buy_dev_pct = (lvl_buy - last) / last * 100.0
+                sell_dev_pct = (lvl_sell - last) / last * 100.0
+                buy_active = lvl_buy <= last
+                sell_active = lvl_sell >= last
+            else:
+                buy_dev_pct = None
+                sell_dev_pct = None
+                buy_active = False
+                sell_active = False
+
+            out_rows.append({
+                "Тикер БА": ticker,
+                "Категория БА": category,
+                "Уровень покупок": lvl_buy,
+                "Откл. покупок, %": buy_dev_pct,
+                "Уровень продаж": lvl_sell,
+                "Откл. продаж, %": sell_dev_pct,
+                "Рыночная цена": last,
+                "Покупка активна": buy_active,
+                "Продажа активна": sell_active,
+            })
+
+        df_out = pd.DataFrame(out_rows)
+
+        def _style_alert_row(row):
+            styles = []
+            for col in row.index:
+                style = ""
+                if col == "Покупка активна" and row[col]:
+                    style = ("background-color:#00ff0c; "
+                             "color:#0a3d0e; font-weight:700;")
+                elif col == "Продажа активна" and row[col]:
+                    style = ("background-color:#00ff0c; "
+                             "color:#0a3d0e; font-weight:700;")
+                elif col == "Откл. покупок, %" and row[col] is not None:
+                    if row[col] <= 0:
+                        style = "color:#00a651; font-weight:700;"
+                    else:
+                        style = "color:#d32f2f;"
+                elif col == "Откл. продаж, %" and row[col] is not None:
+                    if row[col] >= 0:
+                        style = "color:#00a651; font-weight:700;"
+                    else:
+                        style = "color:#d32f2f;"
+                styles.append(style)
+            return styles
+
+        st.dataframe(
+            df_out.style
+                 .apply(_style_alert_row, axis=1)
+                 .format({
+                     "Уровень покупок":   "{:,.2f}",
+                     "Уровень продаж":    "{:,.2f}",
+                     "Откл. покупок, %":  "{:+.2f} %",
+                     "Откл. продаж, %":   "{:+.2f} %",
+                     "Рыночная цена":     "{:,.2f}",
+                     "Покупка активна":   lambda v: "АКТИВНО" if v else "—",
+                     "Продажа активна":   lambda v: "АКТИВНО" if v else "—",
+                 }, na_rep="—"),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        n_buy = int(df_out["Покупка активна"].sum())
+        n_sell = int(df_out["Продажа активна"].sum())
+        n_total = len(df_out)
+
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            st.metric("Всего тикеров", n_total)
+        with s2:
+            st.metric("Покупка активна", n_buy)
+        with s3:
+            st.metric("Продажа активна", n_sell)
+
+        if st.button("Обновить рыночные цены", type="primary"):
+            st.session_state.alerts_price_cache = {}
+            st.rerun()
+
+        st.download_button(
+            "Экспорт таблицы оповещений (CSV)",
+            data=df_out.to_csv(index=False).encode("utf-8-sig"),
+            file_name="alerts.csv",
+            mime="text/csv",
+        )
