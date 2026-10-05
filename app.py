@@ -3090,3 +3090,345 @@ with tab_position:
                 st.caption(f"Точки безубыточности: {be_str}")
             else:
                 st.caption("Точки безубыточности в диапазоне не найдены.")
+                # ==================================================================
+# ============ ВКЛАДКА 3: ДОСКА ОПЦИОНОВ ===========================
+# ==================================================================
+with tab_board:
+    if not st.session_state.get("series_list"):
+        st.info("Сначала выберите опционную серию на вкладке «Калькулятор».")
+    elif "selected_series_code" not in st.session_state:
+        st.info("Выберите конкретную дату экспирации на вкладке «Калькулятор».")
+    else:
+        asset = st.session_state.get("selected_asset", "")
+        asset_type_ui = st.session_state.get("selected_asset_type_ui", "")
+        series_code = st.session_state.get("selected_series_code", "")
+        expiry_str = st.session_state.get("selected_expiry", "")
+
+        try:
+            buy_level = float(st.session_state.get("_calc_level_buy", 0) or 0)
+        except (TypeError, ValueError):
+            buy_level = 0.0
+        try:
+            sell_level = float(st.session_state.get("_calc_level_sell", 0) or 0)
+        except (TypeError, ValueError):
+            sell_level = 0.0
+
+        st.markdown(f"### Доска опционов — **{asset}** "
+                    f"(серия `{series_code}`, экспирация {expiry_str})")
+
+        # ---- Информационная строка: цена БА + центральный страйк + диапазон ----
+        try:
+            _board_for_price = fetch_optionboard(asset, asset_type_ui, series_code)
+            _calls_p = _board_for_price.get('call') or []
+            _puts_p  = _board_for_price.get('put') or []
+
+            _c_map_p = {c['strike']: c for c in _calls_p
+                        if c.get('theorprice') and c.get('strike') is not None}
+            _p_map_p = {p2['strike']: p2 for p2 in _puts_p
+                        if p2.get('theorprice') and p2.get('strike') is not None}
+            _common_p = sorted(set(_c_map_p.keys()) & set(_p_map_p.keys()))
+            _fs_est = []
+            for k in _common_p:
+                ct = _c_map_p[k]['theorprice']
+                pt = _p_map_p[k]['theorprice']
+                if ct and pt and ct > 0 and pt > 0:
+                    _fs_est.append(ct - pt + float(k))
+            if _fs_est:
+                _fs_est.sort()
+                _f_current = _fs_est[len(_fs_est) // 2]
+            else:
+                _f_current = None
+
+            _central_p = _board_for_price.get('central_strike')
+            _strikes_p = sorted({
+                c['strike'] for c in _calls_p if c.get('strike') is not None
+            } | {
+                p2['strike'] for p2 in _puts_p if p2.get('strike') is not None
+            })
+            _k_min = _strikes_p[0] if _strikes_p else None
+            _k_max = _strikes_p[-1] if _strikes_p else None
+
+            _info_parts = []
+            if _f_current is not None:
+                _info_parts.append(
+                    f"<span style='color:#1c5a7a; font-weight:700;'>"
+                    f"Текущая цена БА: {_f_current:,.2f} ₽</span>"
+                )
+            if _central_p is not None:
+                _info_parts.append(
+                    f"<span style='color:#4a6f8a;'>"
+                    f"Центральный страйк: <b>{int(_central_p)}</b></span>"
+                )
+            if _k_min is not None and _k_max is not None:
+                _info_parts.append(
+                    f"<span style='color:#4a6f8a;'>"
+                    f"Диапазон страйков: <b>{int(_k_min)} … {int(_k_max)}</b> "
+                    f"({len(_strikes_p)} шт.)</span>"
+                )
+            if _info_parts:
+                st.markdown(
+                    "<div style='background:#eef6fb; border-radius:12px; "
+                    "padding:10px 16px; margin-bottom:12px; "
+                    "font-size:.9rem; display:flex; gap:24px; "
+                    "flex-wrap:wrap; align-items:center;'>"
+                    + " · ".join(_info_parts)
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+        except Exception:
+            pass
+
+        # ---- Тумблер раскраски ----
+        col_t1, col_t2 = st.columns([3, 2])
+        with col_t1:
+            highlight_on = st.toggle(
+                "Раскрасить ячейки по грекам и ликвидности",
+                value=False,
+            )
+        with col_t2:
+            if highlight_on:
+                st.markdown(
+                    "<div style='font-size:.78rem; color:#4a6f8a; "
+                    "padding-top:.4rem;'>"
+                    "Зелёный — норма · Жёлтый — пограничное · Красный — "
+                    "не по стратегии</div>",
+                    unsafe_allow_html=True,
+                )
+
+        try:
+            board = fetch_optionboard(asset, asset_type_ui, series_code)
+        except Exception as e:
+            st.error(f"Не удалось загрузить доску: {e}")
+            board = None
+
+        if board:
+            calls = board.get('call') or []
+            puts = board.get('put') or []
+            central = board.get('central_strike')
+
+            strikes = sorted({c['strike'] for c in calls} | {p['strike'] for p in puts})
+            c_map = {c['strike']: c for c in calls}
+            p_map = {p['strike']: p for p in puts}
+
+            def nearest_strike(level, strikes_list):
+                if level is None or level <= 0 or not strikes_list:
+                    return None
+                return min(strikes_list, key=lambda s: abs(float(s) - float(level)))
+
+            buy_strike_match = nearest_strike(buy_level, strikes)
+            sell_strike_match = nearest_strike(sell_level, strikes)
+
+            strikes_iv = []
+            for k in strikes:
+                c = c_map.get(k, {})
+                p = p_map.get(k, {})
+                iv = c.get('volatility') or p.get('volatility')
+                strikes_iv.append({
+                    "strike": int(k) if float(k).is_integer() else k,
+                    "iv": float(iv) if iv is not None else None,
+                })
+            push_strikes_to_calculator(strikes_iv, central)
+
+            rows = []
+            for k in strikes:
+                c = c_map.get(k, {})
+                p = p_map.get(k, {})
+                iv = c.get('volatility') or p.get('volatility')
+                rows.append({
+                    "Call_Ticker": c.get('secid', '—'),
+                    "Call_Rho":   c.get('rho'),
+                    "Call_Theta": c.get('theta'),
+                    "Call_Vega":  c.get('vega'),
+                    "Call_Gamma": c.get('gamma'),
+                    "Call_Delta": c.get('delta'),
+                    "Call_Theor": c.get('theorprice'),
+                    "Call_Last":  c.get('last'),
+                    "Call_Offer": c.get('offer'),
+                    "Call_Bid":   c.get('bid'),
+                    "Strike":     k,
+                    "IV_%":       iv,
+                    "Put_Bid":    p.get('bid'),
+                    "Put_Offer":  p.get('offer'),
+                    "Put_Last":   p.get('last'),
+                    "Put_Theor":  p.get('theorprice'),
+                    "Put_Delta":  p.get('delta'),
+                    "Put_Gamma":  p.get('gamma'),
+                    "Put_Vega":   p.get('vega'),
+                    "Put_Theta":  p.get('theta'),
+                    "Put_Rho":    p.get('rho'),
+                    "Put_Ticker": p.get('secid', '—'),
+                })
+            df = pd.DataFrame(rows)
+
+            def _delta_color(delta):
+                if delta is None or not isinstance(delta, (int, float)):
+                    return None
+                d = abs(delta)
+                if 0.25 <= d <= 0.45:
+                    return "#00ff0c"
+                if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
+                    return "#fcff00"
+                return "#ff0000"
+
+            def _theta_color(theta, vega):
+                if theta is None or vega is None:
+                    return None
+                if not isinstance(theta, (int, float)) or not isinstance(vega, (int, float)):
+                    return None
+                if abs(vega) < 1e-9:
+                    return None
+                ratio = abs(theta) / abs(vega)
+                if ratio > 1.0:
+                    return "#00ff0c"
+                if ratio > 0.5:
+                    return "#fcff00"
+                return "#ff0000"
+
+            def _liquidity_color(bid, ask, theor):
+                if bid is None or ask is None or theor is None:
+                    return None
+                if not all(isinstance(x, (int, float)) for x in (bid, ask, theor)):
+                    return None
+                if bid <= 0 or ask <= 0 or theor <= 0:
+                    return None
+                spread_pct = (ask - bid) / theor * 100
+                if spread_pct < 5:
+                    return "#00ff0c"
+                if spread_pct < 15:
+                    return "#fcff00"
+                return "#ff0000"
+
+            def style_row(row):
+                strike = float(row["Strike"])
+                is_central = central is not None and abs(strike - float(central)) < 0.01
+                is_buy_strike = (buy_strike_match is not None
+                                 and abs(strike - float(buy_strike_match)) < 0.01)
+                is_sell_strike = (sell_strike_match is not None
+                                  and abs(strike - float(sell_strike_match)) < 0.01)
+
+                call_bg = "#e1e3fb" if is_central else "#dbf3df"
+                put_bg  = "#fee5cd" if is_central else "#ffcdce"
+
+                styles = []
+                for col in row.index:
+                    style = ""
+                    if col.startswith("Call_"):
+                        style = f"background-color: {call_bg}"
+                    elif col.startswith("Put_"):
+                        style = f"background-color: {put_bg}"
+
+                    if col == "Strike":
+                        if is_sell_strike:
+                            style = ("background-color: #fb92f0; "
+                                     "color: white; font-weight: bold")
+                        elif is_buy_strike:
+                            style = ("background-color: #9c00ff; "
+                                     "color: white; font-weight: bold")
+                        elif is_central:
+                            style = "background-color: #e3e7ec; font-weight: bold"
+                    elif col == "IV_%" and is_central:
+                        style = "background-color: #e3e7ec; font-weight: bold"
+
+                    if highlight_on:
+                        if col in ("Call_Delta", "Put_Delta"):
+                            c = _delta_color(row[col])
+                            if c:
+                                style = f"background-color: {c}; font-weight: 600"
+                        elif col in ("Call_Theta", "Put_Theta"):
+                            vega_col = "Call_Vega" if col.startswith("Call_") else "Put_Vega"
+                            c = _theta_color(row[col], row.get(vega_col))
+                            if c:
+                                style = f"background-color: {c}; font-weight: 600"
+                        elif col in ("Call_Bid", "Call_Offer",
+                                     "Put_Bid", "Put_Offer"):
+                            if col.startswith("Call_"):
+                                theor_col = "Call_Theor"
+                            else:
+                                theor_col = "Put_Theor"
+                            if col.endswith("_Bid"):
+                                pair_col = col.replace("_Bid", "_Offer")
+                            else:
+                                pair_col = col.replace("_Offer", "_Bid")
+                            c = _liquidity_color(row[col], row.get(pair_col),
+                                                 row.get(theor_col))
+                            if c:
+                                style = f"background-color: {c}"
+
+                    styles.append(style)
+                return styles
+
+            column_display = {
+                "Call_Ticker": "Тикер",
+                "Call_Rho":    "Ро",
+                "Call_Theta":  "Тета",
+                "Call_Vega":   "Вега",
+                "Call_Gamma":  "Гамма",
+                "Call_Delta":  "Дельта",
+                "Call_Theor":  "Теор.Ц",
+                "Call_Last":   "Посл.Ц",
+                "Call_Offer":  "Offer",
+                "Call_Bid":    "Bid",
+                "Strike":      "Страйк",
+                "IV_%":        "IV%",
+                "Put_Bid":     "Bid",
+                "Put_Offer":   "Offer",
+                "Put_Last":    "Посл.Ц",
+                "Put_Theor":   "Теор.Ц",
+                "Put_Delta":   "Дельта",
+                "Put_Gamma":   "Гамма",
+                "Put_Vega":    "Вега",
+                "Put_Theta":   "Тета",
+                "Put_Rho":     "Ро",
+                "Put_Ticker":  "Тикер",
+            }
+
+            caption_extra = ""
+            if buy_strike_match is not None:
+                caption_extra += (f" · страйк покупок ≈ **{buy_strike_match}** "
+                                  f"(уровень {buy_level})")
+            if sell_strike_match is not None:
+                caption_extra += (f" · страйк продаж ≈ **{sell_strike_match}** "
+                                  f"(уровень {sell_level})")
+            st.caption(f"Центральный страйк: "
+                       f"**{central if central is not None else 'не определён'}** · "
+                       f"всего страйков: {len(df)}{caption_extra}")
+
+            st.dataframe(
+                df.style
+                  .apply(style_row, axis=1)
+                  .format(
+                      {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
+                      precision=4,
+                      na_rep="—",
+                  ),
+                column_config=column_display,
+                use_container_width=True,
+                height=600,
+            )
+
+            # ---- Улыбка волатильности ----
+            st.markdown("### Улыбка волатильности")
+            try:
+                points = fetch_volatility_graph(asset, series_code, asset_type_ui)
+            except Exception:
+                points = []
+            if points:
+                strikes_g = [p['strike'] for p in points]
+                vols_g = [p['volatility'] for p in points]
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=strikes_g, y=vols_g, mode='lines+markers',
+                    line=dict(color='#2c7da0', width=2),
+                    fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
+                    name='IV, %',
+                ))
+                fig.update_layout(
+                    title="Улыбка волатильности",
+                    xaxis_title="Страйк", yaxis_title="IV, %",
+                    height=380, margin=dict(l=20, r=20, t=50, b=20),
+                    xaxis=dict(tickformat=".0f", hoverformat=".0f"),
+                    yaxis=dict(tickformat=".2f", hoverformat=".2f"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Данные для улыбки волатильности недоступны.")
