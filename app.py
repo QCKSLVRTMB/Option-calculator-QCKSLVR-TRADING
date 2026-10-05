@@ -1752,7 +1752,7 @@ with tab_position:
     c1, c2 = st.columns([1, 1])
     with c1:
         deposit = st.number_input("Депозит, ₽", min_value=0.0,
-                                  value=100000.0, step=1000.0, format="%.0f")
+                                  value=100000.00, step=0.01, format="%.2f")
     with c2:
         risk_pct = st.number_input("Риск, %", min_value=1.0, max_value=100.0,
                                    value=1.0, step=1.0, format="%.0f")
