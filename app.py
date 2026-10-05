@@ -3454,7 +3454,10 @@ with tab_alerts:
     st.markdown(
         "Загрузите Excel-файл с уровнями. Ожидаемые колонки: "
         "**Тикер БА · Категория БА · Уровень покупок · Уровень продаж**. "
-        "Сравнение идёт с последней рыночной ценой (LAST) с MOEX ISS.")
+        "Сравнение идёт с последней рыночной ценой (LAST) с MOEX ISS. "
+        "**Сигнал покупки** — рыночная цена ≤ уровня покупок. "
+        "**Сигнал продажи** — рыночная цена ≥ уровня продаж."
+    )
 
     uploaded = st.file_uploader(
         "Excel-файл (.xlsx)",
@@ -3492,14 +3495,27 @@ with tab_alerts:
                 _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок",
                                            "Уровень продаж"])
                 st.session_state.alerts_df = _xls
+                # Сбрасываем кэш цен при новой загрузке
+                st.session_state.alerts_price_cache = {}
                 st.success(f"Загружено {len(_xls)} строк.")
         except Exception as e:
             st.error(f"Не удалось прочитать файл: {e}")
 
     if st.session_state.alerts_df is not None:
-        if st.button("Очистить таблицу оповещений"):
-            st.session_state.alerts_df = None
-            st.rerun()
+        # ---- Кнопка обновления цен НАД таблицей ----
+        cbtn1, cbtn2 = st.columns([1, 4])
+        with cbtn1:
+            if st.button("Обновить рыночные цены",
+                         use_container_width=True, type="primary",
+                         key="alerts_refresh_btn"):
+                st.session_state.alerts_price_cache = {}
+                st.rerun()
+        with cbtn2:
+            if st.button("Очистить таблицу оповещений",
+                         key="alerts_clear_btn"):
+                st.session_state.alerts_df = None
+                st.session_state.alerts_price_cache = {}
+                st.rerun()
 
     if st.session_state.alerts_df is None:
         st.info("Загрузите Excel-файл, чтобы увидеть оповещения.")
@@ -3525,18 +3541,25 @@ with tab_alerts:
             category = str(row["Категория БА"]).strip()
             lvl_buy = float(row["Уровень покупок"])
             lvl_sell = float(row["Уровень продаж"])
+
             info = _get_price_for_alert(ticker, category)
             last = info.get("last") if info else None
+
             if last and last > 0:
                 buy_dev_pct = (lvl_buy - last) / last * 100.0
                 sell_dev_pct = (lvl_sell - last) / last * 100.0
-                buy_active = lvl_buy <= last
-                sell_active = lvl_sell >= last
+
+                # ✅ ИСПРАВЛЕННАЯ ЛОГИКА:
+                # Сигнал покупки — цена ОПУСТИЛАСЬ до уровня покупок или ниже
+                buy_active = (last <= lvl_buy)
+                # Сигнал продажи — цена ПОДНЯЛАСЬ до уровня продаж или выше
+                sell_active = (last >= lvl_sell)
             else:
                 buy_dev_pct = None
                 sell_dev_pct = None
                 buy_active = False
                 sell_active = False
+
             out_rows.append({
                 "Тикер БА": ticker,
                 "Категория БА": category,
@@ -3554,14 +3577,8 @@ with tab_alerts:
             styles = []
             for col in row.index:
                 style = ""
-                # Зелёная подсветка ТОЛЬКО если сигнал реально активен
-                if col == "Покупка активна":
-                    if row[col] is True:
-                        style = ("background-color:#00ff0c; color:#0a3d0e; "
-                                 "font-weight:700;")
-                    else:
-                        style = ""  # нет сигнала — без подсветки
-                elif col == "Продажа активна":
+                # Зелёная подсветка ТОЛЬКО при активном сигнале
+                if col in ("Покупка активна", "Продажа активна"):
                     if row[col] is True:
                         style = ("background-color:#00ff0c; color:#0a3d0e; "
                                  "font-weight:700;")
@@ -3592,8 +3609,8 @@ with tab_alerts:
                 na_rep="—"),
             use_container_width=True, hide_index=True)
 
-        n_buy = int(df_out["Покупка активна"].sum())
-        n_sell = int(df_out["Продажа активна"].sum())
+        n_buy = int((df_out["Покупка активна"] == True).sum())
+        n_sell = int((df_out["Продажа активна"] == True).sum())
         n_total = len(df_out)
         s1, s2, s3 = st.columns(3)
         with s1:
@@ -3602,10 +3619,6 @@ with tab_alerts:
             st.metric("Покупка активна", n_buy)
         with s3:
             st.metric("Продажа активна", n_sell)
-
-        if st.button("Обновить рыночные цены", type="primary"):
-            st.session_state.alerts_price_cache = {}
-            st.rerun()
 
         st.download_button(
             "Экспорт таблицы оповещений (CSV)",
