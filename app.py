@@ -1429,18 +1429,19 @@ def push_strikes_to_calculator(strikes_iv: list, central_strike):
     }, delays=(200, 500, 1000, 1500, 2200, 3000, 4000, 5500, 7000))
 
 
-def push_risk_free_rate(rate_value):
-    payload_value = float(rate_value) if rate_value is not None else 0.0
+def push_calc_params(rf_buy=None, rf_sell=None,
+                     div_buy=None, div_sell=None,
+                     vol_buy=None, vol_sell=None):
+    """Отправляет параметры расчёта для обоих уровней."""
     _send_to_iframes({
-        "type": "setRiskFree", "value": payload_value,
+        "type": "setCalcParams",
+        "rf_buy":  float(rf_buy)  if rf_buy  is not None else 0.0,
+        "rf_sell": float(rf_sell) if rf_sell is not None else 0.0,
+        "div_buy": float(div_buy) if div_buy is not None else 0.0,
+        "div_sell":float(div_sell)if div_sell is not None else 0.0,
+        "vol_buy": float(vol_buy) if vol_buy is not None else 30.0,
+        "vol_sell":float(vol_sell)if vol_sell is not None else 30.0,
     }, delays=(500, 1500, 3000))
-
-
-def push_dividend_yield(q_value):
-    payload_value = float(q_value) if q_value is not None else 0.0
-    _send_to_iframes({
-        "type": "setDividend", "value": payload_value,
-    }, delays=(700, 1700, 3200))
 
 
 def push_alert_levels(ticker: str, buy_lvl, sell_lvl):
@@ -1469,19 +1470,19 @@ except (TypeError, ValueError):
 
 try:
     st.session_state["_calc_riskfree"] = float(
-        st.query_params.get("rf", 0) or 0)
+        st.query_params.get("rf_buy", 0) or 0)
 except (TypeError, ValueError):
     st.session_state["_calc_riskfree"] = 0.0
 
 try:
     st.session_state["_calc_volatility"] = float(
-        st.query_params.get("vol", 0) or 0)
+        st.query_params.get("vol_buy", 0) or 0)
 except (TypeError, ValueError):
     st.session_state["_calc_volatility"] = 0.0
 
 try:
     st.session_state["_calc_dividend"] = float(
-        st.query_params.get("div", 0) or 0)
+        st.query_params.get("div_buy", 0) or 0)
 except (TypeError, ValueError):
     st.session_state["_calc_dividend"] = 0.0
 
@@ -1687,11 +1688,13 @@ with tab_calc:
         push_expiry_to_calculator(_expiry_str, _series_code)
 
         if _asset_type == "Акция":
-            push_risk_free_rate(rfr)
-            push_dividend_yield(q)
+            push_calc_params(rf_buy=rfr, rf_sell=rfr,
+                             div_buy=q, div_sell=q,
+                             vol_buy=30.0, vol_sell=30.0)
         else:
-            push_risk_free_rate(0.0)
-            push_dividend_yield(0.0)
+            push_calc_params(rf_buy=0.0, rf_sell=0.0,
+                             div_buy=0.0, div_sell=0.0,
+                             vol_buy=30.0, vol_sell=30.0)
 
         tv_symbol = resolve_tv_ticker(_asset, _asset_type)
         if tv_symbol:
