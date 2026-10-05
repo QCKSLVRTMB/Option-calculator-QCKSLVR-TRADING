@@ -1476,7 +1476,7 @@ def push_alert_levels(ticker: str, buy_lvl, sell_lvl):
     }, delays=(500, 1500, 3000))
     # ================= UI =================
 
-st.title("MOEX Options & Black-Scholes")
+st.title("QCKSLVR TRADING")
 
 # ---------- Чтение параметров калькулятора из URL ----------
 try:
