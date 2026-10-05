@@ -7,9 +7,12 @@ import json
 import math
 import re
 import uuid
+import time
 import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime, date, timedelta
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 st.set_page_config(
     page_title="MOEX Options & Black-Scholes",
@@ -36,11 +39,69 @@ ASSET_TYPE_MAP = {
     'Индекс': 'index',
 }
 
-# ================= Ставки комиссий по умолчанию =================
 DEFAULT_COMM_OPTIONS_PCT = 3.0
 DEFAULT_COMM_OPTIONS_MIN = 0.02
 DEFAULT_COMM_FUTURES_PCT = 0.1
 DEFAULT_COMM_STOCKS_PCT  = 0.3
+
+# ================= Устойчивый HTTP-клиент к ISS =================
+
+def _make_iss_session():
+    s = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=0.6,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retry,
+                          pool_connections=8, pool_maxsize=8)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    s.headers.update({
+        "User-Agent": "MOEX-Options-Calc/1.0",
+        "Accept": "application/json, */*",
+    })
+    return s
+
+
+_ISS_SESSION = _make_iss_session()
+
+
+def iss_get(url, params=None, timeout=20):
+    """Устойчивый GET к ISS MOEX с retry. Возвращает Response или None."""
+    for attempt in range(3):
+        try:
+            r = _ISS_SESSION.get(url, params=params, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except requests.exceptions.RequestException:
+            if attempt == 2:
+                return None
+            time.sleep(0.7 * (attempt + 1))
+    return None
+
+
+def iss_get_json(url, params=None, timeout=20):
+    """То же, но сразу возвращает dict или None."""
+    r = iss_get(url, params=params, timeout=timeout)
+    if r is None:
+        return None
+    try:
+        return r.json()
+    except Exception:
+        return None
+
+
+_FAILED_UNTIL = {}
+def _is_failed_recently(key: str, cooldown_sec: int = 60) -> bool:
+    now = time.time()
+    ts = _FAILED_UNTIL.get(key)
+    return ts is not None and now < ts
+
+def _mark_failed(key: str, cooldown_sec: int = 60):
+    _FAILED_UNTIL[key] = time.time() + cooldown_sec
+
 
 # ================= Справочник инструментов MOEX =================
 MOEX_INSTRUMENTS = {
@@ -271,9 +332,7 @@ TV_TICKER_MAP = {
 
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-
-
-# ================= Предустановленные стратегии =================
+    # ================= Предустановленные стратегии =================
 PREDEFINED_STRATEGIES = {
     "Long Call": {
         "category": "Одиночные",
@@ -561,6 +620,8 @@ PREDEFINED_STRATEGIES = {
         ],
     },
 }
+
+
 # ================= Универсальная функция расчёта комиссии =================
 def calc_commission(premium, instrument_type="Опцион",
                     min_comm_options=0.02,
@@ -589,8 +650,7 @@ def fetch_dividends_smartlab() -> pd.DataFrame:
     try:
         r = requests.get(url, headers=headers, timeout=20)
         r.raise_for_status()
-    except Exception as e:
-        st.warning(f"Не удалось загрузить таблицу дивидендов: {e}")
+    except Exception:
         return pd.DataFrame(columns=["ticker", "dividend_rub",
                                      "record_date", "stock_price"])
     rows = re.findall(r'<tr[^>]*>(.*?)</tr>', r.text,
@@ -659,29 +719,30 @@ def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
 # ================= G-кривая =================
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_g_curve_params():
+    if _is_failed_recently("g_curve", cooldown_sec=120):
+        return None
     url = "https://iss.moex.com/iss/engines/stock/zcyc/securities.json"
-    try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        st.warning(f"Не удалось загрузить параметры G-кривой: {e}")
+    data = iss_get_json(url, timeout=15)
+    if data is None:
+        _mark_failed("g_curve", cooldown_sec=120)
         return None
     params = data.get('params', {})
     columns = params.get('columns', [])
     values = params.get('data', [])
     if not columns or not values:
+        _mark_failed("g_curve", cooldown_sec=120)
         return None
     df = pd.DataFrame(values, columns=columns)
     row = df.iloc[0]
     try:
         return {
-            'beta0': float(row['B1']), 'beta1': float(row['B2']),
-            'beta2': float(row['B3']), 'tau':   float(row['T1']),
+            'beta0': float(row['B1']),
+            'beta1': float(row['B2']),
+            'beta2': float(row['B3']),
+            'tau':   float(row['T1']),
             'g':     [float(row[f'G{i}']) for i in range(1, 10)],
         }
-    except Exception as e:
-        st.warning(f"Ошибка разбора параметров G-кривой: {e}")
+    except Exception:
         return None
 
 
@@ -743,11 +804,8 @@ def fetch_last_price_from_iss(secid: str, asset_type_ui: str):
     url = (f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
            f"/securities/{secid}.json")
     params = {"iss.meta": "off", "iss.only": "marketdata"}
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
+    data = iss_get_json(url, params=params, timeout=15)
+    if data is None:
         return {"last": None, "secid": secid, "source": "ошибка запроса"}
     md = data.get("marketdata", {})
     cols = md.get("columns", [])
@@ -771,14 +829,14 @@ def resolve_underlying_secid(asset_code: str, asset_type_ui: str):
         idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
         return idx_map.get(asset_code.upper(), asset_code.upper())
     if asset_type_ui in ("Фьючерс", "Валюта", "Товар"):
+        url = ("https://iss.moex.com/iss/engines/futures/markets/forts/"
+               "securities.json")
+        data = iss_get_json(url,
+                            params={"iss.meta": "off", "iss.only": "securities"},
+                            timeout=20)
+        if data is None:
+            return None
         try:
-            url = ("https://iss.moex.com/iss/engines/futures/markets/forts/"
-                   "securities.json")
-            r = requests.get(url,
-                             params={"iss.meta": "off", "iss.only": "securities"},
-                             timeout=15)
-            r.raise_for_status()
-            data = r.json()
             cols = data["securities"]["columns"]
             rows = data["securities"]["data"]
             df = pd.DataFrame(rows, columns=cols)
@@ -804,11 +862,8 @@ def fetch_futures_info_iss(secid: str):
     url = (f"https://iss.moex.com/iss/engines/futures/markets/forts"
            f"/securities/{secid}.json")
     params = {"iss.meta": "off", "iss.only": "securities,marketdata"}
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
+    data = iss_get_json(url, params=params, timeout=15)
+    if data is None:
         return None
     result = {"last": None, "expiration": None, "go": None, "secid": secid}
     sec = data.get("securities", {})
@@ -840,11 +895,8 @@ def fetch_stock_info_iss(secid: str):
     url = (f"https://iss.moex.com/iss/engines/stock/markets/shares"
            f"/securities/{secid}.json")
     params = {"iss.meta": "off", "iss.only": "securities,marketdata"}
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
+    data = iss_get_json(url, params=params, timeout=15)
+    if data is None:
         return None
     result = {"last": None, "shortname": None, "secid": secid, "expiration": None}
     sec = data.get("securities", {})
@@ -875,11 +927,8 @@ def fetch_index_info_iss(secid: str):
     url = (f"https://iss.moex.com/iss/engines/stock/markets/index"
            f"/securities/{secid}.json")
     params = {"iss.meta": "off", "iss.only": "securities,marketdata"}
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
+    data = iss_get_json(url, params=params, timeout=15)
+    if data is None:
         return None
     result = {"last": None, "secid": secid, "expiration": None}
     md = data.get("marketdata", {})
@@ -904,25 +953,19 @@ def fetch_ba_iss_info(secid: str, asset_type_ui: str):
         return fetch_stock_info_iss(secid)
 
 
-# ================= НОВОЕ: список всех контрактов фьючерса =================
+# ================= Список контрактов фьючерса =================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_futures_contracts_list(asset_code: str):
-    """Возвращает список всех доступных фьючерсных контрактов для базового
-       актива (по ASSETCODE). Сортирует по дате экспирации.
-
-       Формат: [{"secid": "RTS-12.24", "expiration": "2024-12-19",
-                 "shortname": "RTS-12.24"}, ...]
-    """
     if not asset_code:
         return []
+    url = ("https://iss.moex.com/iss/engines/futures/markets/forts/"
+           "securities.json")
+    data = iss_get_json(url,
+                        params={"iss.meta": "off", "iss.only": "securities"},
+                        timeout=20)
+    if data is None:
+        return []
     try:
-        url = ("https://iss.moex.com/iss/engines/futures/markets/forts/"
-               "securities.json")
-        r = requests.get(url,
-                         params={"iss.meta": "off", "iss.only": "securities"},
-                         timeout=15)
-        r.raise_for_status()
-        data = r.json()
         cols = data["securities"]["columns"]
         rows = data["securities"]["data"]
         df = pd.DataFrame(rows, columns=cols)
@@ -951,27 +994,16 @@ def fetch_futures_contracts_list(asset_code: str):
 
 
 def build_futures_code_from_expiry(asset_code: str, expiry_str: str) -> str:
-    """Формирует справочный тикер фьючерса по базовому активу и дате экспирации.
-
-       Пример: RTS + 2026-12-17 → "RIZ6"
-                SBRF + 2026-12-17 → "SRZ6"
-                BR + 2027-01-04 → "BRF7"
-    """
     if not asset_code or not expiry_str:
         return ""
     try:
         dt = datetime.strptime(expiry_str, "%Y-%m-%d").date()
     except Exception:
         return ""
-
-    month_codes = {
-        1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
-        7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z",
-    }
+    month_codes = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
+                   7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
     m_code = month_codes.get(dt.month, "?")
     y_code = str(dt.year)[-1]
-
-    # Корни для популярных активов
     roots = {
         "RTS": "RI", "MIX": "MX", "SBRF": "SR", "SBPR": "SP",
         "GAZR": "GZ", "LKOH": "LK", "ROSN": "RN", "NOTK": "NK",
@@ -1024,8 +1056,6 @@ def find_alert_levels(ticker: str):
 
 
 def resolve_auto_price(ticker: str, option_type: str, side: str):
-    """Call+Buy → уровень покупок; Call+Sell → уровень продаж;
-       Put+Buy  → уровень продаж;  Put+Sell  → уровень покупок."""
     levels = find_alert_levels(ticker)
     if not levels["found"]:
         return None
@@ -1057,10 +1087,13 @@ def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
     if moex_type != 'futures':
+        if _is_failed_recently("sec_list", cooldown_sec=120):
+            return code_to_fetch, moex_type
+        data = iss_get_json(SECURITIES_URL, timeout=20)
+        if data is None:
+            _mark_failed("sec_list", cooldown_sec=120)
+            return code_to_fetch, moex_type
         try:
-            resp = requests.get(SECURITIES_URL, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
             securities = data.get('securities', {}).get('data', [])
             columns = data.get('securities', {}).get('columns', [])
             assetcode_idx = columns.index('ASSETCODE') if 'ASSETCODE' in columns else -1
@@ -1072,8 +1105,8 @@ def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
                         if row[type_idx] != 'F':
                             code_to_fetch = row[underlying_idx]
                         break
-        except Exception as e:
-            st.warning(f"Не удалось уточнить код актива: {e}")
+        except Exception:
+            pass
     return code_to_fetch, moex_type
 
 
@@ -1081,9 +1114,9 @@ def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
 def fetch_optionseries(asset: str, asset_type_ui: str):
     asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
     url = f"{API_BASE_URL}/assets/{asset_code}/optionseries"
-    r = requests.get(url, params={'asset_type': moex_type}, timeout=15)
-    r.raise_for_status()
-    data = r.json()
+    data = iss_get_json(url, params={'asset_type': moex_type}, timeout=15)
+    if data is None:
+        return []
     series = []
     if isinstance(data, list):
         for item in data:
@@ -1102,11 +1135,15 @@ def fetch_optionseries(asset: str, asset_type_ui: str):
 def fetch_series_info(asset: str, asset_type_ui: str, series_code: str):
     asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
     url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}"
-    r = requests.get(url, params={'asset_type': moex_type}, timeout=15)
-    if r.status_code != 200:
-        r = requests.get(url, timeout=15)
-    r.raise_for_status()
-    data = r.json()
+    r = iss_get(url, params={'asset_type': moex_type}, timeout=15)
+    if r is None or r.status_code != 200:
+        r = iss_get(url, timeout=15)
+    if r is None:
+        return {}
+    try:
+        data = r.json()
+    except Exception:
+        return {}
     translated = {
         "Опционная серия": data.get('optionseries_code', '—'),
         "Базовый актив": data.get('asset_code', '—'),
@@ -1133,28 +1170,22 @@ def _fetch_optionboard_raw(asset_code: str, series_code: str, asset_type: str):
     for at in [asset_type, 'share', 'futures', 'index', 'currency', 'commodity']:
         url = (f"{API_BASE_URL}/assets/{asset_code}"
                f"/optionseries/{series_code}/optionboard")
-        try:
-            r = requests.get(url, params={'asset_type': at}, timeout=15)
-            if r.status_code == 200:
-                return r.json()
-        except Exception:
-            continue
+        data = iss_get_json(url, params={'asset_type': at}, timeout=15)
+        if data is not None:
+            return data
     return None
 
 
 def fetch_central_strike(asset_code, series_code, asset_type):
     url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}"
-    try:
-        r = requests.get(url, params={'asset_type': asset_type}, timeout=10)
-        if r.status_code == 200:
-            cs = r.json().get('central_strike')
-            if cs:
-                try:
-                    return float(cs)
-                except (TypeError, ValueError):
-                    pass
-    except Exception:
-        pass
+    data = iss_get_json(url, params={'asset_type': asset_type}, timeout=15)
+    if data is not None:
+        cs = data.get('central_strike')
+        if cs:
+            try:
+                return float(cs)
+            except (TypeError, ValueError):
+                pass
     try:
         board = _fetch_optionboard_raw(asset_code, series_code, asset_type)
         if board:
@@ -1190,14 +1221,11 @@ def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
     for at in ['share', 'futures', 'index', 'currency', 'commodity']:
         url = (f"{API_BASE_URL}/assets/{asset_code}"
                f"/optionseries/{series_code}/optionboard")
-        try:
-            r = requests.get(url, params={'asset_type': at}, timeout=15)
-            if r.status_code == 200:
-                board_data = r.json()
-                used_asset_type = at
-                break
-        except Exception:
-            continue
+        data = iss_get_json(url, params={'asset_type': at}, timeout=15)
+        if data is not None:
+            board_data = data
+            used_asset_type = at
+            break
     if not board_data:
         raise RuntimeError("Не удалось получить доску опционов")
     board_data['central_strike'] = fetch_central_strike(asset_code,
@@ -1212,15 +1240,11 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
     asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
     url = (f"{API_BASE_URL}/assets/{asset_code}"
            f"/optionseries/{series_code}/volatility_graph")
-    try:
-        r = requests.get(url, params={'asset_type': moex_type}, timeout=15)
-        r.raise_for_status()
-        return r.json()
-    except Exception:
-        return []
+    data = iss_get_json(url, params={'asset_type': moex_type}, timeout=15)
+    return data if data is not None else []
 
 
-# ================= Вспомогательные функции =================
+# ================= Вспомогательные =================
 def _color_call_put(option: str) -> str:
     if option == "Call":
         return f"<span style='color:#00a651; font-weight:700;'>{option}</span>"
@@ -1432,7 +1456,6 @@ def push_strikes_to_calculator(strikes_iv: list, central_strike):
 def push_calc_params(rf_buy=None, rf_sell=None,
                      div_buy=None, div_sell=None,
                      vol_buy=None, vol_sell=None):
-    """Отправляет параметры расчёта для обоих уровней."""
     _send_to_iframes({
         "type": "setCalcParams",
         "rf_buy":  float(rf_buy)  if rf_buy  is not None else 0.0,
@@ -1625,26 +1648,17 @@ with tab_calc:
         # --- Авто-подстановка уровней из Excel-оповещений ---
         _alert_levels = find_alert_levels(asset)
         if _alert_levels["found"]:
-            # Определяем, что подставлять в поля «Уровень покупок» / «Уровень продаж»
-            _opt_type_for_alerts = "Call"  # по умолчанию
-            try:
-                _opt_type_for_alerts = st.session_state.get(
-                    "_calc_option_type", "Call"
-                )
-            except Exception:
-                pass
-
             st.info(
                 f"Уровни из оповещений Excel: "
                 f"**покупка = {_alert_levels['buy']:.2f} ₽** · "
                 f"**продажа = {_alert_levels['sell']:.2f} ₽** — "
-                f"подставлены в блоки «Результаты расчёта»"
+                f"подставлены в блоки «Уровень покупок» / «Уровень продаж»"
             )
             push_alert_levels(asset, _alert_levels["buy"], _alert_levels["sell"])
         else:
             push_alert_levels(asset, None, None)
 
-        # --- Безрисковая ставка и дивиденды ---
+        # --- Безрисковая ставка и дивиденды (для акций) ---
         if asset_type_ui == "Акция":
             rfr = get_risk_free_rate_for_expiry(expiry_str)
             if rfr is not None:
@@ -1675,7 +1689,7 @@ with tab_calc:
     # ---------- Калькулятор ----------
     st.markdown("---")
     calc_html = Path("index.html").read_text(encoding="utf-8")
-    components.html(calc_html, height=1100, scrolling=True)
+    components.html(calc_html, height=1500, scrolling=True)
 
     # ---------- Push'и в калькулятор ----------
     if st.session_state.get("board_loaded") and \
@@ -1700,7 +1714,7 @@ with tab_calc:
         if tv_symbol:
             push_tv_ticker(_asset, tv_symbol)
 
-    # ---------- Обработка retry-запросов из iframe ----------
+    # ---------- Retry: strikes ----------
     if st.session_state.get("board_loaded") and \
        "selected_series_code" in st.session_state:
         try:
@@ -1801,8 +1815,7 @@ with tab_position:
     with st.expander("Импорт портфеля из CSV", expanded=False):
         _uploaded_pf = st.file_uploader(
             "Загрузите CSV, ранее выгруженный кнопкой «Экспорт портфеля»",
-            type=["csv"], key="portfolio_import_csv",
-        )
+            type=["csv"], key="portfolio_import_csv")
         if _uploaded_pf is not None:
             try:
                 _pf_df = pd.read_csv(_uploaded_pf)
@@ -1889,7 +1902,6 @@ with tab_position:
             with st.form("add_position_form", clear_on_submit=False):
                 f1, f2, f3, f4 = st.columns([2, 2, 2, 1.6])
 
-                # Тип инструмента
                 with f1:
                     _instr_options = ["Опцион"]
                     if asset_type_ui_now in ("Фьючерс", "Валюта", "Товар"):
@@ -1902,10 +1914,8 @@ with tab_position:
                                                    _instr_options,
                                                    key="form_instrument_type")
 
-                # Экспирация
                 with f2:
                     if instrument_type == "Фьючерс":
-                        # Dropdown со всеми контрактами
                         _contracts = fetch_futures_contracts_list(asset_now)
                         if _contracts:
                             _contract_labels = [
@@ -1914,11 +1924,9 @@ with tab_position:
                             ]
                             _chosen_contract_label = st.selectbox(
                                 "Исполнение", _contract_labels, index=0,
-                                key="form_futures_contract"
-                            )
+                                key="form_futures_contract")
                             _chosen_contract = _contracts[
-                                _contract_labels.index(_chosen_contract_label)
-                            ]
+                                _contract_labels.index(_chosen_contract_label)]
                             expiry_now_form = _chosen_contract["expiration"]
                             _futures_secid_form = _chosen_contract["secid"]
                         else:
@@ -1941,7 +1949,6 @@ with tab_position:
                         expiry_now_form = expiry_now
                         _futures_secid_form = None
                     else:
-                        # Акция / индекс — нет экспирации
                         st.markdown(
                             "<div style='font-size:.72rem; font-weight:700; "
                             "color:#2c506d; margin-bottom:6px;'>Исполнение</div>",
@@ -1949,25 +1956,18 @@ with tab_position:
                         st.markdown(
                             "<div style='padding:8px 14px; border:1px solid "
                             "#cfdfe9; border-radius:18px; background:#f5f5f5; "
-                            "color:#999;'>—</div>",
-                            unsafe_allow_html=True)
+                            "color:#999;'>—</div>", unsafe_allow_html=True)
                         expiry_now_form = "—"
                         _futures_secid_form = None
 
-                    # Справочный тикер под полем «Исполнение»
                     if instrument_type == "Фьючерс" and _futures_secid_form:
-                        st.caption(
-                            f"Справочный тикер: **{_futures_secid_form}**"
-                        )
+                        st.caption(f"Справочный тикер: **{_futures_secid_form}**")
                     elif instrument_type == "Опцион" and expiry_now_form != "—":
                         _ref_ticker_fut = build_futures_code_from_expiry(
                             asset_now, expiry_now_form)
                         if _ref_ticker_fut:
-                            st.caption(
-                                f"Фьючерс серии: **{_ref_ticker_fut}**"
-                            )
+                            st.caption(f"Фьючерс серии: **{_ref_ticker_fut}**")
 
-                # Страйк
                 with f3:
                     if instrument_type == "Опцион" and all_strikes:
                         default_idx = 0
@@ -1992,7 +1992,6 @@ with tab_position:
                             "#cfdfe9; border-radius:18px; background:#f5f5f5; "
                             "color:#999;'>—</div>", unsafe_allow_html=True)
 
-                # Опцион Call/Put
                 with f4:
                     if instrument_type == "Опцион":
                         opt_type = st.selectbox("Опцион", ["Call", "Put"],
@@ -2010,7 +2009,6 @@ with tab_position:
 
                 f5, f6, f7, f8 = st.columns([2.4, 1.4, 1.2, 1.6])
 
-                # Тикер
                 with f5:
                     if instrument_type == "Опцион" and chosen_strike is not None:
                         ref_opt_for_ticker = (c_map.get(chosen_strike, {})
@@ -2032,17 +2030,14 @@ with tab_position:
                         f"font-size:.9rem;'>{ticker_val}</div>",
                         unsafe_allow_html=True)
 
-                # Направление
                 with f6:
                     side = st.selectbox("Направление", ["Buy", "Sell"],
                                         key="form_side")
 
-                # Количество
                 with f7:
                     qty_input = st.number_input("Кол-во", min_value=1, value=1,
                                                 step=1, key="form_qty")
 
-                # Цена
                 with f8:
                     ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
                                else p_map.get(chosen_strike, {})) \
@@ -2059,15 +2054,13 @@ with tab_position:
                                                   step=0.01, format="%.4f",
                                                   key="form_price")
 
-                # Конструкция
                 fc1, fc2 = st.columns([2, 4])
                 with fc1:
                     NEW_LABEL = "— Новая конструкция —"
                     constr_choice = st.selectbox(
                         "Конструкция",
                         [NEW_LABEL] + _existing_constructions,
-                        key="form_constr_choice",
-                    )
+                        key="form_constr_choice")
                 with fc2:
                     if constr_choice == NEW_LABEL:
                         constr_name_input = st.text_input(
@@ -2083,18 +2076,14 @@ with tab_position:
                 submitted = st.form_submit_button("Добавить позицию",
                                                   type="primary")
 
-                # ---------- Обработка submit ----------
                 if submitted:
                     if instrument_type == "Фьючерс":
-                        # Фьючерс
                         _und_secid = _futures_secid_form or asset_now
                         _fut_info = fetch_futures_info_iss(_und_secid) or {}
                         _last_price = _fut_info.get("last")
                         _fut_exp = _fut_info.get("expiration") or expiry_now_form
-
                         final_price = float(price_input) if price_input > 0 else (
-                            float(_last_price) if _last_price else 0.0
-                        )
+                            float(_last_price) if _last_price else 0.0)
                         if final_price > 0:
                             signed_qty = int(qty_input) if side == "Buy" \
                                          else -int(qty_input)
@@ -2125,16 +2114,13 @@ with tab_position:
                             st.error("Не удалось определить цену фьючерса.")
 
                     elif instrument_type in ("Акция", "Индекс"):
-                        # Акция / индекс — нет экспирации
                         _und_secid = resolve_underlying_secid(asset_now,
                                                               asset_type_ui_now)
                         _ba_info = fetch_ba_iss_info(_und_secid,
                                                      asset_type_ui_now) or {}
                         _last_price = _ba_info.get("last")
-
                         final_price = float(price_input) if price_input > 0 else (
-                            float(_last_price) if _last_price else 0.0
-                        )
+                            float(_last_price) if _last_price else 0.0)
                         if final_price > 0:
                             signed_qty = int(qty_input) if side == "Buy" \
                                          else -int(qty_input)
@@ -2145,7 +2131,7 @@ with tab_position:
                                 "Опцион": "БА",
                                 "Направление": side,
                                 "Страйк": None,
-                                "Эксп.": "—",  # у акции нет экспирации
+                                "Эксп.": "—",
                                 "Тикер": _und_secid or '—',
                                 "Кол-во": signed_qty,
                                 "Цена": float(final_price),
@@ -2165,7 +2151,6 @@ with tab_position:
                             st.error("Не удалось определить цену БА.")
 
                     else:
-                        # Опцион
                         if chosen_strike is not None and price_input > 0:
                             c_data = c_map.get(chosen_strike, {})
                             p_data = p_map.get(chosen_strike, {})
@@ -3498,7 +3483,6 @@ with tab_alerts:
                 _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок",
                                            "Уровень продаж"])
                 st.session_state.alerts_df = _xls
-                # Сбрасываем кэш цен при новой загрузке
                 st.session_state.alerts_price_cache = {}
                 st.success(f"Загружено {len(_xls)} строк.")
         except Exception as e:
@@ -3551,8 +3535,7 @@ with tab_alerts:
             if last and last > 0:
                 buy_dev_pct = (lvl_buy - last) / last * 100.0
                 sell_dev_pct = (lvl_sell - last) / last * 100.0
-
-                # ✅ ИСПРАВЛЕННАЯ ЛОГИКА:
+                # ИСПРАВЛЕННАЯ ЛОГИКА:
                 # Сигнал покупки — цена ОПУСТИЛАСЬ до уровня покупок или ниже
                 buy_active = (last <= lvl_buy)
                 # Сигнал продажи — цена ПОДНЯЛАСЬ до уровня продаж или выше
@@ -3580,7 +3563,6 @@ with tab_alerts:
             styles = []
             for col in row.index:
                 style = ""
-                # Зелёная подсветка ТОЛЬКО при активном сигнале
                 if col in ("Покупка активна", "Продажа активна"):
                     if row[col] is True:
                         style = ("background-color:#00ff0c; color:#0a3d0e; "
