@@ -331,7 +331,7 @@ TV_TICKER_MAP = {
 
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-    # ================= Предустановленные стратегии =================
+# ================= Предустановленные стратегии =================
 PREDEFINED_STRATEGIES = {
     "Long Call": {
         "category": "Одиночные",
@@ -854,7 +854,7 @@ def resolve_underlying_secid(asset_code: str, asset_type_ui: str):
 
 
 # ================= Данные БА с ISS =================
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_futures_info_iss(secid: str):
     if not secid:
         return None
@@ -887,7 +887,7 @@ def fetch_futures_info_iss(secid: str):
     return result
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_stock_info_iss(secid: str):
     if not secid:
         return None
@@ -1374,13 +1374,14 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
                 annotation_position="right",
                 row=1, col=1)
 
-    # Уровень покупок
+     # Уровень покупок
     if buy_level and buy_level > 0:
         fig.add_hline(
             y=buy_level,
             line=dict(color="#9c00ff", width=3),
             annotation_text=f"Покупка {buy_level:.2f}",
-            annotation_position="left",
+            annotation_position="top left",
+            annotation_font_size=10,
             row=1, col=1)
 
     # Уровень продаж
@@ -1402,12 +1403,19 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
                 continue
             K = p["Страйк"]
             strike_qty[K] = strike_qty.get(K, 0) + int(p.get("Кол-во", 0))
-        for K, qty in sorted(strike_qty.items()):
+        # Ограничим количество аннотаций, чтобы не накладывались
+        strike_items = sorted(strike_qty.items())
+        if len(strike_items) > 8:
+            # Оставляем по 4 сверху/снизу от центра
+            mids = sorted(strike_items, key=lambda x: abs(x[1]))
+            strike_items = sorted(mids[:8])
+        for K, qty in strike_items:
             fig.add_hline(
                 y=K,
                 line=dict(color="#7f9bb3", width=1, dash="dash"),
                 annotation_text=f"{int(K)} ({qty:+d})",
-                annotation_position="right",
+                annotation_position="top right",
+                annotation_font_size=9,
                 row=1, col=1)
 
     fig.update_layout(
@@ -1419,9 +1427,20 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
         hovermode="x unified",
         showlegend=False,
     )
+    # Ось Y — слева
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     side="left", row=1, col=1)
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     side="left", row=2, col=1)
     fig.update_xaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-                     rangeslider_visible=False)
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)")
+                     rangeslider_visible=False, row=1, col=1)
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     row=2, col=1)
+
+    # Аннотации — с фиксированной позицией справа, вне области данных
+    fig.update_layout(
+        margin=dict(l=20, r=120, t=50, b=20),  # место справа под аннотации
+    )
 
     st.plotly_chart(fig, use_container_width=True, key=key)
 
@@ -1657,7 +1676,7 @@ def push_alert_levels(ticker: str, buy_lvl, sell_lvl):
         "buy": float(buy_lvl) if buy_lvl is not None else None,
         "sell": float(sell_lvl) if sell_lvl is not None else None,
     }, delays=(500, 1500, 3000))
-    # ================= UI =================
+# ================= UI =================
 
 st.title("MOEX Options & Black-Scholes")
 
@@ -1870,42 +1889,109 @@ with tab_calc:
     # ==========================================================
     st.markdown("---")
 
-    # Готовим alerts для инъекции в index.html
-    _inject_alerts = {"ticker": "", "buy": None, "sell": None,
-                      "rf_buy": None, "rf_sell": None,
-                      "div_buy": None, "div_sell": None}
+    # ============================================================
+    # КОМПЛЕКСНАЯ ИНЪЕКЦИЯ данных в index.html (замена postMessage)
+    # ============================================================
+    _inject = {
+        "strikes": [],
+        "central_strike": None,
+        "expiry": "",
+        "series_code": "",
+        "rf_buy": None, "rf_sell": None,
+        "div_buy": None, "div_sell": None,
+        "vol_buy": 30.0, "vol_sell": 30.0,
+        "alerts": {"ticker": "", "buy": None, "sell": None},
+    }
+
+    _futures_contract_for_chart = None  # используется ниже для графика
 
     if st.session_state.get("board_loaded") and \
        "selected_series_code" in st.session_state:
         _asset_inj = st.session_state.get("selected_asset", "")
         _atype_inj = st.session_state.get("selected_asset_type_ui", "")
+        _series_inj = st.session_state.get("selected_series_code", "")
         _expiry_inj = st.session_state.get("selected_expiry", "")
+
+        # ---- Экспирация и код серии ----
+        _inject["expiry"] = _expiry_inj
+        _inject["series_code"] = _series_inj
+
+        # ---- Страйки ----
+        try:
+            _board_inj = fetch_optionboard(_asset_inj, _atype_inj, _series_inj)
+            _calls_inj = _board_inj.get('call') or []
+            _puts_inj = _board_inj.get('put') or []
+            _central_inj = _board_inj.get('central_strike')
+            _strikes_set = set()
+            _strikes_iv_inj = []
+            for _c in _calls_inj:
+                if _c.get('strike') is not None:
+                    _strikes_set.add(_c['strike'])
+            for _p in _puts_inj:
+                if _p.get('strike') is not None:
+                    _strikes_set.add(_p['strike'])
+            for _k in sorted(_strikes_set):
+                _c_iv = next((c.get('volatility') for c in _calls_inj
+                              if c.get('strike') == _k), None)
+                _p_iv = next((p.get('volatility') for p in _puts_inj
+                              if p.get('strike') == _k), None)
+                _iv = _c_iv or _p_iv
+                _strikes_iv_inj.append({
+                    "strike": int(_k) if float(_k).is_integer() else _k,
+                    "iv": float(_iv) if _iv is not None else None,
+                })
+            _inject["strikes"] = _strikes_iv_inj
+            _inject["central_strike"] = _central_inj
+        except Exception:
+            pass
+
+        # ---- Серия: futures_code для графика ----
+        try:
+            _ser_info_inj = fetch_series_info(_asset_inj, _atype_inj, _series_inj)
+            _futures_contract_for_chart = _ser_info_inj.get("Тикер", "")
+            if _futures_contract_for_chart == "—":
+                _futures_contract_for_chart = None
+        except Exception:
+            pass
+
+        # ---- Ставка / дивиденды (для акций) ----
+        if _atype_inj == "Акция":
+            try:
+                _rf_inj = get_risk_free_rate_for_expiry(_expiry_inj)
+                _inject["rf_buy"] = _rf_inj
+                _inject["rf_sell"] = _rf_inj
+            except Exception:
+                pass
+            try:
+                _q_inj, _sp_inj, _rd_inj = get_dividend_yield_for_ticker(
+                    _asset_inj, _expiry_inj)
+                _inject["div_buy"] = _q_inj
+                _inject["div_sell"] = _q_inj
+            except Exception:
+                pass
+        else:
+            _inject["rf_buy"] = 0.0
+            _inject["rf_sell"] = 0.0
+            _inject["div_buy"] = 0.0
+            _inject["div_sell"] = 0.0
+
+        # ---- Уровни из alerts ----
         _alv = find_alert_levels(_asset_inj)
         if _alv["found"]:
-            _inject_alerts["ticker"] = _asset_inj
-            _inject_alerts["buy"] = _alv["buy"]
-            _inject_alerts["sell"] = _alv["sell"]
-            if _atype_inj == "Акция":
-                try:
-                    _rf_i = get_risk_free_rate_for_expiry(_expiry_inj)
-                    _q_i, _sp_i, _rd_i = get_dividend_yield_for_ticker(
-                        _asset_inj, _expiry_inj)
-                    _inject_alerts["rf_buy"] = _rf_i
-                    _inject_alerts["rf_sell"] = _rf_i
-                    _inject_alerts["div_buy"] = _q_i
-                    _inject_alerts["div_sell"] = _q_i
-                except Exception:
-                    pass
+            _inject["alerts"]["ticker"] = _asset_inj
+            _inject["alerts"]["buy"] = _alv["buy"]
+            _inject["alerts"]["sell"] = _alv["sell"]
 
+    # Рендер
     calc_html = Path("index.html").read_text(encoding="utf-8")
-    _alerts_js = f"window.__ALERTS__ = {json.dumps(_inject_alerts)};"
+    _inject_json = json.dumps(_inject, ensure_ascii=False, default=str)
     calc_html = calc_html.replace(
-        "/*__ALERTS_PLACEHOLDER__*/", _alerts_js)
+        "/*__INJECT_PLACEHOLDER__*/{}", _inject_json)
 
     col_calc, col_charts = st.columns([1.05, 1])
 
     with col_calc:
-        components.html(calc_html, height=1050, scrolling=True)
+        components.html(calc_html, height=1100, scrolling=True)
 
     with col_charts:
         st.markdown("### Биржевые графики")
@@ -1916,6 +2002,7 @@ with tab_calc:
             try:
                 _asset_ch = st.session_state.get("selected_asset", "")
                 _atype_ch = st.session_state.get("selected_asset_type_ui", "")
+
                 if _atype_ch in ("Фьючерс", "Валюта", "Товар"):
                     _eng, _mkt = "futures", "forts"
                 elif _atype_ch == "Индекс":
@@ -1923,7 +2010,13 @@ with tab_calc:
                 else:
                     _eng, _mkt = "stock", "shares"
 
-                _secid_ch = resolve_underlying_secid(_asset_ch, _atype_ch) or _asset_ch
+                # ИСПОЛЬЗУЕМ КОНКРЕТНЫЙ ФЬЮЧЕРС СЕРИИ (futures_code),
+                # а не «ближайший»
+                if _futures_contract_for_chart:
+                    _secid_ch = _futures_contract_for_chart
+                else:
+                    _secid_ch = resolve_underlying_secid(_asset_ch, _atype_ch) or _asset_ch
+
                 _df_d1 = fetch_bars(_secid_ch, interval=24, days=180,
                                     engine=_eng, market=_mkt)
                 _df_h1 = fetch_bars(_secid_ch, interval=60, days=30,
@@ -1932,70 +2025,30 @@ with tab_calc:
                 _buy_ch = float(st.session_state.get("_calc_level_buy", 0) or 0)
                 _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
 
+                _chart_label = _futures_contract_for_chart or _asset_ch
+
                 render_exchange_chart(
                     _df_d1, st.session_state.get("positions", []),
                     _buy_ch, _sell_ch, None,
-                    f"D1 — {_asset_ch}", "chart_d1_tab")
+                    f"D1 — {_chart_label}", "chart_d1_tab")
 
                 render_exchange_chart(
                     _df_h1, st.session_state.get("positions", []),
                     _buy_ch, _sell_ch, None,
-                    f"H1 — {_asset_ch}", "chart_h1_tab")
+                    f"H1 — {_chart_label}", "chart_h1_tab")
             except Exception as e:
                 st.warning(f"Не удалось построить графики: {e}")
 
-    # ---------- Push'и в калькулятор ----------
+    # Push'и в калькулятор (дублирование на случай, если пользователь
+    # меняет параметры после первого рендера)
     if st.session_state.get("board_loaded") and \
        "selected_expiry" in st.session_state:
-        _expiry_str = st.session_state.selected_expiry
-        _series_code = st.session_state.selected_series_code
-        _asset = st.session_state.get("selected_asset", "")
-        _asset_type = st.session_state.get("selected_asset_type_ui", "")
+        push_expiry_to_calculator(
+            st.session_state.selected_expiry,
+            st.session_state.selected_series_code)
 
-        push_expiry_to_calculator(_expiry_str, _series_code)
 
-        if _asset_type == "Акция":
-            push_calc_params(rf_buy=rfr, rf_sell=rfr,
-                             div_buy=q, div_sell=q,
-                             vol_buy=30.0, vol_sell=30.0)
-        else:
-            push_calc_params(rf_buy=0.0, rf_sell=0.0,
-                             div_buy=0.0, div_sell=0.0,
-                             vol_buy=30.0, vol_sell=30.0)
-
-        tv_symbol = resolve_tv_ticker(_asset, _asset_type)
-        if tv_symbol:
-            push_tv_ticker(_asset, tv_symbol)
-
-    # ---------- Retry: strikes ----------
-    if st.session_state.get("board_loaded") and \
-       "selected_series_code" in st.session_state:
-        try:
-            _board_retry = fetch_optionboard(
-                st.session_state.get("selected_asset", ""),
-                st.session_state.get("selected_asset_type_ui", ""),
-                st.session_state.get("selected_series_code", ""),
-            )
-            _calls_r = _board_retry.get('call') or []
-            _puts_r = _board_retry.get('put') or []
-            _central_r = _board_retry.get('central_strike')
-            _strikes_r = sorted({c['strike'] for c in _calls_r
-                                 if c.get('strike') is not None}
-                                | {p['strike'] for p in _puts_r
-                                   if p.get('strike') is not None})
-            _strikes_iv_r = []
-            for _k in _strikes_r:
-                _c = next((c for c in _calls_r if c.get('strike') == _k), {})
-                _p = next((p for p in _puts_r if p.get('strike') == _k), {})
-                _iv = _c.get('volatility') or _p.get('volatility')
-                _strikes_iv_r.append({
-                    "strike": int(_k) if float(_k).is_integer() else _k,
-                    "iv": float(_iv) if _iv is not None else None,
-                })
-            push_strikes_to_calculator(_strikes_iv_r, _central_r)
-        except Exception:
-            pass
-            # ==================================================================
+# ==================================================================
 # ============ ВКЛАДКА 2: ПОЗИЦИЯ ==================================
 # ==================================================================
 with tab_position:
