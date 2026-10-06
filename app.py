@@ -21,6 +21,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# 🔧 Однократный сброс кэша при старте — чтобы изменения в fetch_bars подхватились
+if "cache_cleared_v2" not in st.session_state:
+    st.cache_data.clear()
+    st.session_state["cache_cleared_v2"] = True
+
 st.markdown("""
 <style>
 .block-container {padding-top: 1rem; padding-bottom: 2rem;}
@@ -1474,7 +1479,7 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
         plot_bgcolor="white", paper_bgcolor="white",
         hovermode="x unified", showlegend=False)
 
-    # Кроссхэйр
+    # Кроссхэйр + ЯВНЫЙ диапазон X по реальным данным
     fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
                      side="left", row=1, col=1,
                      showspikes=True, spikemode='across', spikesnap='cursor',
@@ -1483,14 +1488,25 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
                      side="left", row=2, col=1,
                      showspikes=True, spikemode='across', spikesnap='cursor',
                      spikecolor='#888888', spikethickness=1, spikedash='dot')
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-                     rangeslider_visible=False, row=1, col=1,
-                     showspikes=True, spikemode='across', spikesnap='cursor',
-                     spikecolor='#888888', spikethickness=1, spikedash='dot')
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-                     row=2, col=1,
-                     showspikes=True, spikemode='across', spikesnap='cursor',
-                     spikecolor='#888888', spikethickness=1, spikedash='dot')
+
+    # 🔧 ФИКС: жёстко ограничиваем видимый диапазон X границами реальных данных
+    _x_min_val = df["begin"].min()
+    _x_max_val = df["begin"].max()
+    if pd.notna(_x_min_val) and pd.notna(_x_max_val):
+        fig.update_xaxes(
+            type='date',
+            range=[_x_min_val, _x_max_val],
+            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+            rangeslider_visible=False, row=1, col=1,
+            showspikes=True, spikemode='across', spikesnap='cursor',
+            spikecolor='#888888', spikethickness=1, spikedash='dot')
+        fig.update_xaxes(
+            type='date',
+            range=[_x_min_val, _x_max_val],
+            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+            row=2, col=1,
+            showspikes=True, spikemode='across', spikesnap='cursor',
+            spikecolor='#888888', spikethickness=1, spikedash='dot')
 
     st.plotly_chart(fig, use_container_width=True, key=key)
 
@@ -2051,9 +2067,15 @@ with tab_calc:
                 except Exception:
                     pass
 
-                _df_d1 = fetch_bars(_secid_ch, interval=24, days=180,
+                # 🔧 ФИКС: D1 — с начала текущего года, H1 — за 2 месяца
+                _today_d = date.today()
+                _year_start = date(_today_d.year, 1, 1)
+                _d1_days = (_today_d - _year_start).days + 1
+                _h1_days = 60
+
+                _df_d1 = fetch_bars(_secid_ch, interval=24, days=_d1_days,
                                     engine=_eng, market=_mkt)
-                _df_h1 = fetch_bars(_secid_ch, interval=60, days=30,
+                _df_h1 = fetch_bars(_secid_ch, interval=60, days=_h1_days,
                                     engine=_eng, market=_mkt)
 
                 _buy_ch  = float(st.session_state.get("_calc_level_buy", 0) or 0)
