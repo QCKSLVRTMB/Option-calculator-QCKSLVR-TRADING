@@ -1479,7 +1479,7 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
         plot_bgcolor="white", paper_bgcolor="white",
         hovermode="x unified", showlegend=False)
 
-    # Кроссхэйр + ЯВНЫЙ диапазон X по реальным данным
+    # Кроссхэйр + диапазон X с отступом 15 баров справа
     fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
                      side="left", row=1, col=1,
                      showspikes=True, spikemode='across', spikesnap='cursor',
@@ -1489,20 +1489,33 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
                      showspikes=True, spikemode='across', spikesnap='cursor',
                      spikecolor='#888888', spikethickness=1, spikedash='dot')
 
-    # 🔧 ФИКС: жёстко ограничиваем видимый диапазон X границами реальных данных
+    # 🔧 Диапазон X + отступ 15 баров справа
     _x_min_val = df["begin"].min()
     _x_max_val = df["begin"].max()
     if pd.notna(_x_min_val) and pd.notna(_x_max_val):
+        # Шаг между барами через медиану — устойчиво к выходным и пропускам
+        if len(df) >= 2:
+            _diffs = df["begin"].diff().dropna()
+            _step = _diffs.median() if not _diffs.empty else pd.Timedelta(days=1)
+        else:
+            _step = pd.Timedelta(days=1)
+        # Защита от нулевого/отрицательного/NaT шага
+        if pd.isna(_step) or _step <= pd.Timedelta(0):
+            _step = pd.Timedelta(days=1)
+
+        # 🔧 Отступ справа: 15 баров
+        _x_max_extended = _x_max_val + _step * 15
+
         fig.update_xaxes(
             type='date',
-            range=[_x_min_val, _x_max_val],
+            range=[_x_min_val, _x_max_extended],
             showgrid=True, gridcolor="rgba(0,0,0,0.05)",
             rangeslider_visible=False, row=1, col=1,
             showspikes=True, spikemode='across', spikesnap='cursor',
             spikecolor='#888888', spikethickness=1, spikedash='dot')
         fig.update_xaxes(
             type='date',
-            range=[_x_min_val, _x_max_val],
+            range=[_x_min_val, _x_max_extended],
             showgrid=True, gridcolor="rgba(0,0,0,0.05)",
             row=2, col=1,
             showspikes=True, spikemode='across', spikesnap='cursor',
