@@ -22,9 +22,9 @@ st.set_page_config(
 )
 
 # 🔧 Однократный сброс кэша при старте — чтобы изменения в fetch_bars подхватились
-if "cache_cleared_v2" not in st.session_state:
+if "cache_cleared_v3" not in st.session_state:
     st.cache_data.clear()
-    st.session_state["cache_cleared_v2"] = True
+    st.session_state["cache_cleared_v3"] = True
 
 st.markdown("""
 <style>
@@ -2084,7 +2084,7 @@ with tab_calc:
                 _today_d = date.today()
                 _year_start = date(_today_d.year, 1, 1)
                 _d1_days = (_today_d - _year_start).days + 1
-                _h1_days = 60
+                _h1_days = 25
 
                 _df_d1 = fetch_bars(_secid_ch, interval=24, days=_d1_days,
                                     engine=_eng, market=_mkt)
