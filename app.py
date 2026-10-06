@@ -655,6 +655,20 @@ def calc_commission(premium, instrument_type="Опцион",
     return 0.0
 
 
+def _calc_comm_ui(premium, instr_type="Опцион"):
+    """Комиссия с параметрами из UI (session_state) или дефолтными.
+       Единая точка входа для расчётов в любой вкладке."""
+    cop = st.session_state.get("cop_inp", DEFAULT_COMM_OPTIONS_PCT)
+    cmo = st.session_state.get("cmo_inp", DEFAULT_COMM_OPTIONS_MIN)
+    cfp = st.session_state.get("cfp_inp", DEFAULT_COMM_FUTURES_PCT)
+    csp = st.session_state.get("csp_inp", DEFAULT_COMM_STOCKS_PCT)
+    return calc_commission(premium, instrument_type=instr_type,
+                           min_comm_options=cmo,
+                           comm_options_pct=cop,
+                           comm_futures_pct=cfp,
+                           comm_stocks_pct=csp)
+
+
 # ================= Дивиденды (smart-lab.ru) =================
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_dividends_smartlab() -> pd.DataFrame:
@@ -1282,14 +1296,9 @@ def fetch_bars(secid, interval=24, days=180, engine="futures", market="forts"):
         return pd.DataFrame()
     df = pd.DataFrame(rows, columns=cols)
 
-    # 🔧 ФИКС: жёсткая нормализация даты
     df["begin"] = pd.to_datetime(df["begin"], errors="coerce")
     df = df.dropna(subset=["begin", "open", "high", "low", "close"])
-
-    # 🔧 ФИКС: отсекаем «битые» бары (NaN/0 → 1970)
     df = df[df["begin"] >= pd.Timestamp("2000-01-01")]
-
-    # 🔧 ФИКС: санитарная проверка OHLC
     df = df[(df["high"] > 0) & (df["low"] > 0) & (df["close"] > 0)]
 
     df = df.sort_values("begin").reset_index(drop=True)
@@ -1331,10 +1340,10 @@ def get_last_close_price(secid: str, engine: str, market: str):
         return float(df.iloc[-1]["close"])
     except Exception:
         return None
-
-
-# ================= Payoff-расчёты =================
-def compute_payoff(positions, S_values):
+        # ================= Payoff-расчёты =================
+def compute_payoff(positions, S_values, comm_func=None):
+    """P&L на экспирации. Если передан comm_func — учитываются комиссии,
+       что даёт ту же кривую, что и на профиле позиции."""
     S = np.asarray(S_values, dtype=float)
     pnl = np.zeros_like(S)
     for p in positions:
@@ -1342,6 +1351,8 @@ def compute_payoff(positions, S_values):
             continue
         qty = int(p.get("Кол-во", 0))
         entry = float(p.get("Цена", 0))
+        _instr = p.get("Тип инструмента", "Опцион")
+        com = comm_func(entry, _instr) if comm_func else 0.0
         if p.get("Тип инструмента") == "БА" or p.get("Опцион") == "БА":
             pnl += (S - entry) * qty
             continue
@@ -1352,13 +1363,13 @@ def compute_payoff(positions, S_values):
             intrinsic = np.maximum(0, S - K)
         else:
             intrinsic = np.maximum(0, K - S)
-        pnl += (intrinsic - entry) * qty
+        pnl += (intrinsic - entry - com) * qty
     return pnl
 
 
-def find_breakevens(positions, price_min, price_max, n=500):
+def find_breakevens(positions, price_min, price_max, n=500, comm_func=None):
     prices = np.linspace(price_min, price_max, n)
-    pnl = compute_payoff(positions, prices)
+    pnl = compute_payoff(positions, prices, comm_func=comm_func)
     be = []
     for i in range(1, len(prices)):
         if pnl[i-1] * pnl[i] < 0:
@@ -1371,14 +1382,15 @@ def find_breakevens(positions, price_min, price_max, n=500):
 
 # ================= Биржевой график =================
 def render_exchange_chart(df, positions, buy_level, sell_level,
-                          strikes, title, key, current_price=None):
+                          strikes, title, key, current_price=None,
+                          comm_func=None):
     """Биржевой график с overlay:
        - OHLC-бары (чёрные) + объёмы,
        - горизонтальные линии страйков с подписями по центру,
        - уровни покупок/продаж с пометками вида +2C 270 / -4P 92500,
        - текущая рыночная цена БА,
        - точки безубыточности с меткой «БУ <цена>»,
-       - цветные зоны прибыли/убытка,
+       - цветные зоны прибыли/убытка (с учётом комиссий),
        - кроссхэйр (обе оси, тонкий пунктир),
        - отступ 15 баров справа.
     """
@@ -1409,16 +1421,16 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
     price_min = float(df["low"].min()) * 0.97
     price_max = float(df["high"].max()) * 1.03
 
-    # ---- Зоны прибыли / убытка ----
+    # ---- Зоны прибыли / убытка (с комиссиями — как на профиле позиции) ----
     if positions:
-        be_points = find_breakevens(positions, price_min, price_max)
+        be_points = find_breakevens(positions, price_min, price_max,
+                                     n=500, comm_func=comm_func)
         segments = [price_min] + sorted(be_points) + [price_max]
         for i in range(len(segments) - 1):
             seg_start = segments[i]
             seg_end = segments[i + 1]
             mid = (seg_start + seg_end) / 2
-            mid_pnl = compute_payoff(positions, [mid])[0]
-            # 🔧 xref="x domain" (0..1 в границах подграфика)
+            mid_pnl = compute_payoff(positions, [mid], comm_func=comm_func)[0]
             color = ("rgba(0,220,80,0.28)" if mid_pnl > 0
                      else "rgba(255,40,40,0.22)")
             fig.add_shape(
@@ -1547,7 +1559,6 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
     _x_min_val = df["begin"].min()
     _x_max_val = df["begin"].max()
     if pd.notna(_x_min_val) and pd.notna(_x_max_val):
-        # Шаг между барами через медиану — устойчиво к выходным и пропускам
         if len(df) >= 2:
             _diffs = df["begin"].diff().dropna()
             _step = _diffs.median() if not _diffs.empty else pd.Timedelta(days=1)
@@ -2073,7 +2084,6 @@ with tab_calc:
             else:
                 _eng_mkt, _mkt_mkt = "stock", "shares"
 
-            # secid: используем futures_code серии, если есть, иначе resolved
             if _futures_contract_for_chart:
                 _mkt_secid = _futures_contract_for_chart
             else:
@@ -2170,7 +2180,7 @@ with tab_calc:
                 _buy_ch  = float(st.session_state.get("_calc_level_buy", 0) or 0)
                 _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
 
-                # 🔧 Текущая цена = CLOSE последнего бара D1 (синхронизирована с графиком)
+                # 🔧 Текущая цена = CLOSE последнего бара D1
                 _current_price_ch = None
                 try:
                     _current_price_ch = get_last_close_price(_secid_ch, _eng, _mkt)
@@ -2183,12 +2193,14 @@ with tab_calc:
                     _df_d1, st.session_state.get("positions", []),
                     _buy_ch, _sell_ch, _strikes_ch,
                     f"D1 — {_chart_label}", "chart_d1_tab",
-                    current_price=_current_price_ch)
+                    current_price=_current_price_ch,
+                    comm_func=_calc_comm_ui)
                 render_exchange_chart(
                     _df_h1, st.session_state.get("positions", []),
                     _buy_ch, _sell_ch, _strikes_ch,
                     f"H1 — {_chart_label}", "chart_h1_tab",
-                    current_price=_current_price_ch)
+                    current_price=_current_price_ch,
+                    comm_func=_calc_comm_ui)
             except Exception as e:
                 st.warning(f"Не удалось построить графики: {e}")
 
@@ -2997,7 +3009,6 @@ with tab_position:
         # 🔧 Текущая цена = CLOSE последнего бара D1 (та же, что в шапке и на графиках)
         F_current = st.session_state.get("_current_market_price", None)
         if F_current is None:
-            # Fallback: если почему-то не сохранена — перезапрашиваем
             try:
                 _atype_f = st.session_state.get("selected_asset_type_ui", "")
                 if _atype_f in ("Фьючерс", "Валюта", "Товар"):
@@ -3034,7 +3045,6 @@ with tab_position:
         if not all_pos_strikes:
             st.caption("Нет данных для построения графика профиля.")
         else:
-            # 🔧 Добавляем текущую цену в диапазон оси X
             _range_pts = list(all_pos_strikes)
             if F_current is not None:
                 _range_pts.append(F_current)
@@ -3113,7 +3123,6 @@ with tab_position:
                 name='P&L на экспирации',
                 hovertemplate='БА: %{x:.2f} ₽<br>P&L: %{y:.2f} ₽<extra></extra>'))
 
-            # 🔧 Маркер текущего состояния позиции
             _cur_pnl_today = None
             try:
                 _exp_date_pt = datetime.strptime(
