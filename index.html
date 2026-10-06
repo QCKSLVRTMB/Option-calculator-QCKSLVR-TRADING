@@ -10,56 +10,46 @@
   h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 .2rem; color: #1a3b4f; }
   .sub { color: #4a6f8a; margin-bottom: 16px; border-left: 4px solid #2c7da0;
          padding-left: 14px; font-size: .85rem; }
-
-  .model-panel {
-    background: white; border-radius: 20px; padding: 12px 18px;
-    margin-bottom: 14px; border: 1px solid #e2edf4;
-    display: flex; gap: 18px; align-items: center;
-  }
+  .model-panel { background: white; border-radius: 20px; padding: 12px 18px;
+                 margin-bottom: 14px; border: 1px solid #e2edf4;
+                 display: flex; gap: 18px; align-items: center; }
   .model-panel label { margin: 0; font-size: .75rem; }
   .model-panel select { max-width: 300px; }
-
   .two-columns { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }
-  .panel {
-    flex: 1; min-width: 320px; background: white; border-radius: 20px;
-    box-shadow: 0 10px 25px -8px rgba(0,0,0,.08); overflow: hidden;
-  }
+  .panel { flex: 1; min-width: 320px; background: white; border-radius: 20px;
+           box-shadow: 0 10px 25px -8px rgba(0,0,0,.08); overflow: hidden; }
   .panel-buy .panel-header { background: #9c00ff; }
   .panel-sell .panel-header { background: #fb92f0; }
-  .panel-header {
-    color: white; padding: 8px 18px; font-size: .92rem; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .05em;
-  }
+  .panel-header { color: white; padding: 8px 18px; font-size: .92rem;
+                  font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
   .panel-body { padding: 14px 18px; }
-
-  .form-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; align-items: flex-end; }
+  .form-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;
+              align-items: flex-end; }
   .form-group { flex: 1; min-width: 120px; }
   label { font-size: .68rem; text-transform: uppercase; font-weight: 700;
           color: #2c506d; margin-bottom: 4px; display: block; }
   input, select, button { width: 100%; padding: 8px 12px; border-radius: 14px;
-                          border: 1px solid #cfdfe9; background: #fff; font-size: .85rem; }
-  button { background: #1e5a7a; color: white; font-weight: 600; border: none; cursor: pointer; }
+                          border: 1px solid #cfdfe9; background: #fff;
+                          font-size: .85rem; }
+  button { background: #1e5a7a; color: white; font-weight: 600; border: none;
+           cursor: pointer; }
   button:hover { background: #0f425c; }
   .btn-secondary { background: #eef2f7; color: #1f3e54; border: 1px solid #cbdde8; }
-
   input.input-error { color: #d32f2f !important; border-color: #d32f2f !important;
                       background: #fdecec !important; }
-  .validation-msg { color: #d32f2f; font-size: .72rem; margin: -4px 0 8px 0; display: none; }
+  .validation-msg { color: #d32f2f; font-size: .72rem; margin: -4px 0 8px 0;
+                    display: none; }
   .validation-msg.show { display: block; }
-
-  .expiry-source { font-size: .68rem; color: #2c7da0; margin-top: 2px; min-height: 12px; }
-
-  #strikeBuy, #strikeSell { font-weight: 700; transition: color .12s ease; }
-
+  .expiry-source { font-size: .68rem; color: #2c7da0; margin-top: 2px;
+                   min-height: 12px; }
+  #strikeBuy, #strikeSell { font-weight: 700; }
   .result-block { margin-top: 10px; border-radius: 14px; padding: 12px 14px;
                   border: 1px solid #e2edf4; }
   .panel-buy .result-block { background: #f9f3ff; }
   .panel-sell .result-block { background: #fff3fe; }
-
   .price-value { font-size: 1.5rem; font-weight: 700; }
   .panel-buy .price-value { color: #5c0099; }
   .panel-sell .price-value { color: #a3139e; }
-
   .breakeven { margin-top: 5px; font-size: .8rem; color: #4a6f8a;
                background: #eef6fb; border-radius: 10px; padding: 4px 10px;
                display: inline-block; }
@@ -67,17 +57,16 @@
   .greeks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .greek { background: white; border-radius: 20px; padding: 4px 10px;
            border: 1px solid #dee9f0; font-size: .74rem; }
-
   .buttons-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
   .buttons-row button { width: auto; padding: 9px 20px; }
-
   .spread-panel { background: #f9fbfd; border-radius: 18px; padding: 14px 20px;
                   border: 1px solid #e2edf4; margin-bottom: 14px; }
   .spread-panel .price-value { color: #1c5a7a; }
   .badge { background: #eef3fc; border-radius: 30px; padding: 3px 10px;
            font-size: .7rem; display: inline-block; margin-top: 4px; }
   .card-title { font-size: 1.05rem; font-weight: 600; margin-bottom: 12px;
-                padding-bottom: 6px; border-bottom: 2px solid #e6edf4; color: #1a3b4f; }
+                padding-bottom: 6px; border-bottom: 2px solid #e6edf4;
+                color: #1a3b4f; }
 </style>
 </head>
 <body>
@@ -192,14 +181,11 @@
   </div>
 </div>
 
-<!-- Скрытые поля для alerts -->
-<input type="hidden" id="alertLevelBuy" value="">
-<input type="hidden" id="alertLevelSell" value="">
-<input type="hidden" id="alertTicker" value="">
-
 <script>
-  // ⬇️ ЗДЕСЬ будут инъекции из Python
-  /*__ALERTS_PLACEHOLDER__*/
+  // ============================================================
+  // INJECTION — данные приходят из Python как JSON
+  // ============================================================
+  const __INJECT__ = /*__INJECT_PLACEHOLDER__*/{};
 
   const COLOR_ATM = '#1e88e5';
   const COLOR_ITM = '#2e7d32';
@@ -285,6 +271,13 @@
     if (!sel) return;
     const prevVal = sel.value;
     sel.innerHTML = '';
+    if (!__strikeList || !__strikeList.length) {
+      const opt = document.createElement('option');
+      opt.value = "0";
+      opt.textContent = "Нет страйков";
+      sel.appendChild(opt);
+      return;
+    }
     __strikeList.forEach(s => {
       const cls = classifyStrike(s.strike, __centralStrike, optionType);
       const opt = document.createElement('option');
@@ -347,7 +340,7 @@
         }
         if (changed) window.parent.history.replaceState({}, '', pUrl.toString());
       } catch (e) {}
-    }, 500);
+    }, 600);
   }
 
   function updatePrices(){
@@ -365,7 +358,7 @@
     const divBuy = parseFloat(document.getElementById('dividendBuy').value);
 
     let priceBuy = NaN;
-    if (expBuy && !isNaN(KBuy)) {
+    if (expBuy && !isNaN(KBuy) && KBuy > 0) {
       const T = getTimeYears(dateBuy, expBuy);
       priceBuy = (model === 'bs')
         ? blackScholes(SBuy, KBuy, T, rBuy, volBuy, divBuy, typeBuy)
@@ -379,7 +372,7 @@
     }
     document.getElementById('beBuy').innerText = isFinite(beBuy) ? beBuy.toFixed(2) + ' ₽' : '— ₽';
 
-    const gB = (expBuy && !isNaN(KBuy))
+    const gB = (expBuy && !isNaN(KBuy) && KBuy > 0)
       ? calcGreeks(SBuy, KBuy, getTimeYears(dateBuy, expBuy), rBuy, volBuy, divBuy, typeBuy)
       : {delta:'—',gamma:'—',theta:'—',vega:'—'};
     document.getElementById('greeksBuy').innerHTML =
@@ -397,7 +390,7 @@
     const divSell = parseFloat(document.getElementById('dividendSell').value);
 
     let priceSell = NaN;
-    if (expSell && !isNaN(KSell)) {
+    if (expSell && !isNaN(KSell) && KSell > 0) {
       const T = getTimeYears(dateSell, expSell);
       priceSell = (model === 'bs')
         ? blackScholes(SSell, KSell, T, rSell, volSell, divSell, typeSell)
@@ -411,7 +404,7 @@
     }
     document.getElementById('beSell').innerText = isFinite(beSell) ? beSell.toFixed(2) + ' ₽' : '— ₽';
 
-    const gS = (expSell && !isNaN(KSell))
+    const gS = (expSell && !isNaN(KSell) && KSell > 0)
       ? calcGreeks(SSell, KSell, getTimeYears(dateSell, expSell), rSell, volSell, divSell, typeSell)
       : {delta:'—',gamma:'—',theta:'—',vega:'—'};
     document.getElementById('greeksSell').innerHTML =
@@ -431,52 +424,26 @@
     const data = {
       model: document.getElementById('pricingModel').value,
       optionTypeBuy: document.getElementById('optionTypeBuy').value,
-      strikeBuy: document.getElementById('strikeBuy').value,
       priceBuy: document.getElementById('priceBuy').value,
-      expiryDateBuy: document.getElementById('expiryDateBuy').value,
       currentDateBuy: document.getElementById('currentDateBuy').value,
       riskFreeBuy: document.getElementById('riskFreeBuy').value,
       volatilityBuy: document.getElementById('volatilityBuy').value,
       dividendBuy: document.getElementById('dividendBuy').value,
       optionTypeSell: document.getElementById('optionTypeSell').value,
-      strikeSell: document.getElementById('strikeSell').value,
       priceSell: document.getElementById('priceSell').value,
-      expiryDateSell: document.getElementById('expiryDateSell').value,
       currentDateSell: document.getElementById('currentDateSell').value,
       riskFreeSell: document.getElementById('riskFreeSell').value,
       volatilitySell: document.getElementById('volatilitySell').value,
       dividendSell: document.getElementById('dividendSell').value,
     };
-    localStorage.setItem('optionCalcSettings_v2', JSON.stringify(data));
+    localStorage.setItem('optionCalcSettings_v3', JSON.stringify(data));
   }
   function loadSettings(){
-    const s = JSON.parse(localStorage.getItem('optionCalcSettings_v2') || '{}');
+    const s = JSON.parse(localStorage.getItem('optionCalcSettings_v3') || '{}');
     for (const k in s) {
       const el = document.getElementById(k);
       if (el && s[k] !== undefined) el.value = s[k];
     }
-    updatePrices();
-  }
-
-  const _today = new Date().toISOString().slice(0,10);
-  const _default_expiry = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
-
-  function resetToExample(){
-    document.getElementById('pricingModel').value = 'bs';
-    ['Buy','Sell'].forEach(suf => {
-      document.getElementById('optionType'+suf).value = 'call';
-      document.getElementById('price'+suf).value = '0';
-      document.getElementById('currentDate'+suf).value = _today;
-      document.getElementById('expiryDate'+suf).value = _default_expiry;
-      document.getElementById('riskFree'+suf).value = '10';
-      document.getElementById('volatility'+suf).value = '30';
-      document.getElementById('dividend'+suf).value = '0';
-      document.getElementById('expirySource'+suf).innerText = '';
-    });
-    renderStrikes();
-    updatePrices();
-    saveSettings();
-    syncToParent();
   }
 
   // Экспорт CSV
@@ -606,7 +573,22 @@
     updatePrices(); saveSettings();
   });
 
-  document.getElementById('resetBtn').addEventListener('click', resetToExample);
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    const today = new Date().toISOString().slice(0,10);
+    const exp = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+    document.getElementById('pricingModel').value = 'bs';
+    ['Buy','Sell'].forEach(suf => {
+      document.getElementById('optionType'+suf).value = 'call';
+      document.getElementById('price'+suf).value = '0';
+      document.getElementById('currentDate'+suf).value = today;
+      document.getElementById('expiryDate'+suf).value = exp;
+      document.getElementById('riskFree'+suf).value = '10';
+      document.getElementById('volatility'+suf).value = '30';
+      document.getElementById('dividend'+suf).value = '0';
+      document.getElementById('expirySource'+suf).innerText = '';
+    });
+    updatePrices(); saveSettings(); syncToParent();
+  });
   document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
   document.getElementById('importCsvBtn').addEventListener('click', () => {
     document.getElementById('importCsvInput').click();
@@ -617,120 +599,92 @@
     e.target.value = '';
   });
 
-  // Инициализация
-  document.getElementById('currentDateBuy').value = _today;
-  document.getElementById('currentDateSell').value = _today;
-  document.getElementById('expiryDateBuy').value = _default_expiry;
-  document.getElementById('expiryDateSell').value = _default_expiry;
-  loadSettings();
-  document.getElementById('currentDateBuy').value = _today;
-  document.getElementById('currentDateSell').value = _today;
+  // ============================================================
+  // ИНИЦИАЛИЗАЦИЯ: сначала ставим значения по умолчанию,
+  // потом применяем данные из Python (__INJECT__)
+  // ============================================================
+  (function initAll(){
+    const today = new Date().toISOString().slice(0,10);
+    const defaultExp = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
 
-  // ⬇️ Применяем alerts, инжектированные из Python
-  (function applyInjectedAlerts(){
-    if (typeof window.__ALERTS__ !== 'object' || !window.__ALERTS__) return;
-    const a = window.__ALERTS__;
-    if (a.buy != null) {
-      const el = document.getElementById('priceBuy');
-      if (el) el.value = Number(a.buy).toFixed(2);
-    }
-    if (a.sell != null) {
-      const el = document.getElementById('priceSell');
-      if (el) el.value = Number(a.sell).toFixed(2);
-    }
-    if (a.ticker) {
-      const el = document.getElementById('alertTicker');
-      if (el) el.value = a.ticker;
-    }
-    if (a.rf_buy != null) {
-      const el = document.getElementById('riskFreeBuy');
-      if (el) el.value = Number(a.rf_buy).toFixed(4);
-    }
-    if (a.rf_sell != null) {
-      const el = document.getElementById('riskFreeSell');
-      if (el) el.value = Number(a.rf_sell).toFixed(4);
-    }
-    if (a.div_buy != null) {
-      const el = document.getElementById('dividendBuy');
-      if (el) el.value = Number(a.div_buy).toFixed(4);
-    }
-    if (a.div_sell != null) {
-      const el = document.getElementById('dividendSell');
-      if (el) el.value = Number(a.div_sell).toFixed(4);
-    }
-  })();
+    // Ставим дефолт
+    document.getElementById('currentDateBuy').value = today;
+    document.getElementById('currentDateSell').value = today;
+    document.getElementById('expiryDateBuy').value = defaultExp;
+    document.getElementById('expiryDateSell').value = defaultExp;
 
-  updatePrices();
-  syncToParent();
+    // Загружаем сохранённые настройки (если есть)
+    loadSettings();
 
-  // Мост с родителем
-  window.addEventListener('message', (event) => {
-    const data = event.data;
-    if (!data) return;
+    // ПРИМЕНЯЕМ ДАННЫЕ ИЗ PYTHON (перезаписывают всё)
+    const inj = __INJECT__ || {};
 
-    if (data.type === 'setCalcParams') {
-      const setIf = (id, val, digits) => {
+    // 1. Страйки
+    if (Array.isArray(inj.strikes) && inj.strikes.length) {
+      __strikeList = inj.strikes.slice();
+      __centralStrike = (inj.central_strike != null) ? inj.central_strike : null;
+      renderStrikes();
+    }
+
+    // 2. Дата экспирации
+    if (inj.expiry && /^\d{4}-\d{2}-\d{2}$/.test(inj.expiry)) {
+      ['expiryDateBuy','expiryDateSell'].forEach(id => {
         const el = document.getElementById(id);
-        if (el && typeof val === 'number') el.value = val.toFixed(digits);
-      };
-      setIf('riskFreeBuy', data.rf_buy, 4);
-      setIf('riskFreeSell', data.rf_sell, 4);
-      setIf('dividendBuy', data.div_buy, 4);
-      setIf('dividendSell', data.div_sell, 4);
-      setIf('volatilityBuy', data.vol_buy, 2);
-      setIf('volatilitySell', data.vol_sell, 2);
-      updatePrices(); saveSettings();
-      return;
-    }
-
-    if (data.type === 'setExpiry') {
-      if (typeof data.value !== 'string') return;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(data.value)) return;
-      const elB = document.getElementById('expiryDateBuy');
-      const elS = document.getElementById('expiryDateSell');
-      if (elB) elB.value = data.value;
-      if (elS) elS.value = data.value;
-      const txt = data.series_code ? `из MOEX: серия ${data.series_code}` : 'из MOEX';
+        if (el) el.value = inj.expiry;
+      });
+      const srcTxt = inj.series_code ? `из MOEX: серия ${inj.series_code}` : 'из MOEX';
       ['expirySourceBuy','expirySourceSell'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.innerText = txt;
+        if (el) el.innerText = srcTxt;
       });
-      updatePrices(); saveSettings();
-      return;
     }
 
-    if (data.type === 'setStrikes') {
-      if (!Array.isArray(data.strikes)) return;
-      __strikeList = data.strikes.slice();
-      __centralStrike = (data.central != null) ? data.central : null;
-      renderStrikes();
-      updatePrices();
-      return;
+    // 3. Ставка безриска
+    if (inj.rf_buy != null) {
+      document.getElementById('riskFreeBuy').value = Number(inj.rf_buy).toFixed(4);
+    }
+    if (inj.rf_sell != null) {
+      document.getElementById('riskFreeSell').value = Number(inj.rf_sell).toFixed(4);
     }
 
-    if (data.type === 'setAlertLevels') {
-      if (data.buy != null) {
-        const el = document.getElementById('priceBuy');
-        if (el) el.value = Number(data.buy).toFixed(2);
+    // 4. Дивиденды
+    if (inj.div_buy != null) {
+      document.getElementById('dividendBuy').value = (Number(inj.div_buy) * 100).toFixed(4);
+    }
+    if (inj.div_sell != null) {
+      document.getElementById('dividendSell').value = (Number(inj.div_sell) * 100).toFixed(4);
+    }
+
+    // 5. Волатильность (из alerts или общая)
+    if (inj.vol_buy != null) {
+      document.getElementById('volatilityBuy').value = Number(inj.vol_buy).toFixed(2);
+    } else {
+      document.getElementById('volatilityBuy').value = '30';
+    }
+    if (inj.vol_sell != null) {
+      document.getElementById('volatilitySell').value = Number(inj.vol_sell).toFixed(2);
+    } else {
+      document.getElementById('volatilitySell').value = '30';
+    }
+
+    // 6. Уровни из alerts (ГЛАВНОЕ)
+    if (inj.alerts) {
+      if (inj.alerts.buy != null) {
+        document.getElementById('priceBuy').value = Number(inj.alerts.buy).toFixed(2);
       }
-      if (data.sell != null) {
-        const el = document.getElementById('priceSell');
-        if (el) el.value = Number(data.sell).toFixed(2);
+      if (inj.alerts.sell != null) {
+        document.getElementById('priceSell').value = Number(inj.alerts.sell).toFixed(2);
       }
-      updatePrices(); saveSettings();
-      return;
     }
-  });
 
-  let __strikesRetry = 0;
-  function __requestStrikes() {
-    if (__strikeList.length > 0 || __strikesRetry > 20) return;
-    __strikesRetry++;
-    try { window.parent.postMessage({ type: 'needStrikes' }, '*'); } catch (_) {}
-    setTimeout(__requestStrikes, 500);
-  }
-  __requestStrikes();
-})();
+    // 7. Устанавливаем сегодняшнюю дату ПРИНУДИТЕЛЬНО (после всего)
+    document.getElementById('currentDateBuy').value = today;
+    document.getElementById('currentDateSell').value = today;
+
+    updatePrices();
+    saveSettings();
+    syncToParent();
+  })();
 </script>
 </body>
 </html>
