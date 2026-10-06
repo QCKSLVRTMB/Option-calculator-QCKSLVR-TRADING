@@ -1294,7 +1294,46 @@ def fetch_bars(secid, interval=24, days=180, engine="futures", market="forts"):
 
     df = df.sort_values("begin").reset_index(drop=True)
     return df
-    # ================= Payoff-расчёты =================
+
+
+# ================= Текущая цена = CLOSE последнего дневного бара =================
+@st.cache_data(ttl=10, show_spinner=False)
+def get_last_close_price(secid: str, engine: str, market: str):
+    """Возвращает CLOSE последнего дневного бара — это и есть «текущая цена»,
+       синхронизированная с графиком D1. Кэш 10 секунд."""
+    if not secid:
+        return None
+    end = datetime.now()
+    start = end - timedelta(days=7)
+    url = (f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
+           f"/securities/{secid}/candles.json")
+    params = {
+        "from": start.strftime("%Y-%m-%d"),
+        "till": end.strftime("%Y-%m-%d"),
+        "interval": 24,
+        "iss.meta": "off",
+    }
+    data = iss_get_json(url, params=params, timeout=15)
+    if data is None:
+        return None
+    cols = data.get("candles", {}).get("columns", [])
+    rows = data.get("candles", {}).get("data", [])
+    if not rows or not cols:
+        return None
+    df = pd.DataFrame(rows, columns=cols)
+    if "close" not in df.columns:
+        return None
+    df = df.dropna(subset=["close"])
+    df = df[df["close"] > 0]
+    if df.empty:
+        return None
+    try:
+        return float(df.iloc[-1]["close"])
+    except Exception:
+        return None
+
+
+# ================= Payoff-расчёты =================
 def compute_payoff(positions, S_values):
     S = np.asarray(S_values, dtype=float)
     pnl = np.zeros_like(S)
@@ -2025,13 +2064,26 @@ with tab_calc:
             _inject["alerts"]["buy"] = _alv["buy"]
             _inject["alerts"]["sell"] = _alv["sell"]
 
-        # 🔧 Рыночная цена БА → в HTML + в session_state (для формы добавления)
+        # 🔧 Рыночная цена БА = CLOSE последнего дневного бара (как на графике D1)
         try:
-            _mkt_secid = resolve_underlying_secid(_asset_inj, _atype_inj)
-            _mkt_info = fetch_last_price_from_iss(_mkt_secid, _atype_inj)
-            if _mkt_info and _mkt_info.get("last"):
-                _inject["market_price"] = float(_mkt_info["last"])
-                st.session_state["quick_und_last_price"] = float(_mkt_info["last"])
+            if _atype_inj in ("Фьючерс", "Валюта", "Товар"):
+                _eng_mkt, _mkt_mkt = "futures", "forts"
+            elif _atype_inj == "Индекс":
+                _eng_mkt, _mkt_mkt = "stock", "index"
+            else:
+                _eng_mkt, _mkt_mkt = "stock", "shares"
+
+            # secid: используем futures_code серии, если есть, иначе resolved
+            if _futures_contract_for_chart:
+                _mkt_secid = _futures_contract_for_chart
+            else:
+                _mkt_secid = resolve_underlying_secid(_asset_inj, _atype_inj)
+
+            _close_price = get_last_close_price(_mkt_secid, _eng_mkt, _mkt_mkt)
+            if _close_price is not None:
+                _inject["market_price"] = _close_price
+                st.session_state["quick_und_last_price"] = _close_price
+                st.session_state["_current_market_price"] = _close_price
         except Exception:
             pass
 
@@ -2118,12 +2170,10 @@ with tab_calc:
                 _buy_ch  = float(st.session_state.get("_calc_level_buy", 0) or 0)
                 _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
 
-                # 🔧 Текущая рыночная цена БА для линии на графиках
+                # 🔧 Текущая цена = CLOSE последнего бара D1 (синхронизирована с графиком)
                 _current_price_ch = None
                 try:
-                    _mkt_info_ch = fetch_last_price_from_iss(_secid_ch, _atype_ch)
-                    if _mkt_info_ch and _mkt_info_ch.get("last"):
-                        _current_price_ch = float(_mkt_info_ch["last"])
+                    _current_price_ch = get_last_close_price(_secid_ch, _eng, _mkt)
                 except Exception:
                     pass
 
@@ -2944,18 +2994,34 @@ with tab_position:
     if not payoff_positions:
         st.caption("Нет видимых позиций для построения профиля.")
     else:
-        # 🔧 Получаем текущую рыночную цену заранее
-        F_current = None
-        try:
-            _secid_und = resolve_underlying_secid(
-                st.session_state.get("selected_asset", ""),
-                st.session_state.get("selected_asset_type_ui", ""))
-            _info_last = fetch_last_price_from_iss(
-                _secid_und, st.session_state.get("selected_asset_type_ui", ""))
-            if _info_last and _info_last.get("last"):
-                F_current = float(_info_last["last"])
-        except Exception:
-            pass
+        # 🔧 Текущая цена = CLOSE последнего бара D1 (та же, что в шапке и на графиках)
+        F_current = st.session_state.get("_current_market_price", None)
+        if F_current is None:
+            # Fallback: если почему-то не сохранена — перезапрашиваем
+            try:
+                _atype_f = st.session_state.get("selected_asset_type_ui", "")
+                if _atype_f in ("Фьючерс", "Валюта", "Товар"):
+                    _eng_f, _mkt_f = "futures", "forts"
+                elif _atype_f == "Индекс":
+                    _eng_f, _mkt_f = "stock", "index"
+                else:
+                    _eng_f, _mkt_f = "stock", "shares"
+
+                _ser_info_f = fetch_series_info(
+                    st.session_state.get("selected_asset", ""),
+                    _atype_f,
+                    st.session_state.get("selected_series_code", ""))
+                _fut_ticker_f = _ser_info_f.get("Тикер", "")
+                if _fut_ticker_f and _fut_ticker_f != "—":
+                    _secid_f = _fut_ticker_f
+                else:
+                    _secid_f = resolve_underlying_secid(
+                        st.session_state.get("selected_asset", ""), _atype_f)
+                F_current = get_last_close_price(_secid_f, _eng_f, _mkt_f)
+                if F_current is not None:
+                    st.session_state["_current_market_price"] = F_current
+            except Exception:
+                pass
 
         all_pos_strikes = sorted({float(p["Страйк"]) for p in payoff_positions
                                    if p.get("Страйк") is not None})
