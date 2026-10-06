@@ -9,13 +9,14 @@ import re
 import uuid
 import time
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 st.set_page_config(
-    page_title="Калькулятор опционов QCKSLVR TRADING",
+    page_title="MOEX Options & Black-Scholes",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -44,8 +45,8 @@ DEFAULT_COMM_OPTIONS_MIN = 0.02
 DEFAULT_COMM_FUTURES_PCT = 0.1
 DEFAULT_COMM_STOCKS_PCT  = 0.3
 
-# ================= Устойчивый HTTP-клиент к ISS =================
 
+# ================= Устойчивый HTTP-клиент к ISS =================
 def _make_iss_session():
     s = requests.Session()
     retry = Retry(
@@ -69,7 +70,6 @@ _ISS_SESSION = _make_iss_session()
 
 
 def iss_get(url, params=None, timeout=20):
-    """Устойчивый GET к ISS MOEX с retry. Возвращает Response или None."""
     for attempt in range(3):
         try:
             r = _ISS_SESSION.get(url, params=params, timeout=timeout)
@@ -83,7 +83,6 @@ def iss_get(url, params=None, timeout=20):
 
 
 def iss_get_json(url, params=None, timeout=20):
-    """То же, но сразу возвращает dict или None."""
     r = iss_get(url, params=params, timeout=timeout)
     if r is None:
         return None
@@ -1244,6 +1243,189 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
     return data if data is not None else []
 
 
+# ================= Бары с MOEX для графиков =================
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_bars(secid, interval=24, days=180,
+               engine="futures", market="forts"):
+    """Загружает бары (OHLCV) с MOEX ISS."""
+    if not secid:
+        return pd.DataFrame()
+    end = datetime.now()
+    start = end - timedelta(days=days)
+    url = (f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
+           f"/securities/{secid}/candles.json")
+    params = {
+        "from": start.strftime("%Y-%m-%d"),
+        "till": end.strftime("%Y-%m-%d"),
+        "interval": interval,
+        "iss.meta": "off",
+    }
+    data = iss_get_json(url, params=params, timeout=20)
+    if data is None:
+        return pd.DataFrame()
+    cols = data.get("candles", {}).get("columns", [])
+    rows = data.get("candles", {}).get("data", [])
+    if not rows or not cols:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows, columns=cols)
+    df["begin"] = pd.to_datetime(df["begin"])
+    return df.sort_values("begin").reset_index(drop=True)
+
+
+# ================= Payoff-расчёты =================
+def compute_payoff(positions, S_values):
+    """P&L портфеля при заданных S на экспирации."""
+    S = np.asarray(S_values, dtype=float)
+    pnl = np.zeros_like(S)
+    for p in positions:
+        if not p.get("visible", True):
+            continue
+        qty = int(p.get("Кол-во", 0))
+        entry = float(p.get("Цена", 0))
+        if p.get("Тип инструмента") == "БА" or p.get("Опцион") == "БА":
+            pnl += (S - entry) * qty
+            continue
+        K = float(p["Страйк"]) if p.get("Страйк") is not None else 0
+        if K == 0:
+            continue
+        if p["Опцион"] == "Call":
+            intrinsic = np.maximum(0, S - K)
+        else:
+            intrinsic = np.maximum(0, K - S)
+        pnl += (intrinsic - entry) * qty
+    return pnl
+
+
+def find_breakevens(positions, price_min, price_max, n=500):
+    """Находит точки безубыточности (переходы знака P&L)."""
+    prices = np.linspace(price_min, price_max, n)
+    pnl = compute_payoff(positions, prices)
+    be = []
+    for i in range(1, len(prices)):
+        if pnl[i-1] * pnl[i] < 0:
+            denom = pnl[i] - pnl[i-1]
+            if abs(denom) > 1e-12:
+                x0 = prices[i-1] + (prices[i] - prices[i-1]) * (-pnl[i-1]) / denom
+                be.append(float(x0))
+    return be
+
+
+def render_exchange_chart(df, positions, buy_level, sell_level,
+                          central_strike, title, key):
+    """Биржевой график с overlay payoff:
+       - бары чёрные, объёмы на отдельной панели,
+       - уровни покупок/продаж, страйки с количеством,
+       - точки безубыточности, зелёные/красные зоны прибыли/убытка.
+    """
+    if df is None or df.empty:
+        st.info(f"Нет данных для {title}")
+        return
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        vertical_spacing=0.04, row_heights=[0.78, 0.22])
+
+    # Бары — чёрные
+    fig.add_trace(
+        go.Ohlc(
+            x=df["begin"], open=df["open"], high=df["high"],
+            low=df["low"], close=df["close"],
+            increasing_line_color="black",
+            decreasing_line_color="black",
+            name="Цена", showlegend=False,
+        ), row=1, col=1)
+
+    # Объёмы — чёрные, отдельная панель
+    fig.add_trace(
+        go.Bar(
+            x=df["begin"], y=df["volume"],
+            marker_color="black",
+            name="Объём", showlegend=False,
+        ), row=2, col=1)
+
+    x_min = df["begin"].min()
+    x_max = df["begin"].max()
+    price_min = float(df["low"].min()) * 0.97
+    price_max = float(df["high"].max()) * 1.03
+
+    # Цветные зоны прибыли/убытка
+    if positions:
+        be_points = find_breakevens(positions, price_min, price_max)
+        segments = [price_min] + sorted(be_points) + [price_max]
+        for i in range(len(segments) - 1):
+            seg_start = segments[i]
+            seg_end = segments[i + 1]
+            mid = (seg_start + seg_end) / 2
+            mid_pnl = compute_payoff(positions, [mid])[0]
+            color = ("rgba(0,255,12,0.13)" if mid_pnl > 0
+                     else "rgba(255,0,0,0.10)")
+            fig.add_shape(
+                type="rect",
+                x0=x_min, x1=x_max,
+                y0=seg_start, y1=seg_end,
+                fillcolor=color, line_width=0,
+                layer="below", row=1, col=1)
+
+        # BE-линии
+        for be in be_points:
+            fig.add_hline(
+                y=be, line=dict(color="#00a651", width=2, dash="dot"),
+                annotation_text=f"BE {be:.0f}",
+                annotation_position="right",
+                row=1, col=1)
+
+    # Уровень покупок
+    if buy_level and buy_level > 0:
+        fig.add_hline(
+            y=buy_level,
+            line=dict(color="#9c00ff", width=3),
+            annotation_text=f"Покупка {buy_level:.2f}",
+            annotation_position="left",
+            row=1, col=1)
+
+    # Уровень продаж
+    if sell_level and sell_level > 0:
+        fig.add_hline(
+            y=sell_level,
+            line=dict(color="#fb92f0", width=3),
+            annotation_text=f"Продажа {sell_level:.2f}",
+            annotation_position="left",
+            row=1, col=1)
+
+    # Страйки с количеством
+    if positions:
+        strike_qty = {}
+        for p in positions:
+            if not p.get("visible", True):
+                continue
+            if p.get("Страйк") is None:
+                continue
+            K = p["Страйк"]
+            strike_qty[K] = strike_qty.get(K, 0) + int(p.get("Кол-во", 0))
+        for K, qty in sorted(strike_qty.items()):
+            fig.add_hline(
+                y=K,
+                line=dict(color="#7f9bb3", width=1, dash="dash"),
+                annotation_text=f"{int(K)} ({qty:+d})",
+                annotation_position="right",
+                row=1, col=1)
+
+    fig.update_layout(
+        title=title,
+        height=520,
+        margin=dict(l=20, r=20, t=50, b=20),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     rangeslider_visible=False)
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)")
+
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+
 # ================= Вспомогательные =================
 def _color_call_put(option: str) -> str:
     if option == "Call":
@@ -1330,11 +1512,12 @@ def match_strategy_with_positions(strategy_def, positions):
     missing = [i for i in range(len(strategy_def["legs"]))
                if i not in matched]
     weight = total_covered / total_required if total_required else 0.0
+    all_full = all(m["full"] for m in matched.values()) if matched else False
     return {
         "matched": matched, "missing": missing,
         "matched_strikes_by_group": matched_strikes_by_group,
         "weight": weight,
-        "is_full": all(m["full"] for m in matched.values()) and not missing,
+        "is_full": all_full and not missing,
     }
 
 
@@ -1476,7 +1659,7 @@ def push_alert_levels(ticker: str, buy_lvl, sell_lvl):
     }, delays=(500, 1500, 3000))
     # ================= UI =================
 
-st.title("QCKSLVR TRADING")
+st.title("MOEX Options & Black-Scholes")
 
 # ---------- Чтение параметров калькулятора из URL ----------
 try:
@@ -1682,14 +1865,84 @@ with tab_calc:
             rfr = None
             q = None
 
-        tv_symbol = resolve_tv_ticker(asset, asset_type_ui)
-        if tv_symbol:
-            st.caption(f"Тикер TradingView: `{tv_symbol}`")
-
-    # ---------- Калькулятор ----------
+    # ==========================================================
+    # КАЛЬКУЛЯТОР + ГРАФИКИ
+    # ==========================================================
     st.markdown("---")
+
+    # Готовим alerts для инъекции в index.html
+    _inject_alerts = {"ticker": "", "buy": None, "sell": None,
+                      "rf_buy": None, "rf_sell": None,
+                      "div_buy": None, "div_sell": None}
+
+    if st.session_state.get("board_loaded") and \
+       "selected_series_code" in st.session_state:
+        _asset_inj = st.session_state.get("selected_asset", "")
+        _atype_inj = st.session_state.get("selected_asset_type_ui", "")
+        _expiry_inj = st.session_state.get("selected_expiry", "")
+        _alv = find_alert_levels(_asset_inj)
+        if _alv["found"]:
+            _inject_alerts["ticker"] = _asset_inj
+            _inject_alerts["buy"] = _alv["buy"]
+            _inject_alerts["sell"] = _alv["sell"]
+            if _atype_inj == "Акция":
+                try:
+                    _rf_i = get_risk_free_rate_for_expiry(_expiry_inj)
+                    _q_i, _sp_i, _rd_i = get_dividend_yield_for_ticker(
+                        _asset_inj, _expiry_inj)
+                    _inject_alerts["rf_buy"] = _rf_i
+                    _inject_alerts["rf_sell"] = _rf_i
+                    _inject_alerts["div_buy"] = _q_i
+                    _inject_alerts["div_sell"] = _q_i
+                except Exception:
+                    pass
+
     calc_html = Path("index.html").read_text(encoding="utf-8")
-    components.html(calc_html, height=1500, scrolling=True)
+    _alerts_js = f"window.__ALERTS__ = {json.dumps(_inject_alerts)};"
+    calc_html = calc_html.replace(
+        "/*__ALERTS_PLACEHOLDER__*/", _alerts_js)
+
+    col_calc, col_charts = st.columns([1.05, 1])
+
+    with col_calc:
+        components.html(calc_html, height=1050, scrolling=True)
+
+    with col_charts:
+        st.markdown("### Биржевые графики")
+
+        if not st.session_state.get("board_loaded"):
+            st.info("Выберите серию и загрузите доску.")
+        else:
+            try:
+                _asset_ch = st.session_state.get("selected_asset", "")
+                _atype_ch = st.session_state.get("selected_asset_type_ui", "")
+                if _atype_ch in ("Фьючерс", "Валюта", "Товар"):
+                    _eng, _mkt = "futures", "forts"
+                elif _atype_ch == "Индекс":
+                    _eng, _mkt = "stock", "index"
+                else:
+                    _eng, _mkt = "stock", "shares"
+
+                _secid_ch = resolve_underlying_secid(_asset_ch, _atype_ch) or _asset_ch
+                _df_d1 = fetch_bars(_secid_ch, interval=24, days=180,
+                                    engine=_eng, market=_mkt)
+                _df_h1 = fetch_bars(_secid_ch, interval=60, days=30,
+                                    engine=_eng, market=_mkt)
+
+                _buy_ch = float(st.session_state.get("_calc_level_buy", 0) or 0)
+                _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
+
+                render_exchange_chart(
+                    _df_d1, st.session_state.get("positions", []),
+                    _buy_ch, _sell_ch, None,
+                    f"D1 — {_asset_ch}", "chart_d1_tab")
+
+                render_exchange_chart(
+                    _df_h1, st.session_state.get("positions", []),
+                    _buy_ch, _sell_ch, None,
+                    f"H1 — {_asset_ch}", "chart_h1_tab")
+            except Exception as e:
+                st.warning(f"Не удалось построить графики: {e}")
 
     # ---------- Push'и в калькулятор ----------
     if st.session_state.get("board_loaded") and \
@@ -2846,8 +3099,7 @@ with tab_position:
                                 if not groups_with_missing:
                                     st.warning(
                                         "Для этой стратегии нет групп для "
-                                        "добавления — проверьте состав ног."
-                                    )
+                                        "добавления — проверьте состав ног.")
                                 else:
                                     cols_g = st.columns(len(groups_with_missing))
                                     for gi, grp in enumerate(groups_with_missing):
@@ -2858,8 +3110,7 @@ with tab_position:
                                                 try:
                                                     default_idx = _all_strikes_for_ref.index(
                                                         min(_all_strikes_for_ref,
-                                                            key=lambda k: abs(float(k) - float(current)))
-                                                    )
+                                                            key=lambda k: abs(float(k) - float(current))))
                                                 except ValueError:
                                                     default_idx = 0
                                             strike_choices[grp] = st.selectbox(
@@ -2867,6 +3118,7 @@ with tab_position:
                                                 _all_strikes_for_ref or ["—"],
                                                 index=default_idx,
                                                 key=f"ref_grp_{strat_name}_{grp}")
+
                                 order_ok, order_msg = validate_strike_order(
                                     strat_def, strike_choices)
                                 if not order_ok:
@@ -2876,7 +3128,7 @@ with tab_position:
                                 for li in s["missing"]:
                                     leg = strat_def["legs"][li]
                                     grp = leg["strike_group"]
-                                    K = strike_choices[grp]
+                                    K = strike_choices.get(grp)
                                     default_p = _price_getter(leg["option"], K) or 0.0
                                     price_choices[li] = st.number_input(
                                         f"{leg['side']} {leg['option']} {K} — цена, ₽",
@@ -2888,7 +3140,8 @@ with tab_position:
                                 _final_name = st.text_input(
                                     "Имя конструкции", value=_auto_name,
                                     key=f"ref_name_{strat_name}").strip() or _auto_name
-                                if order_ok:
+
+                                if order_ok and groups_with_missing:
                                     if st.button(
                                         f"Дописать {len(s['missing'])} ног(у) в «{_final_name}»",
                                         key=f"ref_add_{strat_name}",
@@ -2897,7 +3150,7 @@ with tab_position:
                                         for li in s["missing"]:
                                             leg = strat_def["legs"][li]
                                             grp = leg["strike_group"]
-                                            K = strike_choices[grp]
+                                            K = strike_choices.get(grp)
                                             price = price_choices[li]
                                             if price <= 0 or K in (None, "—"):
                                                 continue
@@ -2938,13 +3191,13 @@ with tab_position:
                                             st.rerun()
                                         else:
                                             st.error("Укажите цены > 0.")
-                                else:
+                                elif groups_with_missing:
                                     st.button("Исправьте порядок страйков",
                                               disabled=True,
                                               key=f"ref_add_dis_{strat_name}")
 
         # =========================================================
-        # ГРАФИК ПРОФИЛЯ ПОЗИЦИИ
+        # ГРАФИК ПРОФИЛЯ ПОЗИЦИИ (Payoff)
         # =========================================================
         st.markdown("---")
         st.markdown("### График профиля позиции")
@@ -3543,7 +3796,6 @@ with tab_alerts:
             if last and last > 0:
                 buy_dev_pct = (lvl_buy - last) / last * 100.0
                 sell_dev_pct = (lvl_sell - last) / last * 100.0
-                # ИСПРАВЛЕННАЯ ЛОГИКА:
                 # Сигнал покупки — цена ОПУСТИЛАСЬ до уровня покупок или ниже
                 buy_active = (last <= lvl_buy)
                 # Сигнал продажи — цена ПОДНЯЛАСЬ до уровня продаж или выше
