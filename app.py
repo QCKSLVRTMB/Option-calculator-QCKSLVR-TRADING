@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# 🔧 Однократный сброс кэша при старте — чтобы изменения в fetch_bars подхватились
+# 🔧 Однократный сброс кэша при старте сессии
 if "cache_cleared_v3" not in st.session_state:
     st.cache_data.clear()
     st.session_state["cache_cleared_v3"] = True
@@ -799,8 +799,8 @@ def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
         return None
 
 
-# ================= LAST-цена БА с ISS =================
-@st.cache_data(ttl=60, show_spinner=False)
+# ================= LAST-цена БА с ISS (ttl=10 для live-обновления) =================
+@st.cache_data(ttl=10, show_spinner=False)
 def fetch_last_price_from_iss(secid: str, asset_type_ui: str):
     if not secid:
         return {"last": None, "secid": secid, "source": "—"}
@@ -1261,7 +1261,7 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
     return data if data is not None else []
 
 
-# ================= Бары с MOEX =================
+# ================= Бары с MOEX (с фильтрацией дат) =================
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_bars(secid, interval=24, days=180, engine="futures", market="forts"):
     if not secid:
@@ -1332,14 +1332,16 @@ def find_breakevens(positions, price_min, price_max, n=500):
 
 # ================= Биржевой график =================
 def render_exchange_chart(df, positions, buy_level, sell_level,
-                          strikes, title, key):
+                          strikes, title, key, current_price=None):
     """Биржевой график с overlay:
        - OHLC-бары (чёрные) + объёмы,
        - горизонтальные линии страйков с подписями по центру,
        - уровни покупок/продаж с пометками вида +2C 270 / -4P 92500,
-       - точки безубыточности с меткой «БУ»,
+       - текущая рыночная цена БА,
+       - точки безубыточности с меткой «БУ <цена>»,
        - цветные зоны прибыли/убытка,
-       - кроссхэйр (обе оси, тонкий пунктир).
+       - кроссхэйр (обе оси, тонкий пунктир),
+       - отступ 15 баров справа.
     """
     if df is None or df.empty:
         st.info(f"Нет данных для {title}")
@@ -1377,7 +1379,7 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
             seg_end = segments[i + 1]
             mid = (seg_start + seg_end) / 2
             mid_pnl = compute_payoff(positions, [mid])[0]
-            # 🔧 ФИКС: xref="x domain" (0..1 в границах подграфика) + усиленная альфа
+            # 🔧 xref="x domain" (0..1 в границах подграфика)
             color = ("rgba(0,220,80,0.28)" if mid_pnl > 0
                      else "rgba(255,40,40,0.22)")
             fig.add_shape(
@@ -1458,12 +1460,25 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
         _add_level(sell_level, f"Продажа {sell_level:.2f}",
                    "#fb92f0", sell_markers)
 
+    # ---- Текущая рыночная цена БА ----
+    if current_price is not None and current_price > 0:
+        fig.add_hline(
+            y=current_price,
+            line=dict(color="#1e88e5", width=2, dash="dash"),
+            row=1, col=1)
+        fig.add_annotation(
+            x=0.5, y=current_price, xref="paper", yref="y",
+            text=f"Текущая {current_price:.2f}", showarrow=False,
+            font=dict(size=10, color="#1e88e5", family="Arial Black"),
+            bgcolor="rgba(255,255,255,0.90)",
+            bordercolor="#1e88e5", borderwidth=1,
+            yshift=-11, row=1, col=1)
+
     # ---- Точки безубыточности («БУ <цена>») ----
     for be in be_points:
         fig.add_hline(y=be,
                       line=dict(color="#00a651", width=1.5, dash="dot"),
                       row=1, col=1)
-        # 🔧 ФИКС: числовое значение рядом с «БУ» + рамка
         _be_txt = f"БУ {be:.2f}"
         fig.add_annotation(
             x=0.5, y=be, xref="paper", yref="y",
@@ -1499,11 +1514,9 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
             _step = _diffs.median() if not _diffs.empty else pd.Timedelta(days=1)
         else:
             _step = pd.Timedelta(days=1)
-        # Защита от нулевого/отрицательного/NaT шага
         if pd.isna(_step) or _step <= pd.Timedelta(0):
             _step = pd.Timedelta(days=1)
 
-        # 🔧 Отступ справа: 15 баров
         _x_max_extended = _x_max_val + _step * 15
 
         fig.update_xaxes(
@@ -1690,7 +1703,7 @@ def _card_style_partial():
     return "border:1px solid #e2edf4;"
 
 
-# ================= postMessage-мост =================
+# ================= postMessage-мост (fallback) =================
 def _send_to_iframes(payload: dict, delays=(300, 1000, 2500)):
     delays_js = "\n".join([f"setTimeout(send, {d});" for d in delays])
     js = f"""
@@ -1931,6 +1944,7 @@ with tab_calc:
         "div_buy": None, "div_sell": None,
         "vol_buy": 30.0, "vol_sell": 30.0,
         "alerts": {"ticker": "", "buy": None, "sell": None},
+        "market_price": None,
     }
     _futures_contract_for_chart = None
 
@@ -2011,6 +2025,16 @@ with tab_calc:
             _inject["alerts"]["buy"] = _alv["buy"]
             _inject["alerts"]["sell"] = _alv["sell"]
 
+        # 🔧 Рыночная цена БА → в HTML + в session_state (для формы добавления)
+        try:
+            _mkt_secid = resolve_underlying_secid(_asset_inj, _atype_inj)
+            _mkt_info = fetch_last_price_from_iss(_mkt_secid, _atype_inj)
+            if _mkt_info and _mkt_info.get("last"):
+                _inject["market_price"] = float(_mkt_info["last"])
+                st.session_state["quick_und_last_price"] = float(_mkt_info["last"])
+        except Exception:
+            pass
+
     # ---- Безопасное чтение index.html ----
     _calc_html_path = Path("index.html")
     calc_html = None
@@ -2064,7 +2088,7 @@ with tab_calc:
                 else:
                     _secid_ch = resolve_underlying_secid(_asset_ch, _atype_ch) or _asset_ch
 
-                # ---- Страйки из загруженной доски ----
+                # Страйки из загруженной доски
                 _strikes_ch = []
                 try:
                     _board_ch = fetch_optionboard(_asset_ch, _atype_ch, _series_ch)
@@ -2080,7 +2104,7 @@ with tab_calc:
                 except Exception:
                     pass
 
-                # 🔧 ФИКС: D1 — с начала текущего года, H1 — за 2 месяца
+                # 🔧 D1 — с начала текущего года, H1 — 25 дней
                 _today_d = date.today()
                 _year_start = date(_today_d.year, 1, 1)
                 _d1_days = (_today_d - _year_start).days + 1
@@ -2094,16 +2118,27 @@ with tab_calc:
                 _buy_ch  = float(st.session_state.get("_calc_level_buy", 0) or 0)
                 _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
 
+                # 🔧 Текущая рыночная цена БА для линии на графиках
+                _current_price_ch = None
+                try:
+                    _mkt_info_ch = fetch_last_price_from_iss(_secid_ch, _atype_ch)
+                    if _mkt_info_ch and _mkt_info_ch.get("last"):
+                        _current_price_ch = float(_mkt_info_ch["last"])
+                except Exception:
+                    pass
+
                 _chart_label = _futures_contract_for_chart or _asset_ch
 
                 render_exchange_chart(
                     _df_d1, st.session_state.get("positions", []),
                     _buy_ch, _sell_ch, _strikes_ch,
-                    f"D1 — {_chart_label}", "chart_d1_tab")
+                    f"D1 — {_chart_label}", "chart_d1_tab",
+                    current_price=_current_price_ch)
                 render_exchange_chart(
                     _df_h1, st.session_state.get("positions", []),
                     _buy_ch, _sell_ch, _strikes_ch,
-                    f"H1 — {_chart_label}", "chart_h1_tab")
+                    f"H1 — {_chart_label}", "chart_h1_tab",
+                    current_price=_current_price_ch)
             except Exception as e:
                 st.warning(f"Не удалось построить графики: {e}")
 
@@ -2580,7 +2615,7 @@ with tab_position:
                                 st.rerun()
 
     # ==================================================================
-    # ТЕКУЩИЕ ПОЗИЦИИ — таблица в стиле биржевого терминала
+    # ТЕКУЩИЕ ПОЗИЦИИ
     # ==================================================================
     st.markdown("### Текущие позиции")
 
@@ -2909,6 +2944,19 @@ with tab_position:
     if not payoff_positions:
         st.caption("Нет видимых позиций для построения профиля.")
     else:
+        # 🔧 Получаем текущую рыночную цену заранее
+        F_current = None
+        try:
+            _secid_und = resolve_underlying_secid(
+                st.session_state.get("selected_asset", ""),
+                st.session_state.get("selected_asset_type_ui", ""))
+            _info_last = fetch_last_price_from_iss(
+                _secid_und, st.session_state.get("selected_asset_type_ui", ""))
+            if _info_last and _info_last.get("last"):
+                F_current = float(_info_last["last"])
+        except Exception:
+            pass
+
         all_pos_strikes = sorted({float(p["Страйк"]) for p in payoff_positions
                                    if p.get("Страйк") is not None})
         if not all_pos_strikes:
@@ -2920,8 +2968,12 @@ with tab_position:
         if not all_pos_strikes:
             st.caption("Нет данных для построения графика профиля.")
         else:
-            s_min = min(all_pos_strikes) * 0.85
-            s_max = max(all_pos_strikes) * 1.15
+            # 🔧 Добавляем текущую цену в диапазон оси X
+            _range_pts = list(all_pos_strikes)
+            if F_current is not None:
+                _range_pts.append(F_current)
+            s_min = min(_range_pts) * 0.85
+            s_max = max(_range_pts) * 1.15
             S_arr = np.linspace(s_min, s_max, 500)
 
             def _payoff_at_expiry(S_vals, positions_subset):
@@ -2978,18 +3030,6 @@ with tab_position:
                              * (-pnl_arr[i - 1]) / denom
                         be_points.append(float(x0))
 
-            F_current = None
-            try:
-                _secid_und = resolve_underlying_secid(
-                    st.session_state.get("selected_asset", ""),
-                    st.session_state.get("selected_asset_type_ui", ""))
-                _info_last = fetch_last_price_from_iss(
-                    _secid_und, st.session_state.get("selected_asset_type_ui", ""))
-                if _info_last and _info_last.get("last"):
-                    F_current = float(_info_last["last"])
-            except Exception:
-                pass
-
             fig_pf = go.Figure()
             fig_pf.add_trace(go.Scatter(
                 x=S_arr, y=np.where(pnl_arr >= 0, pnl_arr, 0),
@@ -3007,6 +3047,8 @@ with tab_position:
                 name='P&L на экспирации',
                 hovertemplate='БА: %{x:.2f} ₽<br>P&L: %{y:.2f} ₽<extra></extra>'))
 
+            # 🔧 Маркер текущего состояния позиции
+            _cur_pnl_today = None
             try:
                 _exp_date_pt = datetime.strptime(
                     st.session_state.get("selected_expiry", ""), "%Y-%m-%d").date()
@@ -3017,6 +3059,31 @@ with tab_position:
                     line=dict(color='#1e88e5', width=2, dash='dash'),
                     name='P&L на текущую дату',
                     hovertemplate='БА: %{x:.2f} ₽<br>P&L сегодня: %{y:.2f} ₽<extra></extra>'))
+
+                if F_current is not None:
+                    _cur_pnl_today = float(
+                        _payoff_today(np.array([F_current]), payoff_positions, _T_now)[0])
+                    _marker_color = "#00a651" if _cur_pnl_today > 0 else (
+                        "#d32f2f" if _cur_pnl_today < 0 else "#1e88e5")
+                    fig_pf.add_trace(go.Scatter(
+                        x=[F_current], y=[_cur_pnl_today],
+                        mode='markers',
+                        marker=dict(size=16, color=_marker_color,
+                                    symbol='circle',
+                                    line=dict(color='white', width=2)),
+                        name='Текущее состояние',
+                        hovertemplate=(
+                            'Текущая цена: %{x:.2f} ₽<br>'
+                            'P&L: %{y:+,.2f} ₽<extra></extra>')))
+                    fig_pf.add_annotation(
+                        x=F_current, y=_cur_pnl_today,
+                        text=f"  {_cur_pnl_today:+,.0f} ₽",
+                        showarrow=False,
+                        font=dict(size=11, color=_marker_color,
+                                  family="Arial Black"),
+                        bgcolor="rgba(255,255,255,0.92)",
+                        bordercolor=_marker_color, borderwidth=1,
+                        xanchor='left', yanchor='middle')
             except Exception:
                 pass
 
@@ -3059,11 +3126,18 @@ with tab_position:
 
             st.plotly_chart(fig_pf, use_container_width=True)
 
-            pm1, pm2 = st.columns(2)
+            pm1, pm2, pm3 = st.columns(3)
             with pm1:
                 st.metric("Макс. прибыль (в диапазоне)", f"{max_profit:+,.2f} ₽")
             with pm2:
                 st.metric("Макс. убыток (в диапазоне)", f"{max_loss_pf:+,.2f} ₽")
+            with pm3:
+                if _cur_pnl_today is not None:
+                    st.metric("Текущий P&L (при тек. цене)",
+                              f"{_cur_pnl_today:+,.2f} ₽")
+                else:
+                    st.metric("Текущий P&L (при тек. цене)", "—")
+
             if be_points:
                 be_str = " · ".join(f"**{be:,.2f} ₽**" for be in be_points)
                 st.caption(f"Точки безубыточности: {be_str}")
@@ -3417,126 +3491,115 @@ with tab_alerts:
                 _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок",
                                            "Уровень продаж"])
                 st.session_state.alerts_df = _xls
-                st.session_state.alerts_price_cache = {}
                 st.success(f"Загружено {len(_xls)} строк.")
         except Exception as e:
             st.error(f"Не удалось прочитать файл: {e}")
 
     if st.session_state.alerts_df is not None:
-        # ---- Кнопка обновления цен НАД таблицей ----
         cbtn1, cbtn2 = st.columns([1, 4])
         with cbtn1:
-            if st.button("Обновить рыночные цены",
-                         use_container_width=True, type="primary",
-                         key="alerts_refresh_btn"):
-                st.session_state.alerts_price_cache = {}
-                st.rerun()
-        with cbtn2:
             if st.button("Очистить таблицу оповещений",
                          key="alerts_clear_btn"):
                 st.session_state.alerts_df = None
-                st.session_state.alerts_price_cache = {}
                 st.rerun()
+        with cbtn2:
+            st.caption("🔄 Автообновление рыночных цен каждые 10 секунд")
 
     if st.session_state.alerts_df is None:
         st.info("Загрузите Excel-файл, чтобы увидеть оповещения.")
     else:
-        df_alerts = st.session_state.alerts_df.copy()
+        # 🔧 Автообновляемый фрагмент — перезапускается каждые 10 сек
+        @st.fragment(run_every="10s")
+        def _render_alerts_live():
+            df_alerts = st.session_state.alerts_df.copy()
 
-        if "alerts_price_cache" not in st.session_state:
-            st.session_state.alerts_price_cache = {}
+            def _get_price_for_alert(ticker, category):
+                secid = resolve_underlying_secid(ticker.upper(), category)
+                return fetch_last_price_from_iss(secid, category)
 
-        def _get_price_for_alert(ticker, category):
-            key = (ticker.upper(), category)
-            cache = st.session_state.alerts_price_cache
-            if key in cache:
-                return cache[key]
-            secid = resolve_underlying_secid(ticker.upper(), category)
-            info = fetch_last_price_from_iss(secid, category)
-            cache[key] = info
-            return info
+            out_rows = []
+            for _, row in df_alerts.iterrows():
+                ticker = str(row["Тикер БА"]).strip()
+                category = str(row["Категория БА"]).strip()
+                lvl_buy = float(row["Уровень покупок"])
+                lvl_sell = float(row["Уровень продаж"])
 
-        out_rows = []
-        for _, row in df_alerts.iterrows():
-            ticker = str(row["Тикер БА"]).strip()
-            category = str(row["Категория БА"]).strip()
-            lvl_buy = float(row["Уровень покупок"])
-            lvl_sell = float(row["Уровень продаж"])
+                info = _get_price_for_alert(ticker, category)
+                last = info.get("last") if info else None
 
-            info = _get_price_for_alert(ticker, category)
-            last = info.get("last") if info else None
+                if last and last > 0:
+                    buy_dev_pct = (lvl_buy - last) / last * 100.0
+                    sell_dev_pct = (lvl_sell - last) / last * 100.0
+                    buy_active = (last <= lvl_buy)
+                    sell_active = (last >= lvl_sell)
+                else:
+                    buy_dev_pct = None
+                    sell_dev_pct = None
+                    buy_active = False
+                    sell_active = False
 
-            if last and last > 0:
-                buy_dev_pct = (lvl_buy - last) / last * 100.0
-                sell_dev_pct = (lvl_sell - last) / last * 100.0
-                buy_active = (last <= lvl_buy)
-                sell_active = (last >= lvl_sell)
-            else:
-                buy_dev_pct = None
-                sell_dev_pct = None
-                buy_active = False
-                sell_active = False
+                out_rows.append({
+                    "Тикер БА": ticker,
+                    "Категория БА": category,
+                    "Уровень покупок": lvl_buy,
+                    "Откл. покупок, %": buy_dev_pct,
+                    "Уровень продаж": lvl_sell,
+                    "Откл. продаж, %": sell_dev_pct,
+                    "Рыночная цена": last,
+                    "Покупка активна": buy_active,
+                    "Продажа активна": sell_active})
 
-            out_rows.append({
-                "Тикер БА": ticker,
-                "Категория БА": category,
-                "Уровень покупок": lvl_buy,
-                "Откл. покупок, %": buy_dev_pct,
-                "Уровень продаж": lvl_sell,
-                "Откл. продаж, %": sell_dev_pct,
-                "Рыночная цена": last,
-                "Покупка активна": buy_active,
-                "Продажа активна": sell_active})
+            df_out = pd.DataFrame(out_rows)
 
-        df_out = pd.DataFrame(out_rows)
+            def _style_alert_row(row):
+                styles = []
+                for col in row.index:
+                    style = ""
+                    if col in ("Покупка активна", "Продажа активна"):
+                        if row[col] is True:
+                            style = ("background-color:#00ff0c; color:#0a3d0e; "
+                                     "font-weight:700;")
+                        else:
+                            style = ""
+                    elif col == "Откл. покупок, %" and row[col] is not None:
+                        if row[col] <= 0:
+                            style = "color:#00a651; font-weight:700;"
+                        else:
+                            style = "color:#d32f2f;"
+                    elif col == "Откл. продаж, %" and row[col] is not None:
+                        if row[col] >= 0:
+                            style = "color:#00a651; font-weight:700;"
+                        else:
+                            style = "color:#d32f2f;"
+                    styles.append(style)
+                return styles
 
-        def _style_alert_row(row):
-            styles = []
-            for col in row.index:
-                style = ""
-                if col in ("Покупка активна", "Продажа активна"):
-                    if row[col] is True:
-                        style = ("background-color:#00ff0c; color:#0a3d0e; "
-                                 "font-weight:700;")
-                    else:
-                        style = ""
-                elif col == "Откл. покупок, %" and row[col] is not None:
-                    if row[col] <= 0:
-                        style = "color:#00a651; font-weight:700;"
-                    else:
-                        style = "color:#d32f2f;"
-                elif col == "Откл. продаж, %" and row[col] is not None:
-                    if row[col] >= 0:
-                        style = "color:#00a651; font-weight:700;"
-                    else:
-                        style = "color:#d32f2f;"
-                styles.append(style)
-            return styles
+            st.dataframe(
+                df_out.style.apply(_style_alert_row, axis=1).format({
+                    "Уровень покупок":   "{:,.2f}",
+                    "Уровень продаж":    "{:,.2f}",
+                    "Откл. покупок, %":  "{:+.2f} %",
+                    "Откл. продаж, %":   "{:+.2f} %",
+                    "Рыночная цена":     "{:,.2f}",
+                    "Покупка активна":   lambda v: "АКТИВНО" if v is True else "—",
+                    "Продажа активна":   lambda v: "АКТИВНО" if v is True else "—"},
+                    na_rep="—"),
+                use_container_width=True, hide_index=True)
 
-        st.dataframe(
-            df_out.style.apply(_style_alert_row, axis=1).format({
-                "Уровень покупок":   "{:,.2f}",
-                "Уровень продаж":    "{:,.2f}",
-                "Откл. покупок, %":  "{:+.2f} %",
-                "Откл. продаж, %":   "{:+.2f} %",
-                "Рыночная цена":     "{:,.2f}",
-                "Покупка активна":   lambda v: "АКТИВНО" if v is True else "—",
-                "Продажа активна":   lambda v: "АКТИВНО" if v is True else "—"},
-                na_rep="—"),
-            use_container_width=True, hide_index=True)
+            n_buy = int((df_out["Покупка активна"] == True).sum())
+            n_sell = int((df_out["Продажа активна"] == True).sum())
+            n_total = len(df_out)
+            s1, s2, s3 = st.columns(3)
+            with s1:
+                st.metric("Всего тикеров", n_total)
+            with s2:
+                st.metric("Покупка активна", n_buy)
+            with s3:
+                st.metric("Продажа активна", n_sell)
 
-        n_buy = int((df_out["Покупка активна"] == True).sum())
-        n_sell = int((df_out["Продажа активна"] == True).sum())
-        n_total = len(df_out)
-        s1, s2, s3 = st.columns(3)
-        with s1:
-            st.metric("Всего тикеров", n_total)
-        with s2:
-            st.metric("Покупка активна", n_buy)
-        with s3:
-            st.metric("Продажа активна", n_sell)
+            st.download_button(
+                "Экспорт таблицы оповещений (CSV)",
+                data=df_out.to_csv(index=False).encode("utf-8-sig"),
+                file_name="alerts.csv", mime="text/csv")
 
-        st.download_button(
-            "Экспорт таблицы оповещений (CSV)",
-            data=df_out.to_csv(index=False).encode("utf-8-sig"),
-            file_name="alerts.csv", mime="text/csv")
+        _render_alerts_live()
