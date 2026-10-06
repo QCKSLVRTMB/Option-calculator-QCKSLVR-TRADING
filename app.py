@@ -1276,8 +1276,19 @@ def fetch_bars(secid, interval=24, days=180, engine="futures", market="forts"):
     if not rows or not cols:
         return pd.DataFrame()
     df = pd.DataFrame(rows, columns=cols)
-    df["begin"] = pd.to_datetime(df["begin"])
-    return df.sort_values("begin").reset_index(drop=True)
+
+    # 🔧 ФИКС: жёсткая нормализация даты
+    df["begin"] = pd.to_datetime(df["begin"], errors="coerce")
+    df = df.dropna(subset=["begin", "open", "high", "low", "close"])
+
+    # 🔧 ФИКС: отсекаем «битые» бары (NaN/0 → 1970)
+    df = df[df["begin"] >= pd.Timestamp("2000-01-01")]
+
+    # 🔧 ФИКС: санитарная проверка OHLC
+    df = df[(df["high"] > 0) & (df["low"] > 0) & (df["close"] > 0)]
+
+    df = df.sort_values("begin").reset_index(drop=True)
+    return df
     # ================= Payoff-расчёты =================
 def compute_payoff(positions, S_values):
     S = np.asarray(S_values, dtype=float)
@@ -1361,13 +1372,16 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
             seg_end = segments[i + 1]
             mid = (seg_start + seg_end) / 2
             mid_pnl = compute_payoff(positions, [mid])[0]
-            color = ("rgba(0,255,12,0.13)" if mid_pnl > 0
-                     else "rgba(255,0,0,0.10)")
-            fig.add_shape(type="rect",
-                          x0=x_min, x1=x_max,
-                          y0=seg_start, y1=seg_end,
-                          fillcolor=color, line_width=0,
-                          layer="below", row=1, col=1)
+            # 🔧 ФИКС: xref="x domain" (0..1 в границах подграфика) + усиленная альфа
+            color = ("rgba(0,220,80,0.28)" if mid_pnl > 0
+                     else "rgba(255,40,40,0.22)")
+            fig.add_shape(
+                type="rect",
+                xref="x domain", x0=0, x1=1,
+                yref="y", y0=seg_start, y1=seg_end,
+                fillcolor=color, line_width=0,
+                layer="below",
+                row=1, col=1)
     else:
         be_points = []
 
@@ -1439,16 +1453,19 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
         _add_level(sell_level, f"Продажа {sell_level:.2f}",
                    "#fb92f0", sell_markers)
 
-    # ---- Точки безубыточности («БУ») ----
+    # ---- Точки безубыточности («БУ <цена>») ----
     for be in be_points:
         fig.add_hline(y=be,
                       line=dict(color="#00a651", width=1.5, dash="dot"),
                       row=1, col=1)
+        # 🔧 ФИКС: числовое значение рядом с «БУ» + рамка
+        _be_txt = f"БУ {be:.2f}"
         fig.add_annotation(
             x=0.5, y=be, xref="paper", yref="y",
-            text="БУ", showarrow=False,
+            text=_be_txt, showarrow=False,
             font=dict(size=10, color="#00a651", family="Arial Black"),
-            bgcolor="rgba(255,255,255,0.82)",
+            bgcolor="rgba(255,255,255,0.90)",
+            bordercolor="#00a651", borderwidth=1,
             yshift=10, row=1, col=1)
 
     fig.update_layout(
