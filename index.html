@@ -611,7 +611,6 @@
       document.getElementById('dividend'+suf).value = '0';
       document.getElementById('expirySource'+suf).innerText = '';
     });
-    // Перерисовать страйки на call/central
     if (__strikeList.length) renderStrikes();
     updatePrices(); saveSettings(); syncToParent();
   });
