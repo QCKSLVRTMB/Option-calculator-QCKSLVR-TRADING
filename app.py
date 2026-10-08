@@ -22,6 +22,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# 🔧 Однократный сброс кэша при старте сессии
 if "cache_cleared_v4" not in st.session_state:
     st.cache_data.clear()
     st.session_state["cache_cleared_v4"] = True
@@ -57,79 +58,176 @@ ALERTS_SHEET_URL = (
 # ================= Справочник инструментов MOEX =================
 MOEX_INSTRUMENTS = {
     "Индексы": {
-        "RTS": ("Индекс", "Индекс РТС"), "MIX": ("Индекс", "Индекс МосБиржи"),
-        "RVI": ("Индекс", "Индекс волатильности RVI"),
-        "MOEXCNY": ("Индекс", "Индекс МосБиржи в юанях"),
-        "RGBI": ("Индекс", "Индекс RGBI"), "MMI": ("Индекс", "Индекс металлов"),
-        "FNI": ("Индекс", "Индекс финансов"), "OGI": ("Индекс", "Индекс нефти и газа"),
-        "MXI": ("Индекс", "Индекс МосБиржи (мини)"), "RTSM": ("Индекс", "Индекс РТС (мини)"),
+        "RTS":      ("Индекс", "Индекс РТС"),
+        "MIX":      ("Индекс", "Индекс МосБиржи"),
+        "RVI":      ("Индекс", "Индекс волатильности RVI"),
+        "MOEXCNY":  ("Индекс", "Индекс МосБиржи в юанях"),
+        "RGBI":     ("Индекс", "Индекс RGBI"),
+        "MMI":      ("Индекс", "Индекс металлов и добычи"),
+        "FNI":      ("Индекс", "Индекс финансов"),
+        "OGI":      ("Индекс", "Индекс нефти и газа"),
+        "MXI":      ("Индекс", "Индекс МосБиржи (мини)"),
+        "RTSM":     ("Индекс", "Индекс РТС (мини)"),
     },
     "Акции": {
-        "GAZP": ("Акция", "Газпром"), "SBER": ("Акция", "Сбербанк о.с."),
-        "SBERP": ("Акция", "Сбербанк п.с."), "LKOH": ("Акция", "ЛУКОЙЛ"),
-        "ROSN": ("Акция", "Роснефть"), "NOTK": ("Акция", "НОВАТЭК"),
-        "TATN": ("Акция", "Татнефть о.с."), "TATNP": ("Акция", "Татнефть п.с."),
-        "SNGSP": ("Акция", "Сургутнефтегаз п.с."), "MTSS": ("Акция", "МТС"),
-        "MGNT": ("Акция", "Магнит"), "GMKN": ("Акция", "Норникель"),
-        "NLMK": ("Акция", "НЛМК"), "CHMF": ("Акция", "Северсталь"),
-        "ALRS": ("Акция", "АЛРОСА"), "VTBR": ("Акция", "ВТБ"),
-        "MOEX": ("Акция", "Московская Биржа"), "AFKS": ("Акция", "АФК Система"),
-        "IRAO": ("Акция", "Интер РАО"), "HYDR": ("Акция", "РусГидро"),
-        "RTKM": ("Акция", "Ростелеком"), "PLZL": ("Акция", "Полюс"),
-        "MAGN": ("Акция", "ММК"), "YDEX": ("Акция", "Яндекс"),
-        "PHOR": ("Акция", "ФосАгро"), "RUAL": ("Акция", "РУСАЛ"),
-        "FEES": ("Акция", "ФСК ЕЭС"), "TRNFP": ("Акция", "Транснефть п.с."),
-        "AFLT": ("Акция", "Аэрофлот"), "SIBN": ("Акция", "Газпром нефть"),
-        "PIKK": ("Акция", "ПИК"), "FLOT": ("Акция", "Совкомфлот"),
-        "CBOM": ("Акция", "МКБ"), "SGZH": ("Акция", "Сегежа"),
-        "BSPB": ("Акция", "Банк Санкт-Петербург"), "KMAZ": ("Акция", "КАМАЗ"),
-        "ASTR": ("Акция", "Группа Астра"), "SVCB": ("Акция", "Совкомбанк"),
+        "GAZP":     ("Акция", "Газпром"),
+        "SBER":     ("Акция", "Сбербанк о.с."),
+        "SBERP":    ("Акция", "Сбербанк п.с."),
+        "LKOH":     ("Акция", "ЛУКОЙЛ"),
+        "ROSN":     ("Акция", "Роснефть"),
+        "NOTK":     ("Акция", "НОВАТЭК"),
+        "TATN":     ("Акция", "Татнефть о.с."),
+        "TATNP":    ("Акция", "Татнефть п.с."),
+        "SNGSP":    ("Акция", "Сургутнефтегаз п.с."),
+        "MTSS":     ("Акция", "МТС"),
+        "MGNT":     ("Акция", "Магнит"),
+        "GMKN":     ("Акция", "Норникель"),
+        "NLMK":     ("Акция", "НЛМК"),
+        "CHMF":     ("Акция", "Северсталь"),
+        "ALRS":     ("Акция", "АЛРОСА"),
+        "VTBR":     ("Акция", "ВТБ"),
+        "MOEX":     ("Акция", "Московская Биржа"),
+        "AFKS":     ("Акция", "АФК Система"),
+        "IRAO":     ("Акция", "Интер РАО"),
+        "HYDR":     ("Акция", "РусГидро"),
+        "RTKM":     ("Акция", "Ростелеком"),
+        "PLZL":     ("Акция", "Полюс"),
+        "MAGN":     ("Акция", "ММК"),
+        "YDEX":     ("Акция", "Яндекс"),
+        "PHOR":     ("Акция", "ФосАгро"),
+        "RUAL":     ("Акция", "РУСАЛ"),
+        "FEES":     ("Акция", "ФСК ЕЭС"),
+        "TRNFP":    ("Акция", "Транснефть п.с."),
+        "AFLT":     ("Акция", "Аэрофлот"),
+        "SIBN":     ("Акция", "Газпром нефть"),
+        "PIKK":     ("Акция", "ПИК"),
+        "FLOT":     ("Акция", "Совкомфлот"),
+        "CBOM":     ("Акция", "МКБ"),
+        "SGZH":     ("Акция", "Сегежа"),
+        "BSPB":     ("Акция", "Банк Санкт-Петербург"),
+        "KMAZ":     ("Акция", "КАМАЗ"),
+        "ASTR":     ("Акция", "Группа Астра"),
+        "SVCB":     ("Акция", "Совкомбанк"),
     },
     "Фьючерсы": {
-        "GAZR": ("Фьючерс", "Газпром (фьючерс)"),
-        "SBRF": ("Фьючерс", "Сбербанк о.с. (фьючерс)"),
-        "SBPR": ("Фьючерс", "Сбербанк п.с. (фьючерс)"),
-        "LKOH": ("Фьючерс", "ЛУКОЙЛ (фьючерс)"),
-        "ROSN": ("Фьючерс", "Роснефть (фьючерс)"),
-        "NOTK": ("Фьючерс", "НОВАТЭК (фьючерс)"),
-        "TATN": ("Фьючерс", "Татнефть о.с. (фьючерс)"),
-        "TATP": ("Фьючерс", "Татнефть п.с. (фьючерс)"),
-        "SNGR": ("Фьючерс", "Сургутнефтегаз о.с. (фьючерс)"),
-        "SNGP": ("Фьючерс", "Сургутнефтегаз п.с. (фьючерс)"),
-        "MTSS": ("Фьючерс", "МТС (фьючерс)"), "MGNT": ("Фьючерс", "Магнит (фьючерс)"),
-        "GMKN": ("Фьючерс", "Норникель (фьючерс)"), "NLMK": ("Фьючерс", "НЛМК (фьючерс)"),
-        "CHMF": ("Фьючерс", "Северсталь (фьючерс)"), "ALRS": ("Фьючерс", "АЛРОСА (фьючерс)"),
-        "VTBR": ("Фьючерс", "ВТБ (фьючерс)"), "MOEX": ("Фьючерс", "МосБиржа (фьючерс)"),
-        "AFKS": ("Фьючерс", "АФК Система (фьючерс)"), "IRAO": ("Фьючерс", "Интер РАО (фьючерс)"),
-        "HYDR": ("Фьючерс", "РусГидро (фьючерс)"), "RTKM": ("Фьючерс", "Ростелеком (фьючерс)"),
-        "PLZL": ("Фьючерс", "Полюс (фьючерс)"), "MAGN": ("Фьючерс", "ММК (фьючерс)"),
-        "YDEX": ("Фьючерс", "Яндекс (фьючерс)"), "PHOR": ("Фьючерс", "ФосАгро (фьючерс)"),
-        "RUAL": ("Фьючерс", "РУСАЛ (фьючерс)"), "FEES": ("Фьючерс", "ФСК ЕЭС (фьючерс)"),
-        "TRNF": ("Фьючерс", "Транснефть п.с. (фьючерс)"), "AFLT": ("Фьючерс", "Аэрофлот (фьючерс)"),
-        "SIBN": ("Фьючерс", "Газпром нефть (фьючерс)"), "PIKK": ("Фьючерс", "ПИК (фьючерс)"),
-        "FLOT": ("Фьючерс", "Совкомфлот (фьючерс)"), "CBOM": ("Фьючерс", "МКБ (фьючерс)"),
-        "SGZH": ("Фьючерс", "Сегежа (фьючерс)"), "BSPB": ("Фьючерс", "БСП (фьючерс)"),
-        "KMAZ": ("Фьючерс", "КАМАЗ (фьючерс)"), "ASTR": ("Фьючерс", "Астра (фьючерс)"),
-        "SVCB": ("Фьючерс", "Совкомбанк (фьючерс)"),
+        # === Акции ===
+        "GAZR":     ("Фьючерс", "Газпром (фьючерс)"),
+        "SBRF":     ("Фьючерс", "Сбербанк о.с. (фьючерс)"),
+        "SBPR":     ("Фьючерс", "Сбербанк п.с. (фьючерс)"),
+        "LKOH":     ("Фьючерс", "ЛУКОЙЛ (фьючерс)"),
+        "ROSN":     ("Фьючерс", "Роснефть (фьючерс)"),
+        "NOTK":     ("Фьючерс", "НОВАТЭК (фьючерс)"),
+        "TATN":     ("Фьючерс", "Татнефть о.с. (фьючерс)"),
+        "TATP":     ("Фьючерс", "Татнефть п.с. (фьючерс)"),
+        "SNGR":     ("Фьючерс", "Сургутнефтегаз о.с. (фьючерс)"),
+        "SNGP":     ("Фьючерс", "Сургутнефтегаз п.с. (фьючерс)"),
+        "MTSS":     ("Фьючерс", "МТС (фьючерс)"),
+        "MGNT":     ("Фьючерс", "Магнит (фьючерс)"),
+        "GMKN":     ("Фьючерс", "Норникель (фьючерс)"),
+        "NLMK":     ("Фьючерс", "НЛМК (фьючерс)"),
+        "CHMF":     ("Фьючерс", "Северсталь (фьючерс)"),
+        "ALRS":     ("Фьючерс", "АЛРОСА (фьючерс)"),
+        "VTBR":     ("Фьючерс", "ВТБ (фьючерс)"),
+        "MOEX":     ("Фьючерс", "Московская Биржа (фьючерс)"),
+        "AFKS":     ("Фьючерс", "АФК Система (фьючерс)"),
+        "IRAO":     ("Фьючерс", "Интер РАО (фьючерс)"),
+        "HYDR":     ("Фьючерс", "РусГидро (фьючерс)"),
+        "RTKM":     ("Фьючерс", "Ростелеком (фьючерс)"),
+        "PLZL":     ("Фьючерс", "Полюс (фьючерс)"),
+        "MAGN":     ("Фьючерс", "ММК (фьючерс)"),
+        "YDEX":     ("Фьючерс", "Яндекс (фьючерс)"),
+        "PHOR":     ("Фьючерс", "ФосАгро (фьючерс)"),
+        "RUAL":     ("Фьючерс", "РУСАЛ (фьючерс)"),
+        "FEES":     ("Фьючерс", "ФСК ЕЭС (фьючерс)"),
+        "TRNF":     ("Фьючерс", "Транснефть п.с. (фьючерс)"),
+        "AFLT":     ("Фьючерс", "Аэрофлот (фьючерс)"),
+        "SIBN":     ("Фьючерс", "Газпром нефть (фьючерс)"),
+        "PIKK":     ("Фьючерс", "ПИК (фьючерс)"),
+        "FLOT":     ("Фьючерс", "Совкомфлот (фьючерс)"),
+        "CBOM":     ("Фьючерс", "МКБ (фьючерс)"),
+        "SGZH":     ("Фьючерс", "Сегежа (фьючерс)"),
+        "BSPB":     ("Фьючерс", "Банк Санкт-Петербург (фьючерс)"),
+        "KMAZ":     ("Фьючерс", "КАМАЗ (фьючерс)"),
+        "ASTR":     ("Фьючерс", "Группа Астра (фьючерс)"),
+        "SVCB":     ("Фьючерс", "Совкомбанк (фьючерс)"),
+
+        # === Валюты ===
+        "Si":       ("Фьючерс", "Доллар США / Рубль (фьючерс)"),
+        "Eu":       ("Фьючерс", "Евро / Рубль (фьючерс)"),
+        "CNY":      ("Фьючерс", "Юань / Рубль (фьючерс)"),
+        "ED":       ("Фьючерс", "Евро / Доллар (фьючерс)"),
+        "TRY":      ("Фьючерс", "Турецкая лира / Рубль (фьючерс)"),
+        "HKD":      ("Фьючерс", "Гонконгский доллар / Рубль (фьючерс)"),
+        "AED":      ("Фьючерс", "Дирхам ОАЭ / Рубль (фьючерс)"),
+        "KZT":      ("Фьючерс", "Казахстанский тенге / Рубль (фьючерс)"),
+        "AMD":      ("Фьючерс", "Армянский драм / Рубль (фьючерс)"),
+        "BYN":      ("Фьючерс", "Белорусский рубль / Рубль (фьючерс)"),
+        "AUDU":     ("Фьючерс", "Австралийский доллар / Доллар (фьючерс)"),
+        "GBPU":     ("Фьючерс", "Фунт стерлингов / Доллар (фьючерс)"),
+        "UCAD":     ("Фьючерс", "Доллар / Канадский доллар (фьючерс)"),
+        "UCHF":     ("Фьючерс", "Доллар / Швейцарский франк (фьючерс)"),
+        "UJPY":     ("Фьючерс", "Доллар / Японская йена (фьючерс)"),
+        "UCNY":     ("Фьючерс", "Доллар / Юань (фьючерс)"),
+
+        # === Товары ===
+        "BR":       ("Фьючерс", "Нефть Brent (фьючерс)"),
+        "CL":       ("Фьючерс", "Нефть Light Sweet (фьючерс)"),
+        "GOLD":     ("Фьючерс", "Золото (фьючерс)"),
+        "SILV":     ("Фьючерс", "Серебро (фьючерс)"),
+        "PLD":      ("Фьючерс", "Палладий (фьючерс)"),
+        "PLT":      ("Фьючерс", "Платина (фьючерс)"),
+        "ALMN":     ("Фьючерс", "Алюминий (фьючерс)"),
+        "Co":       ("Фьючерс", "Медь (фьючерс)"),
+        "Nl":       ("Фьючерс", "Никель (фьючерс)"),
+        "Zn":       ("Фьючерс", "Цинк (фьючерс)"),
+        "NG":       ("Фьючерс", "Природный газ (фьючерс)"),
+        "WHEAT":    ("Фьючерс", "Пшеница (фьючерс)"),
+        "SUGR":     ("Фьючерс", "Сахар (фьючерс)"),
+
+        # === Индексы (фьючерсы на индексы — ISS ждёт код индекса + asset_type="index")
+        "RTS":      ("Фьючерс", "Индекс РТС (фьючерс)"),
+        "MIX":      ("Фьючерс", "Индекс МосБиржи (фьючерс)"),
+        "RVI":      ("Фьючерс", "Индекс волатильности RVI (фьючерс)"),
+        "RGBI":     ("Фьючерс", "Индекс RGBI (фьючерс)"),
+        "MOEXCNY":  ("Фьючерс", "Индекс МосБиржи в юанях (фьючерс)"),
+        "MMI":      ("Фьючерс", "Индекс металлов и добычи (фьючерс)"),
+        "FNI":      ("Фьючерс", "Индекс финансов (фьючерс)"),
+        "OGI":      ("Фьючерс", "Индекс нефти и газа (фьючерс)"),
+        "MXI":      ("Фьючерс", "Индекс МосБиржи (мини, фьючерс)"),
+        "RTSM":     ("Фьючерс", "Индекс РТС (мини, фьючерс)"),
     },
     "Валюты": {
-        "Si": ("Валюта", "Доллар / Рубль"), "Eu": ("Валюта", "Евро / Рубль"),
-        "CNY": ("Валюта", "Юань / Рубль"), "TRY": ("Валюта", "Лира / Рубль"),
-        "HKD": ("Валюта", "Гонконг. доллар / Рубль"), "AED": ("Валюта", "Дирхам / Рубль"),
-        "KZT": ("Валюта", "Тенге / Рубль"), "AMD": ("Валюта", "Драм / Рубль"),
-        "BYN": ("Валюта", "Бел. рубль / Рубль"), "ED": ("Валюта", "Евро / Доллар"),
-        "AUDU": ("Валюта", "AUD / USD"), "GBPU": ("Валюта", "GBP / USD"),
-        "UCAD": ("Валюта", "USD / CAD"), "UCHF": ("Валюта", "USD / CHF"),
-        "UJPY": ("Валюта", "USD / JPY"), "UCNY": ("Валюта", "USD / CNY"),
+        "Si":       ("Валюта", "Доллар США / Рубль"),
+        "Eu":       ("Валюта", "Евро / Рубль"),
+        "CNY":      ("Валюта", "Юань / Рубль"),
+        "TRY":      ("Валюта", "Турецкая лира / Рубль"),
+        "HKD":      ("Валюта", "Гонконгский доллар / Рубль"),
+        "AED":      ("Валюта", "Дирхам ОАЭ / Рубль"),
+        "KZT":      ("Валюта", "Казахстанский тенге / Рубль"),
+        "AMD":      ("Валюта", "Армянский драм / Рубль"),
+        "BYN":      ("Валюта", "Белорусский рубль / Рубль"),
+        "ED":       ("Валюта", "Евро / Доллар"),
+        "AUDU":     ("Валюта", "Австралийский доллар / Доллар"),
+        "GBPU":     ("Валюта", "Фунт стерлингов / Доллар"),
+        "UCAD":     ("Валюта", "Доллар / Канадский доллар"),
+        "UCHF":     ("Валюта", "Доллар / Швейцарский франк"),
+        "UJPY":     ("Валюта", "Доллар / Японская йена"),
+        "UCNY":     ("Валюта", "Доллар / Юань"),
     },
     "Товары": {
-        "BR": ("Товар", "Нефть Brent"), "CL": ("Товар", "Нефть Light Sweet"),
-        "GOLD": ("Товар", "Золото"), "SILV": ("Товар", "Серебро"),
-        "PLD": ("Товар", "Палладий"), "PLT": ("Товар", "Платина"),
-        "ALMN": ("Товар", "Алюминий"), "Co": ("Товар", "Медь"),
-        "Nl": ("Товар", "Никель"), "Zn": ("Товар", "Цинк"),
-        "NG": ("Товар", "Природный газ"), "WHEAT": ("Товар", "Пшеница"),
-        "SUGR": ("Товар", "Сахар"),
+        "BR":       ("Товар", "Нефть Brent"),
+        "CL":       ("Товар", "Нефть Light Sweet"),
+        "GOLD":     ("Товар", "Золото"),
+        "SILV":     ("Товар", "Серебро"),
+        "PLD":      ("Товар", "Палладий"),
+        "PLT":      ("Товар", "Платина"),
+        "ALMN":     ("Товар", "Алюминий"),
+        "Co":       ("Товар", "Медь"),
+        "Nl":       ("Товар", "Никель"),
+        "Zn":       ("Товар", "Цинк"),
+        "NG":       ("Товар", "Природный газ"),
+        "WHEAT":    ("Товар", "Пшеница"),
+        "SUGR":     ("Товар", "Сахар"),
     },
 }
 
@@ -232,11 +330,7 @@ TV_TICKER_MAP = {
 
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-
-
-# ================= Предустановленные стратегии =================
-# ВАЖНО: у календарных спредов у ног разные даты экспирации.
-# Атрибут "leg_expiry" = "near" / "far" — какой серии принадлежит нога.
+    # ================= Предустановленные стратегии =================
 PREDEFINED_STRATEGIES = {
     "Long Call": {
         "category": "Одиночные",
@@ -605,6 +699,8 @@ PREDEFINED_STRATEGIES = {
         ],
     },
 }
+
+
 # ================= Устойчивый HTTP-клиент к ISS =================
 def _make_iss_session():
     s = requests.Session()
@@ -690,9 +786,6 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
         for code in items.keys():
             if code.upper() == s_upper:
                 return code
-        # Фьючерсы на индексы: код = код индекса (RTS, MIX, RVI, RGBI, MOEXCNY)
-        if asset_type_ui == "Фьючерс" and s_upper in _INDEX_FUTURES_CODES:
-            return s_upper
         return s_upper
 
     # 2. Fallback: поиск по всем категориям.
@@ -737,7 +830,6 @@ def calc_commission(premium, instrument_type="Опцион",
 
 
 def _calc_comm_ui(premium, instr_type="Опцион"):
-    """Комиссия с параметрами из UI (session_state) или дефолтными."""
     cop = st.session_state.get("cop_inp", DEFAULT_COMM_OPTIONS_PCT)
     cmo = st.session_state.get("cmo_inp", DEFAULT_COMM_OPTIONS_MIN)
     cfp = st.session_state.get("cfp_inp", DEFAULT_COMM_FUTURES_PCT)
@@ -824,6 +916,7 @@ def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
 
 
 # ================= G-кривая ОФЗ =================
+# 🔧 ИСПРАВЛЕНО: добавлены params / columns / values
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_g_curve_params():
     if _is_failed_recently("g_curve", cooldown_sec=30):
@@ -1242,17 +1335,9 @@ def autoload_series_for(asset: str, asset_type_ui: str):
 
 
 # ================= MOEX API: опционы =================
+# 🔧 ИСПРАВЛЕНО: для фьючерсов на индексы asset_type="index"
 @st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
-    """Канонизация без тяжёлых запросов.
-
-    Важно:
-    • Акции: код = тикер (SBER, GAZP), asset_type = "share".
-    • Фьючерсы на акции: код = root (GAZR, SBRF, LKOH), asset_type = "futures".
-    • Фьючерсы на ИНДЕКСЫ: код = код индекса (RTS, MIX, RVI, RGBI, MOEXCNY),
-      asset_type = "index"  ← ГЛАВНОЕ отличие!
-    • Индексы: код = RTSI / IMOEX, asset_type = "index".
-    """
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
     s_upper = asset_input.strip().upper()
@@ -1294,8 +1379,6 @@ def fetch_optionseries(asset: str, asset_type_ui: str):
 # НОВОЕ: получить все серии инструмента (для календарных спредов и сравнения)
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_all_series_for_asset(asset: str, asset_type_ui: str):
-    """Возвращает отсортированный список всех опционных серий
-       (с датами экспирации) для заданного БА."""
     series = fetch_optionseries(asset, asset_type_ui)
     if not series:
         return []
@@ -1486,6 +1569,26 @@ def _months_between(d1: date, d2: date) -> float:
     return max((d2 - d1).days, 0) / 365.0
 
 
+def _bs_price_np(S, K, T, r_pct, vol_pct, q_pct, opt_type):
+    """BSM-цена одного опциона, устойчивая к T<=0 / S<=0 / K<=0."""
+    if T <= 0 or S <= 0 or K <= 0 or vol_pct <= 0:
+        return max(0.0, S - K) if opt_type == "call" else max(0.0, K - S)
+    r = r_pct / 100.0
+    q = q_pct / 100.0
+    sigma = vol_pct / 100.0
+    sqrtT = math.sqrt(T)
+    try:
+        d1 = (math.log(S / K) + (r - q + sigma * sigma / 2) * T) / (sigma * sqrtT)
+        d2 = d1 - sigma * sqrtT
+        nd1 = 0.5 * (1.0 + math.erf(d1 / math.sqrt(2.0)))
+        nd2 = 0.5 * (1.0 + math.erf(d2 / math.sqrt(2.0)))
+        if opt_type == "call":
+            return S * math.exp(-q * T) * nd1 - K * math.exp(-r * T) * nd2
+        return K * math.exp(-r * T) * (1 - nd2) - S * math.exp(-q * T) * (1 - nd1)
+    except Exception:
+        return max(0.0, S - K) if opt_type == "call" else max(0.0, K - S)
+
+
 def compute_payoff(positions, S_values, comm_func=None,
                    anchor_expiry: str = None,
                    pricing_date: str = None,
@@ -1493,10 +1596,10 @@ def compute_payoff(positions, S_values, comm_func=None,
                    r_default: float = 0.0,
                    q_default: float = 0.0):
     """P&L на anchor_expiry.
-    
+
     Для ног с более поздней экспирацией цена опциона считается по Блэку-Шоулзу
     на дату anchor_expiry (короткие ноги — intrinsic).
-    
+
     Если anchor_expiry=None, используется максимальная экспирация портфеля.
     """
     S = np.asarray(S_values, dtype=float)
@@ -1520,15 +1623,6 @@ def compute_payoff(positions, S_values, comm_func=None,
             anchor_date = max(all_expiries) if all_expiries else date.today()
     else:
         anchor_date = max(all_expiries) if all_expiries else date.today()
-
-    # Для расчёта «сегодня» используем pricing_date (обычно today)
-    if pricing_date:
-        try:
-            today_date = datetime.strptime(pricing_date, "%Y-%m-%d").date()
-        except Exception:
-            today_date = date.today()
-    else:
-        today_date = date.today()
 
     for p in positions:
         if not p.get("visible", True):
@@ -1557,7 +1651,6 @@ def compute_payoff(positions, S_values, comm_func=None,
                 leg_expiry = None
 
         if leg_expiry is None:
-            # Не знаем дату — считаем intrinsic на anchor
             if p["Опцион"] == "Call":
                 intrinsic = np.maximum(0, S - K)
             else:
@@ -1565,7 +1658,6 @@ def compute_payoff(positions, S_values, comm_func=None,
             pnl += (intrinsic - entry - com) * qty
             continue
 
-        # Разница между anchor и экспирацией ноги
         if leg_expiry <= anchor_date:
             # Нога уже истекла к моменту anchor → intrinsic на экспирации
             if p["Опцион"] == "Call":
@@ -1577,7 +1669,6 @@ def compute_payoff(positions, S_values, comm_func=None,
             # Нога ещё жива на момент anchor → считаем цену через БШ
             T_remaining = _months_between(anchor_date, leg_expiry)
             opt_type = "call" if p["Опцион"] == "Call" else "put"
-            # Берём vol/r/q из позиции, если сохранены
             vol_leg = float(p.get("_vol", vol_default) or vol_default)
             r_leg = float(p.get("_r", r_default) or r_default)
             q_leg = float(p.get("_q", q_default) or q_default)
@@ -1588,26 +1679,6 @@ def compute_payoff(positions, S_values, comm_func=None,
             pnl += (price_at_anchor - entry - com) * qty
 
     return pnl
-
-
-def _bs_price_np(S, K, T, r_pct, vol_pct, q_pct, opt_type):
-    """BSM-цена одного опциона, устойчивая к T<=0 / S<=0 / K<=0."""
-    if T <= 0 or S <= 0 or K <= 0 or vol_pct <= 0:
-        return max(0.0, S - K) if opt_type == "call" else max(0.0, K - S)
-    r = r_pct / 100.0
-    q = q_pct / 100.0
-    sigma = vol_pct / 100.0
-    sqrtT = math.sqrt(T)
-    try:
-        d1 = (math.log(S / K) + (r - q + sigma * sigma / 2) * T) / (sigma * sqrtT)
-        d2 = d1 - sigma * sqrtT
-        nd1 = 0.5 * (1.0 + math.erf(d1 / math.sqrt(2.0)))
-        nd2 = 0.5 * (1.0 + math.erf(d2 / math.sqrt(2.0)))
-        if opt_type == "call":
-            return S * math.exp(-q * T) * nd1 - K * math.exp(-r * T) * nd2
-        return K * math.exp(-r * T) * (1 - nd2) - S * math.exp(-q * T) * (1 - nd1)
-    except Exception:
-        return max(0.0, S - K) if opt_type == "call" else max(0.0, K - S)
 
 
 def find_breakevens(positions, price_min, price_max, n=500, comm_func=None,
@@ -1720,7 +1791,6 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
         color = "#00a651" if p["Опцион"] == "Call" else "#d32f2f"
         sign = "+" if qty > 0 else "-"
         Ks = f"{int(K)}" if float(K).is_integer() else f"{K:.2f}"
-        # Добавляем метку серии (ближняя/дальняя) для календарных спредов
         exp_marker = ""
         exp_str = p.get("Эксп.", "—")
         if exp_str and exp_str != "—":
@@ -2268,14 +2338,14 @@ with tab_calc:
 
         asset = resolve_canonical_asset_code(_raw_asset, asset_type_ui)
 
-_last_loaded = st.session_state.get("series_autoloaded_for", (None, None))
-if asset and (asset, asset_type_ui) != _last_loaded:
-    with st.spinner("Загрузка серий…"):
-        _ok = autoload_series_for(asset, asset_type_ui)
-        # Фиксируем попытку сразу — чтобы не было повторных зависаний
-        if not _ok:
-            st.session_state.series_list = []
-            st.session_state.series_autoloaded_for = (asset, asset_type_ui)
+        # 🔧 Защита от зацикливания: если уже пытались грузить — не повторяем
+        _last_loaded = st.session_state.get("series_autoloaded_for", (None, None))
+        if asset and (asset, asset_type_ui) != _last_loaded:
+            with st.spinner("Загрузка серий…"):
+                _ok = autoload_series_for(asset, asset_type_ui)
+                if not _ok:
+                    st.session_state.series_list = []
+                    st.session_state.series_autoloaded_for = (asset, asset_type_ui)
 
         if st.button("Загрузить доску опционов",
                      use_container_width=True,
@@ -2320,33 +2390,44 @@ if asset and (asset, asset_type_ui) != _last_loaded:
             except Exception as e:
                 st.warning(f"Не удалось загрузить информацию о серии: {e}")
 
-    # ---- Краткая сводка ----
+    # ---- Краткая сводка (🔧 ОБЁРНУТА В TRY/EXCEPT — не должна ломать рендер калькулятора) ----
     if st.session_state.get("board_loaded") and "selected_series_code" in st.session_state:
-        asset = st.session_state.get("selected_asset", "")
-        asset_type_ui = st.session_state.get("selected_asset_type_ui", "")
-        series_code = st.session_state.get("selected_series_code", "")
-        expiry_str = st.session_state.get("selected_expiry", "")
+        try:
+            asset = st.session_state.get("selected_asset", "")
+            asset_type_ui = st.session_state.get("selected_asset_type_ui", "")
+            series_code = st.session_state.get("selected_series_code", "")
+            expiry_str = st.session_state.get("selected_expiry", "")
 
-        st.success(f"Выбрана серия: **{asset}** ({asset_type_ui}) · "
-                   f"Экспирация **{expiry_str}** · код `{series_code}`")
+            st.success(f"Выбрана серия: **{asset}** ({asset_type_ui}) · "
+                       f"Экспирация **{expiry_str}** · код `{series_code}`")
 
-        _alert_levels = find_alert_levels(asset, category=asset_type_ui)
-        if _alert_levels["found"]:
-            st.info(f"Уровни из оповещений: "
-                    f"**покупка = {_alert_levels['buy']:.2f} ₽** · "
-                    f"**продажа = {_alert_levels['sell']:.2f} ₽**")
-            push_alert_levels(asset, _alert_levels["buy"], _alert_levels["sell"])
-        else:
-            push_alert_levels(asset, None, None)
+            _alert_levels = find_alert_levels(asset, category=asset_type_ui)
+            if _alert_levels["found"]:
+                st.info(f"Уровни из оповещений: "
+                        f"**покупка = {_alert_levels['buy']:.2f} ₽** · "
+                        f"**продажа = {_alert_levels['sell']:.2f} ₽**")
+                push_alert_levels(asset, _alert_levels["buy"], _alert_levels["sell"])
+            else:
+                push_alert_levels(asset, None, None)
 
-        if asset_type_ui == "Акция":
-            rfr = get_risk_free_rate_for_expiry(expiry_str)
-            if rfr is not None:
-                st.caption(f"Безрисковая ставка (G-кривая ОФЗ MOEX): **{rfr:.4f} %**")
-            q, stock_price, rec_date = get_dividend_yield_for_ticker(asset, expiry_str)
-            if q is not None and stock_price is not None:
-                st.caption(f"Дивидендная доходность (smart-lab.ru): "
-                           f"q = **{q:.4f}** ({q*100:.2f} %)")
+            if asset_type_ui == "Акция":
+                try:
+                    rfr = get_risk_free_rate_for_expiry(expiry_str)
+                    if rfr is not None:
+                        st.caption(f"Безрисковая ставка (G-кривая ОФЗ MOEX): "
+                                   f"**{rfr:.4f} %**")
+                except Exception:
+                    pass
+                try:
+                    q, stock_price, rec_date = get_dividend_yield_for_ticker(
+                        asset, expiry_str)
+                    if q is not None and stock_price is not None:
+                        st.caption(f"Дивидендная доходность (smart-lab.ru): "
+                                   f"q = **{q:.4f}** ({q*100:.2f} %)")
+                except Exception:
+                    pass
+        except Exception as _e:
+            st.warning(f"Не удалось загрузить сводку: {_e}")
 
     st.markdown("---")
 
@@ -2580,7 +2661,7 @@ with tab_position:
     # ============================================================
     col_ctrl, col_add = st.columns([1, 1.7], gap="medium")
 
-    # ---------- ЛЕВАЯ КОЛОНКА: параметры (2 в строке) ----------
+    # ---------- ЛЕВАЯ КОЛОНКА: параметры (2 поля в строке) ----------
     with col_ctrl:
         st.markdown("#### Параметры")
         with st.container(border=True):
@@ -2708,7 +2789,7 @@ with tab_position:
     def _cb_price_inc(key):
         st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
 
-    # ---------- ПРАВАЯ КОЛОНКА: добавление позиции ----------
+    # ---------- ПРАВАЯ КОЛОНКА: добавление позиции (2 поля в строке) ----------
     with col_add:
         st.markdown("#### Добавить позицию")
 
@@ -2720,7 +2801,7 @@ with tab_position:
         if not can_build:
             st.warning("Сначала выберите серию на вкладке «Калькулятор».")
         else:
-            # Получаем все серии инструмента (для календарных спредов)
+            # Все серии инструмента (для календарных спредов)
             _asset_now_all = st.session_state.get("selected_asset", "")
             _atype_now_all = st.session_state.get("selected_asset_type_ui", "")
             _all_series = fetch_all_series_for_asset(_asset_now_all, _atype_now_all)
@@ -2815,7 +2896,7 @@ with tab_position:
                                                value="—", disabled=True,
                                                key="form_no_exp_disp")
 
-                    # ---- Строка 2: страйк | опцион (Call/Put) ----
+                    # ---- Строка 2: страйк | опцион ----
                     _f2c1, _f2c2 = st.columns(2)
                     with _f2c1:
                         if instrument_type == "Опцион" and all_strikes:
@@ -2852,7 +2933,7 @@ with tab_position:
                         qty_input = st.number_input("Кол-во", min_value=1, value=1,
                                                      step=1, key="form_qty")
 
-                    # ---- Строка 4: цена | (инфо о тикере) ----
+                    # ---- Строка 4: цена | тикер (авто) ----
                     _f4c1, _f4c2 = st.columns(2)
                     with _f4c1:
                         ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
@@ -3016,7 +3097,6 @@ with tab_position:
                                     "selected_series_code", "")
                                 if _sel_series_code != st.session_state.get(
                                         "selected_series_code", ""):
-                                    # Загружаем доску выбранной серии
                                     try:
                                         _board_sel = fetch_optionboard(
                                             asset_now, asset_type_ui_now,
@@ -3080,7 +3160,6 @@ with tab_position:
                                         "Тета":   ref.get('theta'),
                                         "Ро":     ref.get('rho'),
                                         "visible": True,
-                                        # Сохраняем параметры для payoff:
                                         "_vol": float(ref.get('volatility') or 20.0),
                                         "_r": float(st.session_state.get(
                                             "_calc_riskfree", 0.0) or 0.0),
@@ -3167,7 +3246,6 @@ with tab_position:
 
             with row[5]:
                 _exp_disp = p.get("Эксп.", "—")
-                # Если серия не совпадает с основной — подкрасим
                 _main_exp = st.session_state.get("selected_expiry", "")
                 _exp_color = "#7c4dff" if _exp_disp not in ("—", _main_exp) else "#333"
                 st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem; "
@@ -3190,7 +3268,7 @@ with tab_position:
                 st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
                             f"{p.get('Тикер', '—')}</div>", unsafe_allow_html=True)
 
-            # ---------- Крупные кнопки + / − ----------
+            # ---------- Крупные кнопки + / − для количества ----------
             with row[8]:
                 kq = f"qty_{_id}"
                 if kq not in st.session_state:
@@ -3435,7 +3513,6 @@ with tab_position:
 
         _asset_cmp = st.session_state.get("selected_asset", "")
         _atype_cmp = st.session_state.get("selected_asset_type_ui", "")
-        _series_cmp_current = st.session_state.get("selected_series_code", "")
 
         if not _asset_cmp or not _atype_cmp:
             st.caption("Выберите актив на вкладке «Калькулятор».")
@@ -3444,7 +3521,6 @@ with tab_position:
             if len(_all_series_cmp) < 2:
                 st.info("Для сравнения нужно минимум 2 опционные серии.")
             else:
-                # Собираем уникальные страйки из портфеля
                 _strikes_in_portfolio = sorted({
                     float(p["Страйк"])
                     for p in st.session_state.positions
@@ -3460,11 +3536,8 @@ with tab_position:
                         f"IV и греков.  \nСтрочка **⭐ = текущий выбор** "
                         f"(серия открыта в портфеле).")
 
-                    # Строим таблицу сравнения
                     _cmp_rows = []
                     for _k in _strikes_in_portfolio:
-                        # Найдём первую ногу портфеля на этом страйке,
-                        # чтобы определить сторону (Call/Put) и направление
                         _leg = next((p for p in st.session_state.positions
                                      if p.get("Страйк") == _k
                                      and p.get("Опцион") in ("Call", "Put")), None)
@@ -3472,7 +3545,6 @@ with tab_position:
                             continue
                         _opt_side = _leg["Опцион"]
 
-                        # Для каждой серии — берём опцион с этим страйком
                         for _s in _all_series_cmp:
                             _scode = _s["code"]
                             _sexp = _s["expiry"]
@@ -3498,7 +3570,6 @@ with tab_position:
                             _vega = _opt_row.get("vega")
                             _theta = _opt_row.get("theta")
 
-                            # Метка — совпадает ли с текущей серией портфеля
                             _is_current = (
                                 _scode == st.session_state.get(
                                     "selected_series_code", "") or
@@ -3525,12 +3596,10 @@ with tab_position:
                         st.info("Не удалось собрать данные для сравнения.")
                     else:
                         _df_cmp = pd.DataFrame(_cmp_rows)
-                        # Сортировка по страйку и дате экспирации
                         _df_cmp = _df_cmp.sort_values(
                             ["Страйк", "Экспирация"],
                             key=lambda c: c.astype(str))
 
-                        # Стилизация: подсветить текущий выбор
                         def _style_cmp(_row):
                             _styles = []
                             _is_cur = str(_row["Страйк"]).startswith("⭐")
@@ -3558,10 +3627,9 @@ with tab_position:
                             hide_index=True,
                             height=min(60 + 35 * len(_df_cmp), 600))
 
-                        # Дополнительный анализ: самая выгодная покупка/продажа
                         st.markdown("**Рекомендация (по теоретической цене):**")
-                        _best_buy = None   # минимальная цена (выгодно купить)
-                        _best_sell = None  # максимальная цена (выгодно продать)
+                        _best_buy = None
+                        _best_sell = None
                         for _r in _cmp_rows:
                             _th = _r.get("Теор. ₽") or 0
                             if _th <= 0:
@@ -3603,7 +3671,6 @@ with tab_position:
     if not payoff_positions:
         st.caption("Нет видимых позиций для построения профиля.")
     else:
-        # Определяем общую дату расчёта (максимальная экспирация портфеля)
         _all_exp_dates = []
         for p in payoff_positions:
             _e = p.get("Эксп.", "—")
@@ -3624,7 +3691,6 @@ with tab_position:
                 f"ранней экспирацией рассчитаны как intrinsic, "
                 f"с более поздней — по Блэку-Шоулзу на эту дату.")
 
-        # Текущая рыночная цена
         F_current = st.session_state.get("_current_market_price", None)
         if F_current is None:
             try:
@@ -3672,14 +3738,12 @@ with tab_position:
             S_arr = np.linspace(s_min, s_max, 500)
 
             def _payoff_at_expiry(S_vals, positions_subset):
-                # Используем compute_payoff с anchor — учитывает разные экспирации
                 return compute_payoff(
                     positions_subset, S_vals,
                     comm_func=_calc_comm,
                     anchor_expiry=_anchor_str)
 
             def _payoff_today(S_vals, positions_subset, T_years):
-                """P&L на текущую дату (T_years — до anchor)."""
                 S_vals = np.asarray(S_vals, dtype=float)
                 pnl_arr = np.zeros_like(S_vals)
                 if T_years <= 0:
