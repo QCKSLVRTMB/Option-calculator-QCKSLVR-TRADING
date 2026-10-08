@@ -35,8 +35,7 @@ st.markdown("""
 
 # ================= MOEX API =================
 API_BASE_URL = "https://iss.moex.com/iss/apps/option-calc/v1"
-SECURITIES_URL = ("https://iss.moex.com/iss/engines/futures/markets/options/"
-                  "securities.json?iss.meta=off")
+# SECURITIES_URL больше не нужен (см. get_asset_code_and_type)
 
 ASSET_TYPE_MAP = {
     'Фьючерс': 'futures', 'Акция': 'share', 'Валюта': 'currency',
@@ -1256,29 +1255,21 @@ def autoload_series_for(asset: str, asset_type_ui: str):
 # ================= MOEX API: опционы =================
 @st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
+    """Мгновенная канонизация без тяжёлого запроса к SECURITIES_URL.
+
+    Для фьючерсов/валют/товаров код = root-код (RI, MX, GAZR, Si…).
+    Для акций код = тикер (SBER, GAZP).
+    Для индексов — маппинг RTS→RTSI, MIX→IMOEX.
+    """
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
-    if moex_type != 'futures':
-        if _is_failed_recently("sec_list", cooldown_sec=30):
-            return code_to_fetch, moex_type
-        data = iss_get_json(SECURITIES_URL, timeout=20)
-        if data is None:
-            _mark_failed("sec_list", cooldown_sec=30)
-            return code_to_fetch, moex_type
-        try:
-            securities = data.get('securities', {}).get('data', [])
-            columns = data.get('securities', {}).get('columns', [])
-            assetcode_idx = columns.index('ASSETCODE') if 'ASSETCODE' in columns else -1
-            underlying_idx = columns.index('UNDERLYINGASSET') if 'UNDERLYINGASSET' in columns else -1
-            type_idx = columns.index('UNDERLYINGTYPE') if 'UNDERLYINGTYPE' in columns else -1
-            if assetcode_idx != -1 and underlying_idx != -1 and type_idx != -1:
-                for row in securities:
-                    if row[assetcode_idx] == asset_input:
-                        if row[type_idx] != 'F':
-                            code_to_fetch = row[underlying_idx]
-                        break
-        except Exception:
-            pass
+
+    if asset_type_ui == "Индекс":
+        idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
+        code_to_fetch = idx_map.get(asset_input.upper(), asset_input.upper())
+    elif asset_type_ui == "Акция":
+        code_to_fetch = asset_input.upper()
+
     return code_to_fetch, moex_type
 
 
@@ -2161,7 +2152,8 @@ with tab_calc:
 
         _last_loaded = st.session_state.get("series_autoloaded_for", (None, None))
         if asset and (asset, asset_type_ui) != _last_loaded:
-            autoload_series_for(asset, asset_type_ui)
+            with st.spinner("Загрузка серий…"):
+                autoload_series_for(asset, asset_type_ui)
 
         if st.button("Загрузить доску опционов",
                      use_container_width=True,
@@ -2485,40 +2477,41 @@ with tab_calc:
 # ============ ВКЛАДКА 2: ПОЗИЦИЯ ==================================
 # ==================================================================
 with tab_position:
+   with tab_position:
     st.header("Управление позицией")
 
-    # ============== КОМПАКТНАЯ ПАНЕЛЬ УПРАВЛЕНИЯ ==============
-    with st.container(border=True):
-        cc = st.columns([1.1, 0.75, 0.85, 0.9, 0.85, 0.85, 0.9])
-        with cc[0]:
+    # ============================================================
+    # ДВЕ КОЛОНКИ: слева — панель, справа — форма добавления
+    # ============================================================
+    col_ctrl, col_add = st.columns([1, 1.7], gap="medium")
+
+    # ---------- ЛЕВАЯ КОЛОНКА: параметры капитала и комиссий ----------
+    with col_ctrl:
+        st.markdown("#### Параметры")
+        with st.container(border=True):
             deposit = st.number_input("Депозит, ₽", min_value=0.0, value=100000.0,
                                        step=100.0, format="%.0f", key="dep_inp")
-        with cc[1]:
             risk_pct = st.number_input("Риск, %", min_value=0.1, max_value=100.0,
-                                        value=1.0, step=0.1, format="%.1f", key="rp_inp")
-        with cc[2]:
+                                        value=1.0, step=0.1, format="%.1f",
+                                        key="rp_inp")
+
+            st.markdown("**Комиссии**")
             comm_options_pct = st.number_input(
-                "Опц. %", min_value=0.0, max_value=20.0, value=3.0,
-                step=0.1, format="%.2f", key="cop_inp",
-                help="Комиссия опционов, % от премии")
-        with cc[3]:
+                "Опционы, % от премии", min_value=0.0, max_value=20.0, value=3.0,
+                step=0.1, format="%.2f", key="cop_inp")
             min_comm_options = st.number_input(
-                "Мин. опц., ₽", min_value=0.0, max_value=100.0, value=0.02,
-                step=0.01, format="%.4f", key="cmo_inp",
-                help="Минимальная комиссия за контракт")
-        with cc[4]:
+                "Мин. опц., ₽/контракт", min_value=0.0, max_value=100.0, value=0.02,
+                step=0.01, format="%.4f", key="cmo_inp")
             comm_futures_pct = st.number_input(
-                "Фьюч. %", min_value=0.0, max_value=5.0, value=0.1,
-                step=0.01, format="%.3f", key="cfp_inp",
-                help="Комиссия фьючерсов, % от стоимости")
-        with cc[5]:
+                "Фьючерсы, % от стоимости", min_value=0.0, max_value=5.0, value=0.1,
+                step=0.01, format="%.3f", key="cfp_inp")
             comm_stocks_pct = st.number_input(
-                "Акц. %", min_value=0.0, max_value=5.0, value=0.3,
-                step=0.01, format="%.3f", key="csp_inp",
-                help="Комиссия акций, % от стоимости")
-        with cc[6]:
-            with st.popover("📥 CSV", use_container_width=True):
-                st.markdown("**Импорт портфеля**")
+                "Акции/ETF, % от стоимости", min_value=0.0, max_value=5.0, value=0.3,
+                step=0.01, format="%.3f", key="csp_inp")
+
+            st.markdown("---")
+            with st.popover("📥 Импорт портфеля (CSV)", use_container_width=True):
+                st.markdown("**Загрузить CSV**")
                 _pf_file = st.file_uploader("CSV файл", type=["csv"],
                                               key="pf_csv_inp",
                                               label_visibility="collapsed")
@@ -2569,6 +2562,7 @@ with tab_position:
         st.caption(f"💰 Доступно для сделки: **{risk_amount:,.2f} ₽** "
                    f"({risk_pct}% от {deposit:,.0f} ₽)")
 
+    # ---------- Внутренние утилиты (нужны форме и таблице) ----------
     def _calc_comm(premium, instr_type="Опцион"):
         return calc_commission(premium, instrument_type=instr_type,
                                min_comm_options=min_comm_options,
@@ -2594,7 +2588,6 @@ with tab_position:
         return K * math.exp(-r * T) * _norm_cdf_py(-d2) \
                - S * math.exp(-q * T) * _norm_cdf_py(-d1)
 
-    # ---------- Колбэки для кнопок +/− ----------
     def _cb_qty_dec(key):
         st.session_state[key] = int(st.session_state.get(key, 1)) - 1
 
@@ -2607,351 +2600,378 @@ with tab_position:
     def _cb_price_inc(key):
         st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
 
-    # ---------- ДОБАВИТЬ ПОЗИЦИЮ ----------
-    st.markdown("### Добавить позицию")
+    # ---------- ПРАВАЯ КОЛОНКА: добавление позиции ----------
+    with col_add:
+        st.markdown("#### Добавить позицию")
 
-    if "positions" not in st.session_state:
-        st.session_state.positions = []
+        if "positions" not in st.session_state:
+            st.session_state.positions = []
 
-    can_build = (st.session_state.get("series_list")
-                 and "selected_series_code" in st.session_state)
-    if not can_build:
-        st.warning("Сначала выберите серию на вкладке «Калькулятор».")
-    else:
-        try:
-            board = fetch_optionboard(
-                st.session_state.get("selected_asset", ""),
-                st.session_state.get("selected_asset_type_ui", ""),
-                st.session_state.get("selected_series_code", ""))
-        except Exception as e:
-            st.error(f"Не удалось загрузить доску: {e}")
-            board = None
+        can_build = (st.session_state.get("series_list")
+                     and "selected_series_code" in st.session_state)
+        if not can_build:
+            st.warning("Сначала выберите серию на вкладке «Калькулятор».")
+        else:
+            try:
+                board = fetch_optionboard(
+                    st.session_state.get("selected_asset", ""),
+                    st.session_state.get("selected_asset_type_ui", ""),
+                    st.session_state.get("selected_series_code", ""))
+            except Exception as e:
+                st.error(f"Не удалось загрузить доску: {e}")
+                board = None
 
-        if board:
-            calls = board.get('call') or []
-            puts = board.get('put') or []
-            central = board.get('central_strike')
-            c_map = {c['strike']: c for c in calls if c.get('strike') is not None}
-            p_map = {p['strike']: p for p in puts if p.get('strike') is not None}
-            all_strikes = sorted(set(c_map.keys()) | set(p_map.keys()))
-            expiry_now = st.session_state.get("selected_expiry", "—")
-            asset_type_ui_now = st.session_state.get("selected_asset_type_ui", "Фьючерс")
-            asset_now = st.session_state.get("selected_asset", "")
+            if board:
+                calls = board.get('call') or []
+                puts = board.get('put') or []
+                central = board.get('central_strike')
+                c_map = {c['strike']: c for c in calls if c.get('strike') is not None}
+                p_map = {p['strike']: p for p in puts if p.get('strike') is not None}
+                all_strikes = sorted(set(c_map.keys()) | set(p_map.keys()))
+                expiry_now = st.session_state.get("selected_expiry", "—")
+                asset_type_ui_now = st.session_state.get("selected_asset_type_ui", "Фьючерс")
+                asset_now = st.session_state.get("selected_asset", "")
 
-            with st.form("add_position_form", clear_on_submit=False):
-                f1, f2, f3, f4 = st.columns([2, 2, 2, 1.6])
-
-                with f1:
-                    _instr_options = ["Опцион"]
-                    if asset_type_ui_now in ("Фьючерс", "Валюта", "Товар"):
-                        _instr_options.append("Фьючерс")
-                    elif asset_type_ui_now == "Акция":
-                        _instr_options.append("Акция")
-                    else:
-                        _instr_options.append("Индекс")
-                    instrument_type = st.selectbox("Тип инструмента",
-                                                    _instr_options,
-                                                    key="form_instrument_type")
-
-                # ---- Дата исполнения (типо-зависимая) ----
-                with f2:
-                    st.markdown("<div style='font-size:.72rem; font-weight:700; "
-                                "color:#2c506d; margin-bottom:6px;'>Дата исполнения</div>",
-                                unsafe_allow_html=True)
-
-                    if instrument_type == "Фьючерс":
-                        _contracts = fetch_futures_contracts_list(asset_now)
-                        if _contracts:
-                            _contract_labels = [f"{c['expiration']} — {c['secid']}"
-                                                for c in _contracts]
-                            _chosen = st.selectbox("Контракт", _contract_labels,
-                                                    index=0, key="form_futures_contract",
-                                                    label_visibility="collapsed")
-                            _chosen_contract = _contracts[_contract_labels.index(_chosen)]
-                            expiry_now_form = _chosen_contract["expiration"]
-                            _futures_secid_form = _chosen_contract["secid"]
+                with st.form("add_position_form", clear_on_submit=False):
+                    f1, f2 = st.columns([2, 2])
+                    with f1:
+                        _instr_options = ["Опцион"]
+                        if asset_type_ui_now in ("Фьючерс", "Валюта", "Товар"):
+                            _instr_options.append("Фьючерс")
+                        elif asset_type_ui_now == "Акция":
+                            _instr_options.append("Акция")
                         else:
-                            expiry_now_form = expiry_now
-                            _futures_secid_form = asset_now
-                            st.markdown(f"<div style='padding:8px 14px; border:1px solid "
-                                        f"#cfdfe9; border-radius:18px; background:#fff;'>"
-                                        f"{expiry_now}</div>", unsafe_allow_html=True)
-                    elif instrument_type == "Опцион":
-                        expiry_now_form = expiry_now
-                        _futures_secid_form = None
-                        st.markdown(f"<div style='padding:8px 14px; border:1px solid "
-                                    f"#cfdfe9; border-radius:18px; background:#fff; "
-                                    f"font-size:.9rem;'>{expiry_now}</div>",
-                                    unsafe_allow_html=True)
-                    else:  # Акция / Индекс
-                        expiry_now_form = "—"
-                        _futures_secid_form = None
-                        st.markdown("<div style='padding:8px 14px; border:1px solid "
-                                    "#cfdfe9; border-radius:18px; background:#f5f5f5; "
-                                    "color:#999;'>—</div>", unsafe_allow_html=True)
-
-                with f3:
-                    if instrument_type == "Опцион" and all_strikes:
-                        default_idx = 0
-                        if central is not None:
-                            try:
-                                default_idx = all_strikes.index(
-                                    min(all_strikes,
-                                        key=lambda s: abs(float(s) - float(central))))
-                            except ValueError:
-                                default_idx = 0
-                        chosen_strike = st.selectbox("Страйк", all_strikes,
-                                                      index=default_idx,
-                                                      key="form_strike")
-                    else:
-                        chosen_strike = None
-                        st.markdown("<div style='font-size:.72rem; font-weight:700; "
-                                    "color:#2c506d; margin-bottom:6px;'>Страйк</div>",
-                                    unsafe_allow_html=True)
-                        st.markdown("<div style='padding:8px 14px; border:1px solid "
-                                    "#cfdfe9; border-radius:18px; background:#f5f5f5; "
-                                    "color:#999;'>—</div>", unsafe_allow_html=True)
-
-                with f4:
-                    if instrument_type == "Опцион":
-                        opt_type = st.selectbox("Опцион", ["Call", "Put"],
-                                                 key="form_opt_type")
-                    else:
-                        opt_type = "—"
-                        st.markdown("<div style='font-size:.72rem; font-weight:700; "
-                                    "color:#2c506d; margin-bottom:6px;'>Опцион</div>",
-                                    unsafe_allow_html=True)
-                        st.markdown("<div style='padding:8px 14px; border:1px solid "
-                                    "#cfdfe9; border-radius:18px; background:#f5f5f5; "
-                                    "color:#999;'>—</div>", unsafe_allow_html=True)
-
-                f5, f6, f7 = st.columns([2.4, 1.4, 1.2])
-                with f5:
-                    if instrument_type == "Опцион" and chosen_strike is not None:
-                        ref_opt_for_ticker = (c_map.get(chosen_strike, {})
-                                              if opt_type == "Call"
-                                              else p_map.get(chosen_strike, {}))
-                        ticker_val = ref_opt_for_ticker.get('secid', '—')
-                    elif instrument_type == "Фьючерс" and _futures_secid_form:
-                        ticker_val = _futures_secid_form
-                    else:
-                        ticker_val = resolve_underlying_secid(asset_now,
-                                                              asset_type_ui_now) or '—'
-                    st.markdown("<div style='font-size:.72rem; font-weight:700; "
-                                "color:#2c506d; margin-bottom:6px;'>Тикер</div>",
-                                unsafe_allow_html=True)
-                    st.markdown(f"<div style='padding:8px 14px; border:1px solid "
-                                f"#cfdfe9; border-radius:18px; background:#f9fbfd; "
-                                f"font-size:.9rem;'>{ticker_val}</div>",
-                                unsafe_allow_html=True)
-                with f6:
-                    side = st.selectbox("Направление", ["Buy", "Sell"],
-                                         key="form_side")
-                with f7:
-                    qty_input = st.number_input("Кол-во", min_value=1, value=1,
-                                                 step=1, key="form_qty")
-
-                # ---- Чекбокс "Взять цену из оповещений" с ценами Call/Put ----
-                _alert_lv = find_alert_levels(asset_now, category=asset_type_ui_now)
-                _alerts_available = _alert_lv.get("found", False)
-
-                if _alerts_available:
-                    _buy_lvl = _alert_lv["buy"]
-                    _sell_lvl = _alert_lv["sell"]
-
-                    def _nearest_strike(level, strikes_list):
-                        if level is None or not strikes_list:
-                            return None
-                        return min(strikes_list,
-                                    key=lambda s: abs(float(s) - float(level)))
-
-                    def _opt_price(K, opt_type_chk):
-                        if K is None:
-                            return None
-                        src = c_map if opt_type_chk == "Call" else p_map
-                        row = src.get(K, {})
-                        v = row.get('theorprice')
-                        if v is None or v <= 0:
-                            v = row.get('last')
-                        return float(v) if v and v > 0 else None
-
-                    _K_buy = _nearest_strike(_buy_lvl, all_strikes)
-                    _K_sell = _nearest_strike(_sell_lvl, all_strikes)
-                    _buy_c = _opt_price(_K_buy, "Call")
-                    _buy_p = _opt_price(_K_buy, "Put")
-                    _sell_c = _opt_price(_K_sell, "Call")
-                    _sell_p = _opt_price(_K_sell, "Put")
-
-                    def _fmt_price(v):
-                        return f"{v:.2f} ₽" if v is not None else "—"
-
-                    _K_buy_s = f"{int(_K_buy)}" if _K_buy is not None else "—"
-                    _K_sell_s = f"{int(_K_sell)}" if _K_sell is not None else "—"
-
-                    st.markdown(
-                        f"<div style='background:#eef6fb; border-radius:10px; "
-                        f"padding:8px 14px; font-size:.82rem; color:#1c5a7a; "
-                        f"margin:6px 0;'>"
-                        f"<b>Уровень покупок {_buy_lvl:.2f} ₽</b> "
-                        f"(страйк {_K_buy_s}): "
-                        f"<span style='color:#00a651;font-weight:700;'>"
-                        f"Call = {_fmt_price(_buy_c)}</span> · "
-                        f"<span style='color:#d32f2f;font-weight:700;'>"
-                        f"Put = {_fmt_price(_buy_p)}</span>"
-                        f"<br>"
-                        f"<b>Уровень продаж {_sell_lvl:.2f} ₽</b> "
-                        f"(страйк {_K_sell_s}): "
-                        f"<span style='color:#00a651;font-weight:700;'>"
-                        f"Call = {_fmt_price(_sell_c)}</span> · "
-                        f"<span style='color:#d32f2f;font-weight:700;'>"
-                        f"Put = {_fmt_price(_sell_p)}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True)
-
-                    use_alert_price = st.checkbox(
-                        "🎯 Взять цену из оповещений (перебить введённое значение)",
-                        value=False, key="form_use_alert_price",
-                        help="Цена Call/Put подставляется со страйка, ближайшего к уровню.")
-                else:
-                    use_alert_price = False
-                    st.caption("🎯 Уровни из оповещений не найдены — "
-                               "проверьте Google Sheets на вкладке «Оповещения».")
-
-                # ---- Цена ----
-                ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
-                           else p_map.get(chosen_strike, {})) \
-                          if chosen_strike is not None else {}
-                _qs_last = st.session_state.get("quick_und_last_price", 0.0)
-                default_price = (float(_qs_last)
-                                 if instrument_type != "Опцион" and _qs_last
-                                 else (float(ref_opt.get('theorprice') or 0)
-                                       or float(ref_opt.get('last') or 0) or 0.0))
-                price_input = st.number_input("Цена, ₽", min_value=0.0,
-                                               value=float(default_price),
-                                               step=0.01, format="%.4f",
-                                               key="form_price")
-
-                submitted = st.form_submit_button("➕ Добавить позицию",
-                                                  type="primary",
-                                                  use_container_width=True)
-
-                if submitted:
-                    if instrument_type == "Фьючерс":
-                        _und_secid = _futures_secid_form or asset_now
-                        _fut_info = fetch_futures_info_iss(_und_secid) or {}
-                        _last_price = _fut_info.get("last")
-                        _fut_exp = _fut_info.get("expiration") or expiry_now_form
-                        final_price = float(price_input) if price_input > 0 else (
-                            float(_last_price) if _last_price else 0.0)
-                        if final_price > 0:
-                            signed_qty = int(qty_input) if side == "Buy" else -int(qty_input)
-                            _pos = {
-                                "_id": _new_position_id(),
-                                "Конструкция": "Без названия",
-                                "Тип инструмента": "Фьючерс",
-                                "Опцион": "БА",
-                                "Направление": side,
-                                "Страйк": None,
-                                "Эксп.": _fut_exp,
-                                "Тикер": _und_secid,
-                                "Кол-во": signed_qty,
-                                "Цена": float(final_price),
-                                "Теор.цена": float(_last_price) if _last_price else float(final_price),
-                                "Дельта": None, "Гамма": None, "Вега": None,
-                                "Тета": None, "Ро": None, "visible": True,
-                            }
-                            _pos = apply_parity_delta(_pos)
-                            st.session_state.positions.append(_pos)
-                            st.rerun()
-                        else:
-                            st.error("Не удалось определить цену фьючерса.")
-
-                    elif instrument_type in ("Акция", "Индекс"):
-                        _und_secid = resolve_underlying_secid(asset_now, asset_type_ui_now)
-                        _ba_info = fetch_ba_iss_info(_und_secid, asset_type_ui_now) or {}
-                        _last_price = _ba_info.get("last")
-                        final_price = float(price_input) if price_input > 0 else (
-                            float(_last_price) if _last_price else 0.0)
-                        if final_price > 0:
-                            signed_qty = int(qty_input) if side == "Buy" else -int(qty_input)
-                            _pos = {
-                                "_id": _new_position_id(),
-                                "Конструкция": "Без названия",
-                                "Тип инструмента": instrument_type,
-                                "Опцион": "БА",
-                                "Направление": side,
-                                "Страйк": None,
-                                "Эксп.": "—",
-                                "Тикер": _und_secid or '—',
-                                "Кол-во": signed_qty,
-                                "Цена": float(final_price),
-                                "Теор.цена": float(_last_price) if _last_price else float(final_price),
-                                "Дельта": None, "Гамма": None, "Вега": None,
-                                "Тета": None, "Ро": None, "visible": True,
-                            }
-                            _pos = apply_parity_delta(_pos)
-                            st.session_state.positions.append(_pos)
-                            st.rerun()
-                        else:
-                            st.error("Не удалось определить цену БА.")
-
-                    else:  # Опцион
-                        if chosen_strike is None:
-                            st.error("Укажите страйк.")
-                        else:
-                            ref = c_map.get(chosen_strike, {}) if opt_type == "Call" \
-                                  else p_map.get(chosen_strike, {})
-                            final_pos_price = None
-                            _src_label = ""
-
-                            if use_alert_price:
-                                _lvl = None
-                                if opt_type == "Call":
-                                    _lvl = _buy_lvl if side == "Buy" else _sell_lvl
-                                else:
-                                    _lvl = _sell_lvl if side == "Buy" else _buy_lvl
-                                _K_alert = _nearest_strike(_lvl, all_strikes)
-                                _auto_p = _opt_price(_K_alert, opt_type)
-                                if _auto_p is not None:
-                                    final_pos_price = float(_auto_p)
-                                    _src_label = f" (K={int(_K_alert)}, из оповещений)"
-
-                            if final_pos_price is None:
-                                final_pos_price = float(price_input)
-
-                            if final_pos_price <= 0:
-                                st.error("Укажите цену > 0 или включите "
-                                         "«Взять цену из оповещений».")
+                            _instr_options.append("Индекс")
+                        instrument_type = st.selectbox("Тип инструмента",
+                                                        _instr_options,
+                                                        key="form_instrument_type")
+                    with f2:
+                        st.markdown(
+                            "<div style='font-size:.72rem; font-weight:700; "
+                            "color:#2c506d; margin-bottom:6px;'>"
+                            "Дата исполнения</div>",
+                            unsafe_allow_html=True)
+                        if instrument_type == "Фьючерс":
+                            _contracts = fetch_futures_contracts_list(asset_now)
+                            if _contracts:
+                                _contract_labels = [
+                                    f"{c['expiration']} — {c['secid']}"
+                                    for c in _contracts
+                                ]
+                                _chosen = st.selectbox(
+                                    "Контракт", _contract_labels, index=0,
+                                    key="form_futures_contract",
+                                    label_visibility="collapsed")
+                                _chosen_contract = _contracts[
+                                    _contract_labels.index(_chosen)]
+                                expiry_now_form = _chosen_contract["expiration"]
+                                _futures_secid_form = _chosen_contract["secid"]
                             else:
-                                signed_qty = int(qty_input) if side == "Buy" else -int(qty_input)
-                                st.session_state.positions.append({
+                                expiry_now_form = expiry_now
+                                _futures_secid_form = asset_now
+                                st.markdown(
+                                    f"<div style='padding:8px 14px; border:1px solid "
+                                    f"#cfdfe9; border-radius:18px; background:#fff;'>"
+                                    f"{expiry_now}</div>",
+                                    unsafe_allow_html=True)
+                        elif instrument_type == "Опцион":
+                            expiry_now_form = expiry_now
+                            _futures_secid_form = None
+                            st.markdown(
+                                f"<div style='padding:8px 14px; border:1px solid "
+                                f"#cfdfe9; border-radius:18px; background:#fff; "
+                                f"font-size:.9rem;'>{expiry_now}</div>",
+                                unsafe_allow_html=True)
+                        else:
+                            expiry_now_form = "—"
+                            _futures_secid_form = None
+                            st.markdown(
+                                "<div style='padding:8px 14px; border:1px solid "
+                                "#cfdfe9; border-radius:18px; background:#f5f5f5; "
+                                "color:#999;'>—</div>",
+                                unsafe_allow_html=True)
+
+                    f3, f4 = st.columns([2, 1.6])
+                    with f3:
+                        if instrument_type == "Опцион" and all_strikes:
+                            default_idx = 0
+                            if central is not None:
+                                try:
+                                    default_idx = all_strikes.index(
+                                        min(all_strikes,
+                                            key=lambda s: abs(float(s) - float(central))))
+                                except ValueError:
+                                    default_idx = 0
+                            chosen_strike = st.selectbox("Страйк", all_strikes,
+                                                          index=default_idx,
+                                                          key="form_strike")
+                        else:
+                            chosen_strike = None
+                            st.markdown(
+                                "<div style='font-size:.72rem; font-weight:700; "
+                                "color:#2c506d; margin-bottom:6px;'>Страйк</div>",
+                                unsafe_allow_html=True)
+                            st.markdown(
+                                "<div style='padding:8px 14px; border:1px solid "
+                                "#cfdfe9; border-radius:18px; background:#f5f5f5; "
+                                "color:#999;'>—</div>",
+                                unsafe_allow_html=True)
+                    with f4:
+                        if instrument_type == "Опцион":
+                            opt_type = st.selectbox("Опцион", ["Call", "Put"],
+                                                     key="form_opt_type")
+                        else:
+                            opt_type = "—"
+                            st.markdown(
+                                "<div style='font-size:.72rem; font-weight:700; "
+                                "color:#2c506d; margin-bottom:6px;'>Опцион</div>",
+                                unsafe_allow_html=True)
+                            st.markdown(
+                                "<div style='padding:8px 14px; border:1px solid "
+                                "#cfdfe9; border-radius:18px; background:#f5f5f5; "
+                                "color:#999;'>—</div>",
+                                unsafe_allow_html=True)
+
+                    f5, f6, f7 = st.columns([2, 1.2, 1])
+                    with f5:
+                        if instrument_type == "Опцион" and chosen_strike is not None:
+                            ref_opt_for_ticker = (c_map.get(chosen_strike, {})
+                                                  if opt_type == "Call"
+                                                  else p_map.get(chosen_strike, {}))
+                            ticker_val = ref_opt_for_ticker.get('secid', '—')
+                        elif instrument_type == "Фьючерс" and _futures_secid_form:
+                            ticker_val = _futures_secid_form
+                        else:
+                            ticker_val = resolve_underlying_secid(
+                                asset_now, asset_type_ui_now) or '—'
+                        st.markdown(
+                            "<div style='font-size:.72rem; font-weight:700; "
+                            "color:#2c506d; margin-bottom:6px;'>Тикер</div>",
+                            unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div style='padding:8px 14px; border:1px solid "
+                            f"#cfdfe9; border-radius:18px; background:#f9fbfd; "
+                            f"font-size:.9rem;'>{ticker_val}</div>",
+                            unsafe_allow_html=True)
+                    with f6:
+                        side = st.selectbox("Направление", ["Buy", "Sell"],
+                                             key="form_side")
+                    with f7:
+                        qty_input = st.number_input("Кол-во", min_value=1, value=1,
+                                                     step=1, key="form_qty")
+
+                    _alert_lv = find_alert_levels(asset_now, category=asset_type_ui_now)
+                    _alerts_available = _alert_lv.get("found", False)
+
+                    if _alerts_available:
+                        _buy_lvl = _alert_lv["buy"]
+                        _sell_lvl = _alert_lv["sell"]
+
+                        def _nearest_strike(level, strikes_list):
+                            if level is None or not strikes_list:
+                                return None
+                            return min(strikes_list,
+                                        key=lambda s: abs(float(s) - float(level)))
+
+                        def _opt_price(K, opt_type_chk):
+                            if K is None:
+                                return None
+                            src = c_map if opt_type_chk == "Call" else p_map
+                            row = src.get(K, {})
+                            v = row.get('theorprice')
+                            if v is None or v <= 0:
+                                v = row.get('last')
+                            return float(v) if v and v > 0 else None
+
+                        _K_buy = _nearest_strike(_buy_lvl, all_strikes)
+                        _K_sell = _nearest_strike(_sell_lvl, all_strikes)
+                        _buy_c = _opt_price(_K_buy, "Call")
+                        _buy_p = _opt_price(_K_buy, "Put")
+                        _sell_c = _opt_price(_K_sell, "Call")
+                        _sell_p = _opt_price(_K_sell, "Put")
+
+                        def _fmt_price(v):
+                            return f"{v:.2f} ₽" if v is not None else "—"
+
+                        _K_buy_s = f"{int(_K_buy)}" if _K_buy is not None else "—"
+                        _K_sell_s = f"{int(_K_sell)}" if _K_sell is not None else "—"
+
+                        st.markdown(
+                            f"<div style='background:#eef6fb; border-radius:10px; "
+                            f"padding:8px 14px; font-size:.82rem; color:#1c5a7a; "
+                            f"margin:6px 0;'>"
+                            f"<b>Уровень покупок {_buy_lvl:.2f} ₽</b> "
+                            f"(страйк {_K_buy_s}): "
+                            f"<span style='color:#00a651;font-weight:700;'>"
+                            f"Call = {_fmt_price(_buy_c)}</span> · "
+                            f"<span style='color:#d32f2f;font-weight:700;'>"
+                            f"Put = {_fmt_price(_buy_p)}</span>"
+                            f"<br>"
+                            f"<b>Уровень продаж {_sell_lvl:.2f} ₽</b> "
+                            f"(страйк {_K_sell_s}): "
+                            f"<span style='color:#00a651;font-weight:700;'>"
+                            f"Call = {_fmt_price(_sell_c)}</span> · "
+                            f"<span style='color:#d32f2f;font-weight:700;'>"
+                            f"Put = {_fmt_price(_sell_p)}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True)
+
+                        use_alert_price = st.checkbox(
+                            "🎯 Взять цену из оповещений (перебить введённое значение)",
+                            value=False, key="form_use_alert_price",
+                            help="Цена Call/Put подставляется со страйка, "
+                                 "ближайшего к уровню.")
+                    else:
+                        use_alert_price = False
+                        st.caption("🎯 Уровни из оповещений не найдены — "
+                                   "проверьте Google Sheets / Excel.")
+
+                    ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
+                               else p_map.get(chosen_strike, {})) \
+                              if chosen_strike is not None else {}
+                    _qs_last = st.session_state.get("quick_und_last_price", 0.0)
+                    default_price = (float(_qs_last)
+                                     if instrument_type != "Опцион" and _qs_last
+                                     else (float(ref_opt.get('theorprice') or 0)
+                                           or float(ref_opt.get('last') or 0) or 0.0))
+                    price_input = st.number_input("Цена, ₽", min_value=0.0,
+                                                   value=float(default_price),
+                                                   step=0.01, format="%.4f",
+                                                   key="form_price")
+
+                    submitted = st.form_submit_button("➕ Добавить позицию",
+                                                      type="primary",
+                                                      use_container_width=True)
+
+                    if submitted:
+                        if instrument_type == "Фьючерс":
+                            _und_secid = _futures_secid_form or asset_now
+                            _fut_info = fetch_futures_info_iss(_und_secid) or {}
+                            _last_price = _fut_info.get("last")
+                            _fut_exp = _fut_info.get("expiration") or expiry_now_form
+                            final_price = float(price_input) if price_input > 0 else (
+                                float(_last_price) if _last_price else 0.0)
+                            if final_price > 0:
+                                signed_qty = int(qty_input) if side == "Buy" \
+                                             else -int(qty_input)
+                                _pos = {
                                     "_id": _new_position_id(),
                                     "Конструкция": "Без названия",
-                                    "Тип инструмента": "Опцион",
-                                    "Опцион": opt_type,
+                                    "Тип инструмента": "Фьючерс",
+                                    "Опцион": "БА",
                                     "Направление": side,
-                                    "Страйк": chosen_strike,
-                                    "Эксп.": expiry_now,
-                                    "Тикер": ref.get('secid', '—'),
+                                    "Страйк": None,
+                                    "Эксп.": _fut_exp,
+                                    "Тикер": _und_secid,
                                     "Кол-во": signed_qty,
-                                    "Цена": float(final_pos_price),
-                                    "Теор.цена": float(ref.get('theorprice') or 0),
-                                    "Дельта": ref.get('delta'),
-                                    "Гамма":  ref.get('gamma'),
-                                    "Вега":   ref.get('vega'),
-                                    "Тета":   ref.get('theta'),
-                                    "Ро":     ref.get('rho'),
-                                    "visible": True,
-                                })
-                                st.success(f"Добавлено: {side} {opt_type} "
-                                           f"{chosen_strike} × {qty_input}{_src_label} "
-                                           f"по {final_pos_price:.4f} ₽")
+                                    "Цена": float(final_price),
+                                    "Теор.цена": float(_last_price) if _last_price
+                                                 else float(final_price),
+                                    "Дельта": None, "Гамма": None, "Вега": None,
+                                    "Тета": None, "Ро": None, "visible": True,
+                                }
+                                _pos = apply_parity_delta(_pos)
+                                st.session_state.positions.append(_pos)
                                 st.rerun()
+                            else:
+                                st.error("Не удалось определить цену фьючерса.")
+
+                        elif instrument_type in ("Акция", "Индекс"):
+                            _und_secid = resolve_underlying_secid(asset_now,
+                                                                  asset_type_ui_now)
+                            _ba_info = fetch_ba_iss_info(_und_secid,
+                                                         asset_type_ui_now) or {}
+                            _last_price = _ba_info.get("last")
+                            final_price = float(price_input) if price_input > 0 else (
+                                float(_last_price) if _last_price else 0.0)
+                            if final_price > 0:
+                                signed_qty = int(qty_input) if side == "Buy" \
+                                             else -int(qty_input)
+                                _pos = {
+                                    "_id": _new_position_id(),
+                                    "Конструкция": "Без названия",
+                                    "Тип инструмента": instrument_type,
+                                    "Опцион": "БА",
+                                    "Направление": side,
+                                    "Страйк": None,
+                                    "Эксп.": "—",
+                                    "Тикер": _und_secid or '—',
+                                    "Кол-во": signed_qty,
+                                    "Цена": float(final_price),
+                                    "Теор.цена": float(_last_price) if _last_price
+                                                 else float(final_price),
+                                    "Дельта": None, "Гамма": None, "Вега": None,
+                                    "Тета": None, "Ро": None, "visible": True,
+                                }
+                                _pos = apply_parity_delta(_pos)
+                                st.session_state.positions.append(_pos)
+                                st.rerun()
+                            else:
+                                st.error("Не удалось определить цену БА.")
+
+                        else:  # Опцион
+                            if chosen_strike is None:
+                                st.error("Укажите страйк.")
+                            else:
+                                ref = c_map.get(chosen_strike, {}) \
+                                      if opt_type == "Call" \
+                                      else p_map.get(chosen_strike, {})
+                                final_pos_price = None
+                                _src_label = ""
+
+                                if use_alert_price:
+                                    _lvl = None
+                                    if opt_type == "Call":
+                                        _lvl = _buy_lvl if side == "Buy" else _sell_lvl
+                                    else:
+                                        _lvl = _sell_lvl if side == "Buy" else _buy_lvl
+                                    _K_alert = _nearest_strike(_lvl, all_strikes)
+                                    _auto_p = _opt_price(_K_alert, opt_type)
+                                    if _auto_p is not None:
+                                        final_pos_price = float(_auto_p)
+                                        _src_label = (f" (K={int(_K_alert)}, "
+                                                      f"из оповещений)")
+
+                                if final_pos_price is None:
+                                    final_pos_price = float(price_input)
+
+                                if final_pos_price <= 0:
+                                    st.error("Укажите цену > 0 или включите "
+                                             "«Взять цену из оповещений».")
+                                else:
+                                    signed_qty = int(qty_input) if side == "Buy" \
+                                                 else -int(qty_input)
+                                    st.session_state.positions.append({
+                                        "_id": _new_position_id(),
+                                        "Конструкция": "Без названия",
+                                        "Тип инструмента": "Опцион",
+                                        "Опцион": opt_type,
+                                        "Направление": side,
+                                        "Страйк": chosen_strike,
+                                        "Эксп.": expiry_now,
+                                        "Тикер": ref.get('secid', '—'),
+                                        "Кол-во": signed_qty,
+                                        "Цена": float(final_pos_price),
+                                        "Теор.цена": float(ref.get('theorprice') or 0),
+                                        "Дельта": ref.get('delta'),
+                                        "Гамма":  ref.get('gamma'),
+                                        "Вега":   ref.get('vega'),
+                                        "Тета":   ref.get('theta'),
+                                        "Ро":     ref.get('rho'),
+                                        "visible": True,
+                                    })
+                                    st.success(f"Добавлено: {side} {opt_type} "
+                                               f"{chosen_strike} × {qty_input}"
+                                               f"{_src_label} "
+                                               f"по {final_pos_price:.4f} ₽")
+                                    st.rerun()
 
     # ==================================================================
-    # ТЕКУЩИЕ ПОЗИЦИИ
+    # ТЕКУЩИЕ ПОЗИЦИИ (полная ширина)
     # ==================================================================
+    st.markdown("---")
     st.markdown("### Текущие позиции")
+    # ...дальше всё как было (таблица, итоги, определение конструкции, риск, экспорт, payoff-график)
 
     if not st.session_state.positions:
         st.caption("Портфель пуст.")
