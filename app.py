@@ -113,6 +113,19 @@ MOEX_INSTRUMENTS = {
         "SVCB":     ("Акция", "Совкомбанк"),
     },
     "Фьючерсы": {
+        # === Индексы ===
+        "RTS":      ("Фьючерс", "Индекс РТС (фьючерс)"),
+        "MIX":      ("Фьючерс", "Индекс МосБиржи (фьючерс)"),
+        "RVI":      ("Фьючерс", "Индекс волатильности RVI (фьючерс)"),
+        "RGBI":     ("Фьючерс", "Индекс RGBI (фьючерс)"),
+        "MOEXCNY":  ("Фьючерс", "Индекс МосБиржи в юанях (фьючерс)"),
+        "MXI":      ("Фьючерс", "Индекс МосБиржи мини (фьючерс)"),
+        "RTSM":     ("Фьючерс", "Индекс РТС мини (фьючерс)"),
+        "MMI":      ("Фьючерс", "Индекс металлов и добычи (фьючерс)"),
+        "FNI":      ("Фьючерс", "Индекс финансов (фьючерс)"),
+        "OGI":      ("Фьючерс", "Индекс нефти и газа (фьючерс)"),
+
+        # === Акции ===
         "GAZR":     ("Фьючерс", "Газпром (фьючерс)"),
         "SBRF":     ("Фьючерс", "Сбербанк о.с. (фьючерс)"),
         "SBPR":     ("Фьючерс", "Сбербанк п.с. (фьючерс)"),
@@ -152,6 +165,39 @@ MOEX_INSTRUMENTS = {
         "KMAZ":     ("Фьючерс", "КАМАЗ (фьючерс)"),
         "ASTR":     ("Фьючерс", "Группа Астра (фьючерс)"),
         "SVCB":     ("Фьючерс", "Совкомбанк (фьючерс)"),
+
+        # === Валюты ===
+        "Si":       ("Фьючерс", "Доллар США / Рубль (фьючерс)"),
+        "Eu":       ("Фьючерс", "Евро / Рубль (фьючерс)"),
+        "CNY":      ("Фьючерс", "Юань / Рубль (фьючерс)"),
+        "ED":       ("Фьючерс", "Евро / Доллар (фьючерс)"),
+        "TRY":      ("Фьючерс", "Турецкая лира / Рубль (фьючерс)"),
+        "HKD":      ("Фьючерс", "Гонконгский доллар / Рубль (фьючерс)"),
+        "AED":      ("Фьючерс", "Дирхам ОАЭ / Рубль (фьючерс)"),
+        "KZT":      ("Фьючерс", "Казахстанский тенге / Рубль (фьючерс)"),
+        "AMD":      ("Фьючерс", "Армянский драм / Рубль (фьючерс)"),
+        "BYN":      ("Фьючерс", "Белорусский рубль / Рубль (фьючерс)"),
+        "AUDU":     ("Фьючерс", "Австралийский доллар / Доллар (фьючерс)"),
+        "GBPU":     ("Фьючерс", "Фунт стерлингов / Доллар (фьючерс)"),
+        "UCAD":     ("Фьючерс", "Доллар / Канадский доллар (фьючерс)"),
+        "UCHF":     ("Фьючерс", "Доллар / Швейцарский франк (фьючерс)"),
+        "UJPY":     ("Фьючерс", "Доллар / Японская йена (фьючерс)"),
+        "UCNY":     ("Фьючерс", "Доллар / Юань (фьючерс)"),
+
+        # === Товары ===
+        "BR":       ("Фьючерс", "Нефть Brent (фьючерс)"),
+        "CL":       ("Фьючерс", "Нефть Light Sweet (фьючерс)"),
+        "GOLD":     ("Фьючерс", "Золото (фьючерс)"),
+        "SILV":     ("Фьючерс", "Серебро (фьючерс)"),
+        "PLD":      ("Фьючерс", "Палладий (фьючерс)"),
+        "PLT":      ("Фьючерс", "Платина (фьючерс)"),
+        "ALMN":     ("Фьючерс", "Алюминий (фьючерс)"),
+        "Co":       ("Фьючерс", "Медь (фьючерс)"),
+        "Nl":       ("Фьючерс", "Никель (фьючерс)"),
+        "Zn":       ("Фьючерс", "Цинк (фьючерс)"),
+        "NG":       ("Фьючерс", "Природный газ (фьючерс)"),
+        "WHEAT":    ("Фьючерс", "Пшеница (фьючерс)"),
+        "SUGR":     ("Фьючерс", "Сахар (фьючерс)"),
     },
     "Валюты": {
         "Si":       ("Валюта", "Доллар США / Рубль"),
@@ -636,8 +682,7 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
 
        Пример:
          resolve_canonical_asset_code("gazp", "Акция")   → "GAZP"
-         resolve_canonical_asset_code("gazp", "Фьючерс") → "GAZP" (нет в фьючерсах)
-         resolve_canonical_asset_code("gazr", "Фьючерс") → "GAZR"
+         resolve_canonical_asset_code("rts",  "Фьючерс") → "RTS"
          resolve_canonical_asset_code("si",   "Валюта")  → "Si"
     """
     if not user_input:
@@ -654,11 +699,9 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
         for code in items.keys():
             if code.upper() == s_upper:
                 return code
-        # не нашли в этой категории — возвращаем UPPER как есть
-        # (это может быть кастомный код, например «GAZR» введён вручную)
         return s_upper
 
-    # 2. Fallback: поиск по всем категориям (без указания категории)
+    # 2. Fallback: поиск по всем категориям
     for cat_items in MOEX_INSTRUMENTS.values():
         for code in cat_items.keys():
             if code.upper() == s_upper:
@@ -667,32 +710,18 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
 
 
 def suggest_futures_code_for_stock(stock_code: str) -> str:
-    """Подсказка: если пользователь ввёл код акции, но хочет фьючерс —
-       возвращаем соответствующий фьючерсный код (если есть)."""
+    """Подсказка: если пользователь ввёл код акции, но хочет фьючерс."""
     if not stock_code:
         return ""
     s_upper = stock_code.strip().upper()
     futures_items = MOEX_INSTRUMENTS.get("Фьючерсы", {})
-    # Прямое совпадение
     for code in futures_items.keys():
         if code.upper() == s_upper:
             return code
-    # Обратный маппинг через описание (Газпром → GAZR)
     for code, (_, name) in futures_items.items():
         if s_upper in name.upper():
             return code
     return ""
-    """Регистронезависимый поиск канонического кода: 'si' → 'Si'."""
-    if not user_input:
-        return user_input
-    s = user_input.strip()
-    if not s:
-        return s
-    for cat_items in MOEX_INSTRUMENTS.values():
-        for code in cat_items.keys():
-            if code.upper() == s.upper():
-                return code
-    return s.upper()
 
 
 # ================= Комиссии =================
@@ -1227,16 +1256,16 @@ def autoload_series_for(asset: str, asset_type_ui: str):
 
 
 # ================= MOEX API: опционы =================
-@st.cache_data(ttl=600, show_spinner=False)   # 🔧 1800 → 600 (10 минут)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
     if moex_type != 'futures':
-        if _is_failed_recently("sec_list", cooldown_sec=30):   # 🔧 120 → 30
+        if _is_failed_recently("sec_list", cooldown_sec=30):
             return code_to_fetch, moex_type
         data = iss_get_json(SECURITIES_URL, timeout=20)
         if data is None:
-            _mark_failed("sec_list", cooldown_sec=30)          # 🔧 120 → 30
+            _mark_failed("sec_list", cooldown_sec=30)
             return code_to_fetch, moex_type
         try:
             securities = data.get('securities', {}).get('data', [])
@@ -1500,7 +1529,8 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
                           comm_func=None):
     """Биржевой график с overlay:
        - OHLC-бары (чёрные) + объёмы,
-       - горизонтальные линии страйков с подписями по центру,
+       - ЛЕВАЯ ось Y — страйки (все, с шагом из доски),
+       - ПРАВАЯ ось Y — цена БА (автоматический шаг),
        - уровни покупок/продаж с пометками вида +2C 270 / -4P 92500,
        - текущая рыночная цена БА,
        - точки безубыточности с меткой «БУ <цена>»,
@@ -1514,15 +1544,17 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
 
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True,
-        vertical_spacing=0.04, row_heights=[0.78, 0.22])
+        vertical_spacing=0.04, row_heights=[0.78, 0.22],
+        specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
 
-    # OHLC — чёрные
+    # OHLC — чёрные (основная ось — левая, где страйки)
     fig.add_trace(
         go.Ohlc(x=df["begin"], open=df["open"], high=df["high"],
                 low=df["low"], close=df["close"],
                 increasing_line_color="black",
                 decreasing_line_color="black",
-                name="Цена", showlegend=False), row=1, col=1)
+                name="Цена", showlegend=False),
+        row=1, col=1, secondary_y=False)
 
     # Объёмы — чёрные, отдельная панель
     fig.add_trace(
@@ -1557,7 +1589,8 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
     else:
         be_points = []
 
-    # ---- Страйки (только попадающие в диапазон цен) ----
+    # ---- Страйки: только те, что попадают в диапазон цен графика ----
+    visible_strikes = []
     if strikes:
         visible_strikes = sorted(
             float(s) for s in strikes
@@ -1566,15 +1599,8 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
             fig.add_hline(y=K,
                           line=dict(color="#9c00ff", width=1, dash="dot"),
                           opacity=0.45, row=1, col=1)
-            _k_txt = f"{int(K)}" if float(K).is_integer() else f"{K:.2f}"
-            fig.add_annotation(
-                x=0.5, y=K, xref="paper", yref="y",
-                text=_k_txt, showarrow=False,
-                font=dict(size=9, color="#7f9bb3"),
-                bgcolor="rgba(255,255,255,0.78)",
-                row=1, col=1)
 
-    # ---- Пометки позиций ----
+    # ---- Пометки позиций (для уровней покупок/продаж) ----
     buy_markers = []
     sell_markers = []
     for p in (positions or []):
@@ -1653,23 +1679,64 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
             bordercolor="#00a651", borderwidth=1,
             yshift=10, row=1, col=1)
 
+    # ---- Служебный невидимый трейс для активации ПРАВОЙ оси Y ----
+    fig.add_trace(
+        go.Scatter(
+            x=[df["begin"].iloc[0], df["begin"].iloc[-1]],
+            y=[price_min, price_max],
+            mode="lines",
+            line=dict(width=0),
+            opacity=0,
+            showlegend=False,
+            hoverinfo="skip",
+            name="_right_axis"),
+        row=1, col=1, secondary_y=True)
+
     fig.update_layout(
         title=title, height=520,
         margin=dict(l=20, r=20, t=50, b=20),
         plot_bgcolor="white", paper_bgcolor="white",
         hovermode="x unified", showlegend=False)
 
-    # Кроссхэйр
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-                     side="left", row=1, col=1,
-                     showspikes=True, spikemode='across', spikesnap='cursor',
-                     spikecolor='#888888', spikethickness=1, spikedash='dot')
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-                     side="left", row=2, col=1,
-                     showspikes=True, spikemode='across', spikesnap='cursor',
-                     spikecolor='#888888', spikethickness=1, spikedash='dot')
+    # ============================================================
+    # ЛЕВАЯ ось: страйки (все, что в диапазоне цен)
+    # ============================================================
+    if visible_strikes:
+        _strike_vals = [float(k) for k in visible_strikes]
+        _strike_text = [
+            f"{int(k)}" if float(k).is_integer() else f"{k:.2f}"
+            for k in _strike_vals
+        ]
+    else:
+        _strike_vals = None
+        _strike_text = None
 
-    # 🔧 Диапазон X + отступ 15 баров справа
+    fig.update_yaxes(
+        showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+        side="left", row=1, col=1,
+        tickmode="array" if _strike_vals else "auto",
+        tickvals=_strike_vals if _strike_vals else None,
+        ticktext=_strike_text if _strike_text else None,
+        tickfont=dict(size=10, color="#9c00ff"),
+        showspikes=True, spikemode='across', spikesnap='cursor',
+        spikecolor='#888888', spikethickness=1, spikedash='dot')
+
+    fig.update_yaxes(
+        showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+        side="left", row=2, col=1,
+        showspikes=True, spikemode='across', spikesnap='cursor',
+        spikecolor='#888888', spikethickness=1, spikedash='dot')
+
+    # ============================================================
+    # ПРАВАЯ ось: цены с автоматическим шагом
+    # ============================================================
+    fig.update_yaxes(
+        side="right", row=1, col=1, secondary_y=True,
+        showgrid=False, zeroline=False,
+        tickfont=dict(size=10, color="#1a3b4f"),
+        showspikes=False, title=None)
+
+    # ---- Диапазон X + отступ 15 баров справа ----
     _x_min_val = df["begin"].min()
     _x_max_val = df["begin"].max()
     if pd.notna(_x_min_val) and pd.notna(_x_max_val):
@@ -2107,7 +2174,6 @@ with tab_calc:
                     st.session_state.series_list = _series_loaded
                     st.session_state.series_autoloaded_for = (asset, asset_type_ui)
                     if not _series_loaded:
-                        # 🔧 Диагностика: серий нет
                         _atype_hint = ASSET_TYPE_MAP.get(asset_type_ui, '—')
                         st.warning(
                             f"⚠ ISS не вернул ни одной серии для "
@@ -3214,7 +3280,7 @@ with tab_position:
     if not payoff_positions:
         st.caption("Нет видимых позиций для построения профиля.")
     else:
-        # 🔧 Текущая цена = CLOSE последнего бара D1 (та же, что в шапке и на графиках)
+        # 🔧 Текущая цена = CLOSE последнего бара D1
         F_current = st.session_state.get("_current_market_price", None)
         if F_current is None:
             try:
@@ -3735,7 +3801,7 @@ with tab_alerts:
     if "alerts_df" not in st.session_state:
         st.session_state.alerts_df = None
     if "alerts_source" not in st.session_state:
-        st.session_state.alerts_source = "—"  # Google Sheets / Excel / —
+        st.session_state.alerts_source = "—"
     if "alerts_loaded_at" not in st.session_state:
         st.session_state.alerts_loaded_at = None
     if "alerts_error" not in st.session_state:
@@ -3749,7 +3815,7 @@ with tab_alerts:
     _ctrl1, _ctrl2, _ctrl3, _ctrl4 = st.columns([1, 1, 1.4, 1.6])
 
     with _ctrl1:
-        if st.button("Обновить", use_container_width=True,
+        if st.button("🔄 Обновить", use_container_width=True,
                      type="primary", key="alerts_manual_refresh"):
             st.session_state.sheet_cache_buster += 1
             st.session_state.alerts_loaded_at = None
