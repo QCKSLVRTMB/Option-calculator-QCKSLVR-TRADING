@@ -673,14 +673,32 @@ def _mark_failed(key: str, cooldown_sec: int = 60):
     _FAILED_UNTIL[key] = time.time() + cooldown_sec
 
 
+# ================= Алиасы: индекс → код фьючерса =================
+# ISS option-calc ждёт для фьючерсов на индексы именно root-код фьючерса:
+# RI (РТС), MX (МосБиржа), VI (RVI), RB (RGBI), CR (MOEXCNY) и т.д.
+_FUTURES_CODE_ALIASES = {
+    "RTS":     "RI",
+    "MIX":     "MX",
+    "RVI":     "VI",
+    "RGBI":    "RB",
+    "MOEXCNY": "CR",
+    "MXI":     "MX",
+    "RTSM":    "RM",
+    "MMI":     "MM",
+    "FNI":     "FN",
+    "OGI":     "OG",
+}
+
+
 # ================= Канонизация тикера =================
 def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> str:
-    """Регистронезависимый поиск канонического кода С УЧЁТОМ КАТЕГОРИИ.
+    """Регистронезависимый поиск канонического кода с учётом категории.
 
-       Пример:
-         resolve_canonical_asset_code("gazp", "Акция")   → "GAZP"
-         resolve_canonical_asset_code("rts",  "Фьючерс") → "RTS"
-         resolve_canonical_asset_code("si",   "Валюта")  → "Si"
+    Примеры:
+      resolve_canonical_asset_code("gazp", "Акция")    → "GAZP"
+      resolve_canonical_asset_code("rts",  "Фьючерс")  → "RI"
+      resolve_canonical_asset_code("ri",   "Фьючерс")  → "RI"
+      resolve_canonical_asset_code("si",   "Валюта")   → "Si"
     """
     if not user_input:
         return user_input
@@ -690,7 +708,12 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
 
     s_upper = s.upper()
 
-    # 1. Если категория указана и есть в справочнике — ищем ТОЛЬКО в ней
+    # 0. Фьючерс на индекс: пользователь мог ввести код ИНДЕКСА (RTS/MIX/…),
+    #    но ISS хочет root-код ФЬЮЧЕРСА (RI/MX/…).
+    if asset_type_ui == "Фьючерс" and s_upper in _FUTURES_CODE_ALIASES:
+        return _FUTURES_CODE_ALIASES[s_upper]
+
+    # 1. Если категория указана — ищем ТОЛЬКО в ней.
     if asset_type_ui and asset_type_ui in MOEX_INSTRUMENTS:
         items = MOEX_INSTRUMENTS[asset_type_ui]
         for code in items.keys():
@@ -698,13 +721,12 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
                 return code
         return s_upper
 
-    # 2. Fallback: поиск по всем категориям
+    # 2. Fallback: поиск по всем категориям.
     for cat_items in MOEX_INSTRUMENTS.values():
         for code in cat_items.keys():
             if code.upper() == s_upper:
                 return code
     return s_upper
-
 
 def suggest_futures_code_for_stock(stock_code: str) -> str:
     """Подсказка: если пользователь ввёл код акции, но хочет фьючерс."""
