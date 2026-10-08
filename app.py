@@ -755,8 +755,11 @@ def _mark_failed(key: str, cooldown_sec: int = 60):
 
 
 # ================= Фьючерсы на индексы =================
-# ISS option-calc для фьючерсов на индексы ждёт код ИНДЕКСА + asset_type="index"
-# (а НЕ root-код фьючерса и НЕ asset_type="futures").
+# Для фьючерсов на индексы ISS ждёт код ИНДЕКСА (RTS, MIX, RVI, RGBI, MOEXCNY)
+# и СТАНДАРТНЫЙ asset_type="futures".
+# Проверено:
+#   GET /assets/RTS/optionseries?asset_type=futures → 8 серий ✅
+#   первый элемент: {"optionseries_code":"RTS-12.26M081026XA","asset_type":"futures",...}
 _INDEX_FUTURES_CODES = {
     "RTS", "MIX", "RVI", "RGBI", "MOEXCNY",
     "MMI", "FNI", "OGI", "MXI", "RTSM",
@@ -1335,9 +1338,19 @@ def autoload_series_for(asset: str, asset_type_ui: str):
 
 
 # ================= MOEX API: опционы =================
-# 🔧 ИСПРАВЛЕНО: для фьючерсов на индексы asset_type="index"
 @st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
+    """Канонизация без тяжёлых запросов.
+
+    • Акции: код = тикер (SBER, GAZP), asset_type = "share".
+    • Фьючерсы (на акции, индексы, валюты, товары):
+      код = root (RTS, GAZR, Si), asset_type = "futures".
+    • Индексы: код = RTSI / IMOEX, asset_type = "index".
+
+    Проверено на ISS:
+      GET /assets/RTS/optionseries?asset_type=futures → 8 серий ✅
+      GET /assets/SBER/optionseries?asset_type=share  → 20 серий ✅
+    """
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
     s_upper = asset_input.strip().upper()
@@ -1347,10 +1360,8 @@ def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
         code_to_fetch = idx_map.get(s_upper, s_upper)
     elif asset_type_ui == "Акция":
         code_to_fetch = s_upper
-    elif asset_type_ui == "Фьючерс" and s_upper in _INDEX_FUTURES_CODES:
-        # Фьючерс на индекс — ISS option-calc хочет asset_type="index"
-        code_to_fetch = s_upper
-        moex_type = "index"
+    # Фьючерсы (включая фьючерсы на индексы) — код как введён + asset_type="futures".
+    # Ничего не делаем дополнительно.
 
     return code_to_fetch, moex_type
 
