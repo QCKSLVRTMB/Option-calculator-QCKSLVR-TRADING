@@ -133,68 +133,6 @@ MOEX_INSTRUMENTS = {
     },
 }
 
-TV_TICKER_MAP = {
-    "Акция": {"GAZP": "MOEX:GAZP", "SBER": "MOEX:SBER", "SBERP": "MOEX:SBERP",
-              "LKOH": "MOEX:LKOH", "ROSN": "MOEX:ROSN", "NOTK": "MOEX:NOTK",
-              "TATN": "MOEX:TATN", "TATNP": "MOEX:TATNP", "SNGSP": "MOEX:SNGSP",
-              "MTSS": "MOEX:MTSS", "MGNT": "MOEX:MGNT", "GMKN": "MOEX:GMKN",
-              "NLMK": "MOEX:NLMK", "CHMF": "MOEX:CHMF", "ALRS": "MOEX:ALRS",
-              "VTBR": "MOEX:VTBR", "MOEX": "MOEX:MOEX", "AFKS": "MOEX:AFKS",
-              "IRAO": "MOEX:IRAO", "HYDR": "MOEX:HYDR", "RTKM": "MOEX:RTKM",
-              "PLZL": "MOEX:PLZL", "MAGN": "MOEX:MAGN", "YDEX": "MOEX:YDEX",
-              "PHOR": "MOEX:PHOR", "RUAL": "MOEX:RUAL", "FEES": "MOEX:FEES",
-              "TRNFP": "MOEX:TRNFP", "AFLT": "MOEX:AFLT", "SIBN": "MOEX:SIBN",
-              "PIKK": "MOEX:PIKK", "FLOT": "MOEX:FLOT", "CBOM": "MOEX:CBOM",
-              "SGZH": "MOEX:SGZH", "BSPB": "MOEX:BSPB", "KMAZ": "MOEX:KMAZ",
-              "ASTR": "MOEX:ASTR", "SVCB": "MOEX:SVCB"},
-    "Фьючерс": {"GAZR": "MOEX:GZ1!", "GZ": "MOEX:GZ1!", "SBRF": "MOEX:SR1!",
-                "SR": "MOEX:SR1!", "SBPR": "MOEX:SP1!", "SP": "MOEX:SP1!",
-                "LKOH": "MOEX:LK1!", "LK": "MOEX:LK1!", "ROSN": "MOEX:RN1!",
-                "RN": "MOEX:RN1!", "NOTK": "MOEX:NK1!", "NK": "MOEX:NK1!",
-                "TATN": "MOEX:TT1!", "TT": "MOEX:TT1!", "SNGR": "MOEX:SN1!",
-                "SN": "MOEX:SN1!", "MTSS": "MOEX:MT1!", "MT": "MOEX:MT1!",
-                "MGNT": "MOEX:MG1!", "MG": "MOEX:MG1!", "GMKN": "MOEX:GM1!",
-                "GK": "MOEX:GM1!", "NLMK": "MOEX:NM1!", "NM": "MOEX:NM1!",
-                "CHMF": "MOEX:CH1!", "CH": "MOEX:CH1!", "ALRS": "MOEX:AL1!",
-                "AL": "MOEX:AL1!", "VTBR": "MOEX:VB1!", "VB": "MOEX:VB1!",
-                "MOEX": "MOEX:ME1!", "ME": "MOEX:ME1!", "AFKS": "MOEX:AK1!",
-                "AK": "MOEX:AK1!", "IRAO": "MOEX:IR1!", "IR": "MOEX:IR1!",
-                "HYDR": "MOEX:HY1!", "HY": "MOEX:HY1!", "RTKM": "MOEX:RT1!",
-                "RT": "MOEX:RT1!", "PLZL": "MOEX:PL1!", "PL": "MOEX:PL1!",
-                "MAGN": "MOEX:MM1!", "YDEX": "MOEX:YD1!", "YD": "MOEX:YD1!",
-                "PHOR": "MOEX:PH1!", "PH": "MOEX:PH1!", "RUAL": "MOEX:RL1!",
-                "RL": "MOEX:RL1!", "FEES": "MOEX:FS1!", "FS": "MOEX:FS1!",
-                "TRNF": "MOEX:TN1!", "TN": "MOEX:TN1!", "AFLT": "MOEX:AF1!",
-                "AF": "MOEX:AF1!", "PIKK": "MOEX:PI1!", "PI": "MOEX:PI1!",
-                "FLOT": "MOEX:FL1!", "FL": "MOEX:FL1!", "KMAZ": "MOEX:KM1!",
-                "KM": "MOEX:KM1!", "ASTR": "MOEX:AS1!", "AS": "MOEX:AS1!",
-                "SVCB": "MOEX:SC1!", "SC": "MOEX:SC1!", "RTS": "MOEX:RI1!",
-                "RI": "MOEX:RI1!", "MIX": "MOEX:MIX1!", "RVI": "MOEX:VI1!",
-                "VI": "MOEX:VI1!", "RGBI": "MOEX:RB1!", "RB": "MOEX:RB1!",
-                "MOEXCNY": "MOEX:CR1!", "Si": "MOEX:SI1!", "Eu": "MOEX:EU1!",
-                "CNY": "MOEX:CR1!", "CR": "MOEX:CR1!", "TRY": "MOEX:TRY1!",
-                "BR": "MOEX:BR1!", "GOLD": "MOEX:GD1!", "GD": "MOEX:GD1!",
-                "SILV": "MOEX:SV1!", "SV": "MOEX:SV1!", "NG": "MOEX:NG1!",
-                "CL": "MOEX:CL1!"},
-    "Индекс": {"RTS": "MOEX:RI1!", "RI": "MOEX:RI1!", "MIX": "MOEX:MIX1!",
-               "RVI": "MOEX:VI1!", "VI": "MOEX:VI1!", "RGBI": "MOEX:RB1!",
-               "RB": "MOEX:RB1!", "MOEXCNY": "MOEX:CR1!", "CR": "MOEX:CR1!",
-               "MXI": "MOEX:MIX1!", "RTSM": "MOEX:RTSM1!", "MMI": "MOEX:MMI1!",
-               "FNI": "MOEX:FNI1!", "OGI": "MOEX:OGI1!"},
-    "Валюта": {"Si": "MOEX:SI1!", "Eu": "MOEX:EU1!", "CNY": "MOEX:CR1!",
-               "CR": "MOEX:CR1!", "TRY": "MOEX:TRY1!", "HKD": "MOEX:HKD1!",
-               "AED": "MOEX:AED1!", "KZT": "MOEX:KZT1!", "AMD": "MOEX:AMD1!",
-               "BYN": "MOEX:BYN1!", "ED": "MOEX:ED1!", "AUDU": "MOEX:AUDU1!",
-               "GBPU": "MOEX:GBPU1!", "UCAD": "MOEX:UCAD1!", "UCHF": "MOEX:UCHF1!",
-               "UJPY": "MOEX:UJPY1!", "UCNY": "MOEX:UCNY1!"},
-    "Товар": {"BR": "MOEX:BR1!", "CL": "MOEX:CL1!", "GOLD": "MOEX:GD1!",
-              "GD": "MOEX:GD1!", "SILV": "MOEX:SV1!", "SV": "MOEX:SV1!",
-              "PLD": "MOEX:PD1!", "PD": "MOEX:PD1!", "PLT": "MOEX:PT1!",
-              "PT": "MOEX:PT1!", "ALMN": "MOEX:ALMN1!", "Co": "MOEX:CO1!",
-              "Nl": "MOEX:NI1!", "Zn": "MOEX:ZN1!", "NG": "MOEX:NG1!",
-              "WHEAT": "MOEX:WHEAT1!", "SUGR": "MOEX:SUGR1!"},
-}
-
 # ================= Тикеры TradingView =================
 TV_TICKER_MAP = {
     "Акция": {
@@ -720,20 +658,12 @@ def _mark_failed(key: str, cooldown_sec: int = 60):
     _FAILED_UNTIL[key] = time.time() + cooldown_sec
 
 
-# ================= Алиасы: индекс → код фьючерса =================
-# ISS option-calc для фьючерсов на индексы ждёт root-код фьючерса:
-# RI (РТС), MX (МосБиржа), VI (RVI), RB (RGBI), CR (MOEXCNY) и т.д.
-_FUTURES_CODE_ALIASES = {
-    "RTS":     "RI",
-    "MIX":     "MX",
-    "RVI":     "VI",
-    "RGBI":    "RB",
-    "MOEXCNY": "CR",
-    "MXI":     "MX",
-    "RTSM":    "RM",
-    "MMI":     "MM",
-    "FNI":     "FN",
-    "OGI":     "OG",
+# ================= Фьючерсы на индексы =================
+# ISS option-calc для фьючерсов на индексы ждёт код ИНДЕКСА + asset_type="index"
+# (а НЕ root-код фьючерса и НЕ asset_type="futures").
+_INDEX_FUTURES_CODES = {
+    "RTS", "MIX", "RVI", "RGBI", "MOEXCNY",
+    "MMI", "FNI", "OGI", "MXI", "RTSM",
 }
 
 
@@ -743,8 +673,7 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
 
     Примеры:
       resolve_canonical_asset_code("gazp", "Акция")    → "GAZP"
-      resolve_canonical_asset_code("rts",  "Фьючерс")  → "RI"
-      resolve_canonical_asset_code("ri",   "Фьючерс")  → "RI"
+      resolve_canonical_asset_code("rts",  "Фьючерс")  → "RTS"
       resolve_canonical_asset_code("si",   "Валюта")   → "Si"
     """
     if not user_input:
@@ -755,17 +684,15 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
 
     s_upper = s.upper()
 
-    # 0. Фьючерс на индекс: пользователь мог ввести код ИНДЕКСА (RTS/MIX/…),
-    #    но ISS хочет root-код ФЬЮЧЕРСА (RI/MX/…).
-    if asset_type_ui == "Фьючерс" and s_upper in _FUTURES_CODE_ALIASES:
-        return _FUTURES_CODE_ALIASES[s_upper]
-
     # 1. Если категория указана — ищем ТОЛЬКО в ней.
     if asset_type_ui and asset_type_ui in MOEX_INSTRUMENTS:
         items = MOEX_INSTRUMENTS[asset_type_ui]
         for code in items.keys():
             if code.upper() == s_upper:
                 return code
+        # Фьючерсы на индексы: код = код индекса (RTS, MIX, RVI, RGBI, MOEXCNY)
+        if asset_type_ui == "Фьючерс" and s_upper in _INDEX_FUTURES_CODES:
+            return s_upper
         return s_upper
 
     # 2. Fallback: поиск по всем категориям.
@@ -1317,14 +1244,28 @@ def autoload_series_for(asset: str, asset_type_ui: str):
 # ================= MOEX API: опционы =================
 @st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
+    """Канонизация без тяжёлых запросов.
+
+    Важно:
+    • Акции: код = тикер (SBER, GAZP), asset_type = "share".
+    • Фьючерсы на акции: код = root (GAZR, SBRF, LKOH), asset_type = "futures".
+    • Фьючерсы на ИНДЕКСЫ: код = код индекса (RTS, MIX, RVI, RGBI, MOEXCNY),
+      asset_type = "index"  ← ГЛАВНОЕ отличие!
+    • Индексы: код = RTSI / IMOEX, asset_type = "index".
+    """
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
+    s_upper = asset_input.strip().upper()
 
     if asset_type_ui == "Индекс":
         idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
-        code_to_fetch = idx_map.get(asset_input.upper(), asset_input.upper())
+        code_to_fetch = idx_map.get(s_upper, s_upper)
     elif asset_type_ui == "Акция":
-        code_to_fetch = asset_input.upper()
+        code_to_fetch = s_upper
+    elif asset_type_ui == "Фьючерс" and s_upper in _INDEX_FUTURES_CODES:
+        # Фьючерс на индекс — ISS option-calc хочет asset_type="index"
+        code_to_fetch = s_upper
+        moex_type = "index"
 
     return code_to_fetch, moex_type
 
@@ -2327,10 +2268,14 @@ with tab_calc:
 
         asset = resolve_canonical_asset_code(_raw_asset, asset_type_ui)
 
-        _last_loaded = st.session_state.get("series_autoloaded_for", (None, None))
-        if asset and (asset, asset_type_ui) != _last_loaded:
-            with st.spinner("Загрузка серий…"):
-                autoload_series_for(asset, asset_type_ui)
+_last_loaded = st.session_state.get("series_autoloaded_for", (None, None))
+if asset and (asset, asset_type_ui) != _last_loaded:
+    with st.spinner("Загрузка серий…"):
+        _ok = autoload_series_for(asset, asset_type_ui)
+        # Фиксируем попытку сразу — чтобы не было повторных зависаний
+        if not _ok:
+            st.session_state.series_list = []
+            st.session_state.series_autoloaded_for = (asset, asset_type_ui)
 
         if st.button("Загрузить доску опционов",
                      use_container_width=True,
