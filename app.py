@@ -801,18 +801,20 @@ def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
 
 
 # ================= G-кривая ОФЗ =================
-@st.cache_data(ttl=600, show_spinner=False)   # 🔧 1800 → 600
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_g_curve_params():
-    if _is_failed_recently("g_curve", cooldown_sec=30):   # 🔧 120 → 30
+    if _is_failed_recently("g_curve", cooldown_sec=30):
         return None
     url = "https://iss.moex.com/iss/engines/stock/zcyc/securities.json"
     data = iss_get_json(url, timeout=15)
     if data is None:
-        _mark_failed("g_curve", cooldown_sec=30)          # 🔧 120 → 30
+        _mark_failed("g_curve", cooldown_sec=30)
         return None
-    ...
+    params = data.get('params', {})
+    columns = params.get('columns', [])
+    values = params.get('data', [])
     if not columns or not values:
-        _mark_failed("g_curve", cooldown_sec=30)          # 🔧 120 → 30
+        _mark_failed("g_curve", cooldown_sec=30)
         return None
     df = pd.DataFrame(values, columns=columns)
     row = df.iloc[0]
