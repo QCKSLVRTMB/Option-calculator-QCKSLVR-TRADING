@@ -23,9 +23,9 @@ st.set_page_config(
 )
 
 # 🔧 Однократный сброс кэша при старте сессии
-if "cache_cleared_v3" not in st.session_state:
+if "cache_cleared_v4" not in st.session_state:
     st.cache_data.clear()
-    st.session_state["cache_cleared_v3"] = True
+    st.session_state["cache_cleared_v4"] = True
 
 st.markdown("""
 <style>
@@ -631,7 +631,57 @@ def _mark_failed(key: str, cooldown_sec: int = 60):
 
 
 # ================= Канонизация тикера =================
-def resolve_canonical_asset_code(user_input: str) -> str:
+def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> str:
+    """Регистронезависимый поиск канонического кода С УЧЁТОМ КАТЕГОРИИ.
+
+       Пример:
+         resolve_canonical_asset_code("gazp", "Акция")   → "GAZP"
+         resolve_canonical_asset_code("gazp", "Фьючерс") → "GAZP" (нет в фьючерсах)
+         resolve_canonical_asset_code("gazr", "Фьючерс") → "GAZR"
+         resolve_canonical_asset_code("si",   "Валюта")  → "Si"
+    """
+    if not user_input:
+        return user_input
+    s = user_input.strip()
+    if not s:
+        return s
+
+    s_upper = s.upper()
+
+    # 1. Если категория указана и есть в справочнике — ищем ТОЛЬКО в ней
+    if asset_type_ui and asset_type_ui in MOEX_INSTRUMENTS:
+        items = MOEX_INSTRUMENTS[asset_type_ui]
+        for code in items.keys():
+            if code.upper() == s_upper:
+                return code
+        # не нашли в этой категории — возвращаем UPPER как есть
+        # (это может быть кастомный код, например «GAZR» введён вручную)
+        return s_upper
+
+    # 2. Fallback: поиск по всем категориям (без указания категории)
+    for cat_items in MOEX_INSTRUMENTS.values():
+        for code in cat_items.keys():
+            if code.upper() == s_upper:
+                return code
+    return s_upper
+
+
+def suggest_futures_code_for_stock(stock_code: str) -> str:
+    """Подсказка: если пользователь ввёл код акции, но хочет фьючерс —
+       возвращаем соответствующий фьючерсный код (если есть)."""
+    if not stock_code:
+        return ""
+    s_upper = stock_code.strip().upper()
+    futures_items = MOEX_INSTRUMENTS.get("Фьючерсы", {})
+    # Прямое совпадение
+    for code in futures_items.keys():
+        if code.upper() == s_upper:
+            return code
+    # Обратный маппинг через описание (Газпром → GAZR)
+    for code, (_, name) in futures_items.items():
+        if s_upper in name.upper():
+            return code
+    return ""
     """Регистронезависимый поиск канонического кода: 'si' → 'Si'."""
     if not user_input:
         return user_input
@@ -751,20 +801,18 @@ def get_dividend_yield_for_ticker(ticker: str, expiry_str: str):
 
 
 # ================= G-кривая ОФЗ =================
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)   # 🔧 1800 → 600
 def fetch_g_curve_params():
-    if _is_failed_recently("g_curve", cooldown_sec=120):
+    if _is_failed_recently("g_curve", cooldown_sec=30):   # 🔧 120 → 30
         return None
     url = "https://iss.moex.com/iss/engines/stock/zcyc/securities.json"
     data = iss_get_json(url, timeout=15)
     if data is None:
-        _mark_failed("g_curve", cooldown_sec=120)
+        _mark_failed("g_curve", cooldown_sec=30)          # 🔧 120 → 30
         return None
-    params = data.get('params', {})
-    columns = params.get('columns', [])
-    values = params.get('data', [])
+    ...
     if not columns or not values:
-        _mark_failed("g_curve", cooldown_sec=120)
+        _mark_failed("g_curve", cooldown_sec=30)          # 🔧 120 → 30
         return None
     df = pd.DataFrame(values, columns=columns)
     row = df.iloc[0]
@@ -1163,30 +1211,30 @@ def resolve_auto_price(ticker: str, option_type: str, side: str,
 
 
 def autoload_series_for(asset: str, asset_type_ui: str):
+    """Автозагрузка серий при смене актива. Возвращает True при успехе."""
     if not asset:
         return False
     try:
         series = fetch_optionseries(asset, asset_type_ui)
-        if series:
-            st.session_state.series_list = series
-            st.session_state.series_autoloaded_for = (asset, asset_type_ui)
-            return True
+        st.session_state.series_list = series or []
+        st.session_state.series_autoloaded_for = (asset, asset_type_ui)
+        return bool(series)
     except Exception:
-        pass
-    return False
+        st.session_state.series_list = []
+        return False
 
 
 # ================= MOEX API: опционы =================
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)   # 🔧 1800 → 600 (10 минут)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
     if moex_type != 'futures':
-        if _is_failed_recently("sec_list", cooldown_sec=120):
+        if _is_failed_recently("sec_list", cooldown_sec=30):   # 🔧 120 → 30
             return code_to_fetch, moex_type
         data = iss_get_json(SECURITIES_URL, timeout=20)
         if data is None:
-            _mark_failed("sec_list", cooldown_sec=120)
+            _mark_failed("sec_list", cooldown_sec=30)          # 🔧 120 → 30
             return code_to_fetch, moex_type
         try:
             securities = data.get('securities', {}).get('data', [])
@@ -2042,7 +2090,7 @@ with tab_calc:
                 ["Фьючерс", "Акция", "Валюта", "Товар", "Индекс"],
                 key="asset_type_ui")
 
-        asset = resolve_canonical_asset_code(_raw_asset)
+        asset = resolve_canonical_asset_code(_raw_asset, asset_type_ui)
 
         _last_loaded = st.session_state.get("series_autoloaded_for", (None, None))
         if asset and (asset, asset_type_ui) != _last_loaded:
@@ -2053,8 +2101,25 @@ with tab_calc:
                      type="primary"):
             with st.spinner("Загрузка серий..."):
                 try:
-                    st.session_state.series_list = fetch_optionseries(asset, asset_type_ui)
+                    _series_loaded = fetch_optionseries(asset, asset_type_ui)
+                    st.session_state.series_list = _series_loaded
                     st.session_state.series_autoloaded_for = (asset, asset_type_ui)
+                    if not _series_loaded:
+                        # 🔧 Диагностика: серий нет
+                        _atype_hint = ASSET_TYPE_MAP.get(asset_type_ui, '—')
+                        st.warning(
+                            f"⚠ ISS не вернул ни одной серии для "
+                            f"**{asset}** ({asset_type_ui} / {_atype_hint}). "
+                            f"Проверьте:\n"
+                            f"1. Существуют ли опционы на этот актив "
+                            f"(не все тикеры имеют опционы).\n"
+                            f"2. Если категория «Фьючерс» — возможно, "
+                            f"нужен код фьючерса (например, `GAZR` вместо `GAZP`, "
+                            f"`SBRF` вместо `SBER`).\n"
+                            f"3. Если категория «Акция» — код должен быть "
+                            f"без суффикса (например, `SBER`, не `SBERP` для "
+                            f"обычных опционов)."
+                        )
                 except Exception as e:
                     st.error(f"Ошибка загрузки серий: {e}")
                     st.session_state.series_list = []
