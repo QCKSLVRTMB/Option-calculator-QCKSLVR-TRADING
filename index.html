@@ -10,6 +10,14 @@
   h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 .2rem; color: #1a3b4f; }
   .sub { color: #4a6f8a; margin-bottom: 16px; border-left: 4px solid #2c7da0;
          padding-left: 14px; font-size: .85rem; }
+  .market-panel { background: white; border-radius: 20px; padding: 12px 18px;
+                  margin-bottom: 14px; border: 1px solid #e2edf4;
+                  display: flex; align-items: center; gap: 18px; }
+  .market-panel .label { font-size: .72rem; font-weight: 700; color: #2c506d;
+                         text-transform: uppercase; letter-spacing: .04em; }
+  .market-panel .value { font-size: 1.4rem; font-weight: 800; color: #1e5a7a;
+                         line-height: 1.1; }
+  .market-panel .source { font-size: .72rem; color: #7f9bb3; margin-left: auto; }
   .model-panel { background: white; border-radius: 20px; padding: 12px 18px;
                  margin-bottom: 14px; border: 1px solid #e2edf4;
                  display: flex; gap: 18px; align-items: center; }
@@ -73,6 +81,15 @@
 <div class="container">
   <h1>Калькулятор опционов QCKSLVR TRADING</h1>
   <div class="sub">https://vk.ru/qckslvrtrading</div>
+
+  <!-- Рыночная цена БА (заполняется из Python через __INJECT__) -->
+  <div id="marketPricePanel" class="market-panel" style="display:none;">
+    <div>
+      <div class="label">Рыночная цена БА (CLOSE D1)</div>
+      <div class="value" id="marketPrice">— ₽</div>
+    </div>
+    <div class="source" id="marketPriceSource"></div>
+  </div>
 
   <div class="model-panel">
     <div>
@@ -449,11 +466,11 @@
       volatilitySell: document.getElementById('volatilitySell').value,
       dividendSell: document.getElementById('dividendSell').value,
     };
-    try { localStorage.setItem('optionCalcSettings_v4', JSON.stringify(data)); } catch(e){}
+    try { localStorage.setItem('optionCalcSettings_v5', JSON.stringify(data)); } catch(e){}
   }
   function loadSettings(){
     let s = {};
-    try { s = JSON.parse(localStorage.getItem('optionCalcSettings_v4') || '{}'); } catch(e){ s = {}; }
+    try { s = JSON.parse(localStorage.getItem('optionCalcSettings_v5') || '{}'); } catch(e){ s = {}; }
     for (const k in s) {
       const el = document.getElementById(k);
       if (el && s[k] !== undefined) el.value = s[k];
@@ -568,7 +585,7 @@
    'volatilityBuy','volatilitySell','dividendBuy','dividendSell']
     .forEach(id => document.getElementById(id)?.addEventListener('input', syncToParent));
 
-  // Ручное изменение даты экспирации — сбросить подпись источника
+  // Ручное изменение даты экспирации — сброс подписи источника
   ['expiryDateBuy','expiryDateSell'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', function(){
       const suf = id.endsWith('Buy') ? 'Buy' : 'Sell';
@@ -698,7 +715,16 @@
       }
     }
 
-    // 7. Даты — форсируем сегодня
+    // 7. Рыночная цена БА (панель сверху)
+    if (inj.market_price != null) {
+      const _mp = Number(inj.market_price);
+      document.getElementById('marketPrice').innerText = _mp.toFixed(2) + ' ₽';
+      document.getElementById('marketPriceSource').innerText =
+        'источник: CLOSE последнего дневного бара MOEX ISS';
+      document.getElementById('marketPricePanel').style.display = 'flex';
+    }
+
+    // 8. Даты — форсируем сегодня
     document.getElementById('currentDateBuy').value = today;
     document.getElementById('currentDateSell').value = today;
 
