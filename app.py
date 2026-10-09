@@ -27,9 +27,25 @@ if "cache_cleared_v4" not in st.session_state:
     st.cache_data.clear()
     st.session_state["cache_cleared_v4"] = True
 
+# 🔧 CSS: границы форм и строк таблицы позиций
 st.markdown("""
 <style>
 .block-container {padding-top: 1rem; padding-bottom: 2rem;}
+
+/* Границы вокруг форм */
+[data-testid="stForm"] {
+    border: 1px solid #cfdfe9 !important;
+    border-radius: 12px !important;
+    padding: 14px 16px !important;
+}
+/* Границы строк таблицы «Текущие позиции» */
+.pos-row-wrap [data-testid="stHorizontalBlock"] {
+    border-bottom: 1px solid #e6edf4;
+    padding: 2px 0;
+}
+.pos-row-wrap [data-testid="stHorizontalBlock"]:last-child {
+    border-bottom: none;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1369,6 +1385,61 @@ def fetch_all_series_for_asset(asset: str, asset_type_ui: str):
     return series_sorted
 
 
+# 🔧 Сводная таблица по всем сериям (тип, экспирация, объём, ОИ, изменение)
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_series_overview(asset: str, asset_type_ui: str):
+    series_list = fetch_optionseries(asset, asset_type_ui)
+    if not series_list:
+        return pd.DataFrame()
+    rows = []
+    today = date.today()
+    for s in series_list:
+        info = fetch_series_info(asset, asset_type_ui, s["code"])
+        if not info:
+            continue
+        call_info = info.get("Опционы Call", {}) or {}
+        put_info  = info.get("Опционы Put",  {}) or {}
+        vol_rub   = (float(call_info.get("Объем (руб.)", 0) or 0)
+                     + float(put_info.get("Объем (руб.)", 0) or 0))
+        vol_contr = (float(call_info.get("Контрактов", 0) or 0)
+                     + float(put_info.get("Контрактов", 0) or 0))
+        oi        = (float(call_info.get("Открытых позиций", 0) or 0)
+                     + float(put_info.get("Открытых позиций", 0) or 0))
+        oi_change = (float(call_info.get("ОИ изменение", 0) or 0)
+                     + float(put_info.get("ОИ изменение", 0) or 0))
+
+        series_type = str(info.get("Тип серии", "—")).strip().upper()
+        _map_type = {
+            "WEEKLY": "W", "W": "W", "НЕДЕЛЬНАЯ": "W",
+            "MONTHLY": "M", "M": "M", "МЕСЯЧНАЯ": "M",
+            "QUARTERLY": "Q", "Q": "Q", "КВАРТАЛЬНАЯ": "Q",
+        }
+        series_type_short = _map_type.get(series_type, series_type[:1] or "—")
+
+        expiry = info.get("Дата исполнения", s.get("expiry", "—"))
+        try:
+            d = datetime.strptime(expiry, "%Y-%m-%d").date()
+            days_to = (d - today).days
+            expiry_disp = f"{d.strftime('%Y-%m-%d')} ({days_to})"
+        except Exception:
+            days_to = None
+            expiry_disp = expiry
+
+        rows.append({
+            "БА":            asset,
+            "Тип":           series_type_short,
+            "Экспирация":    expiry_disp,
+            "_expiry_raw":   expiry,
+            "_days_to":      days_to,
+            "Объём, ₽":      vol_rub,
+            "Об.контр.":     vol_contr,
+            "Откр.поз.":     oi,
+            "Изменение, ₽":  oi_change,
+            "_series_code":  s["code"],
+        })
+    return pd.DataFrame(rows)
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_series_info(asset: str, asset_type_ui: str, series_code: str):
     asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
@@ -1937,12 +2008,10 @@ def _side_from_qty(qty: int) -> str:
 
 
 def _side_ui(side: str) -> str:
-    """Buy / Sell → Покупка / Продажа (только для отображения)."""
     return {"Buy": "Покупка", "Sell": "Продажа"}.get(side, side)
 
 
 def _side_internal(side_ui: str) -> str:
-    """Покупка / Продажа → Buy / Sell (для внутренней логики)."""
     return {"Покупка": "Buy", "Продажа": "Sell"}.get(side_ui, side_ui)
 
 
@@ -1967,7 +2036,6 @@ def expiry_marker(expiry_str: str) -> str:
 
 
 def format_series_label(expiry_str: str) -> str:
-    """'2026-10-28' → '🟢 28.10.2026' — единый формат «Дата исполнения»."""
     try:
         d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
         return f"{expiry_marker(expiry_str)} {d.strftime('%d.%m.%Y')}"
@@ -2319,7 +2387,7 @@ def _render_calc_tab():
 
         asset = resolve_canonical_asset_code(_raw_asset, asset_type_ui)
 
-        # 🔧 Автозагрузка серий убрана. Серии грузятся ТОЛЬКО по кнопке ниже.
+        # Автозагрузка серий убрана. Серии грузятся ТОЛЬКО по кнопке ниже.
         _loaded_for = st.session_state.get("series_autoloaded_for", (None, None))
         _series_ready = (bool(st.session_state.get("series_list"))
                          and _loaded_for == (asset, asset_type_ui))
@@ -2349,7 +2417,7 @@ def _render_calc_tab():
         if _series_ready:
             sorted_series = sorted(st.session_state.series_list,
                                     key=lambda x: x.get("expiry", ""))
-            # 🔧 Единый формат «🟢 28.10.2026» без кода серии
+            # Единый формат «🟢 28.10.2026» без кода серии
             option_labels = [format_series_label(s["expiry"]) for s in sorted_series]
             chosen = st.selectbox("Дата исполнения",
                                    option_labels, index=0, key="calc_series_select")
@@ -2540,7 +2608,7 @@ def _render_calc_tab():
                     _inject_json.replace("</", "<\\/"))
             calc_html = st.session_state[_cache_key]
 
-    # 🔧 Калькулятор на всю ширину — графики D1/H1 переехали на «Позицию»
+    # Калькулятор на всю ширину — графики D1/H1 переехали на «Позицию»
     if calc_html is None:
         st.info("Калькулятор недоступен.")
     else:
@@ -2685,7 +2753,7 @@ def _render_position_tab():
 
     def _get_board_price(_strike, _opt_type, _side_internal, _c_map, _p_map):
         """Авто-цена для опциона:
-           Buy → offer, Sell → bid (fallback: theorprice, last).
+           Покупка → offer, Продажа → bid (fallback: theorprice, last).
         """
         if _strike is None:
             return 0.0
@@ -2721,7 +2789,7 @@ def _render_position_tab():
             if not _all_series:
                 _all_series = st.session_state.get("series_list", [])
 
-            # 🔧 Единый формат «🟢 28.10.2026» без кода серии
+            # Единый формат «🟢 28.10.2026» без кода серии
             _series_labels = [format_series_label(s["expiry"]) for s in _all_series]
             _series_by_label = {lab: s for lab, s in zip(_series_labels, _all_series)}
 
@@ -2752,7 +2820,9 @@ def _render_position_tab():
                 asset_type_ui_now = st.session_state.get("selected_asset_type_ui", "Фьючерс")
                 asset_now = st.session_state.get("selected_asset", "")
 
-                with st.form("add_position_form", clear_on_submit=False):
+                # Границы вокруг формы
+                with st.container(border=True), st.form(
+                        "add_position_form", clear_on_submit=False):
                     # Строка 1: тип инструмента | дата исполнения
                     _f1c1, _f1c2 = st.columns(2)
                     with _f1c1:
@@ -2838,7 +2908,7 @@ def _render_position_tab():
                     # Строка 3: направление | количество
                     _f3c1, _f3c2 = st.columns(2)
                     with _f3c1:
-                        # 🔧 Buy/Sell → Покупка/Продажа
+                        # Buy/Sell → Покупка/Продажа
                         side_ui = st.selectbox("Направление",
                                                 ["Покупка", "Продажа"],
                                                 key="form_side")
@@ -2853,7 +2923,7 @@ def _render_position_tab():
                         ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
                                    else p_map.get(chosen_strike, {})) \
                                   if chosen_strike is not None else {}
-                        # 🔧 Авто-цена из доски: Buy→offer, Sell→bid
+                        # Авто-цена из доски: Покупка→offer, Продажа→bid
                         _auto_price = 0.0
                         if instrument_type == "Опцион" and chosen_strike is not None:
                             _auto_price = _get_board_price(chosen_strike, opt_type,
@@ -2874,10 +2944,10 @@ def _render_position_tab():
                         st.text_input("Тикер (авто)", value=ticker_val,
                                        disabled=True, key="form_ticker_disp")
 
-                    # 🔧 Авто-цена из доски (вместо «из оповещений»)
+                    # Авто-цена из доски (вместо «из оповещений»)
                     use_auto_price = True
                     if instrument_type == "Опцион" and chosen_strike is not None:
-                        _src_lbl = "offer" if side == "Buy" else "bid"
+                        _src_lbl = "Offer" if side == "Buy" else "Bid"
                         if _auto_price > 0:
                             st.markdown(
                                 f"<div style='background:#eef6fb; border-radius:10px; "
@@ -2968,7 +3038,6 @@ def _render_position_tab():
                             if chosen_strike is None:
                                 st.error("Укажите страйк.")
                             else:
-                                # Доска выбранной серии (может отличаться от основной)
                                 _sel_series_code = chosen_series_code or st.session_state.get(
                                     "selected_series_code", "")
                                 if _sel_series_code != st.session_state.get(
@@ -3042,7 +3111,6 @@ def _render_position_tab():
                                             "_calc_riskfree", 0.0) or 0.0),
                                         "_q": float(st.session_state.get(
                                             "_calc_dividend", 0.0) or 0.0),
-                                        # сохраняем привязку к серии/активу
                                         "_series_code": _sel_series_code,
                                         "_asset": asset_now,
                                         "_atype": asset_type_ui_now,
@@ -3062,245 +3130,250 @@ def _render_position_tab():
     if not st.session_state.positions:
         st.caption("Портфель пуст.")
     else:
-        COL_W = [0.28, 0.32, 0.85, 0.75, 0.85, 0.95, 0.65, 1.30,
-                 1.05, 1.25, 1.15, 1.15, 0.95, 0.85, 0.85, 0.85, 0.75, 0.95]
-        HEADERS = ["", "", "Тип", "Опцион", "Страйк", "Дата исп.", "До эксп.",
-                   "Тикер", "Кол-во", "Цена", "Теор. цена", "P&L",
-                   "Дельта", "Гамма", "Вега", "Тета", "Ро", "Комисс."]
+        _pos_container = st.container(border=True)
+        with _pos_container:
+            st.markdown("<div class='pos-row-wrap'>", unsafe_allow_html=True)
+            COL_W = [0.28, 0.32, 0.85, 0.75, 0.85, 0.95, 0.65, 1.30,
+                     1.05, 1.25, 1.15, 1.15, 0.95, 0.85, 0.85, 0.85, 0.75, 0.95]
+            HEADERS = ["", "", "Тип", "Опцион", "Страйк", "Дата исп.", "До эксп.",
+                       "Тикер", "Кол-во", "Цена", "Теор. цена", "P&L",
+                       "Дельта", "Гамма", "Вега", "Тета", "Ро", "Комисс."]
 
-        _hdr = st.columns(COL_W)
-        for c, h in zip(_hdr, HEADERS):
-            with c:
-                st.markdown(
-                    f"<div style='font-size:.68rem; color:#2c506d; "
-                    f"font-weight:700; text-transform:uppercase; "
-                    f"letter-spacing:.02em; padding-top:4px;'>{h}</div>",
-                    unsafe_allow_html=True)
+            _hdr = st.columns(COL_W)
+            for c, h in zip(_hdr, HEADERS):
+                with c:
+                    st.markdown(
+                        f"<div style='font-size:.68rem; color:#2c506d; "
+                        f"font-weight:700; text-transform:uppercase; "
+                        f"letter-spacing:.02em; padding-top:4px;'>{h}</div>",
+                        unsafe_allow_html=True)
 
-        st.markdown("<hr style='margin:2px 0 4px 0; border:none; "
-                    "border-top:1px solid #e6edf4;'>", unsafe_allow_html=True)
+            st.markdown("<hr style='margin:2px 0 4px 0; border:none; "
+                        "border-top:1px solid #e6edf4;'>", unsafe_allow_html=True)
 
-        _today = date.today()
-        for idx, p in enumerate(st.session_state.positions):
-            _id = p.get("_id", f"legacy_{idx}")
-            visible = p.get("visible", True)
-            gray = "opacity:0.45;" if not visible else ""
+            _today = date.today()
+            for idx, p in enumerate(st.session_state.positions):
+                _id = p.get("_id", f"legacy_{idx}")
+                visible = p.get("visible", True)
+                gray = "opacity:0.45;" if not visible else ""
 
-            row = st.columns(COL_W)
+                row = st.columns(COL_W)
 
-            with row[0]:
-                if st.button("✖", key=f"del_{_id}", help="Удалить строку",
-                             use_container_width=True):
-                    st.session_state.positions.pop(idx)
-                    for k in list(st.session_state.keys()):
-                        if k.endswith(f"_{_id}"):
-                            del st.session_state[k]
-                    st.rerun()
+                with row[0]:
+                    if st.button("✖", key=f"del_{_id}", help="Удалить строку",
+                                 use_container_width=True):
+                        st.session_state.positions.pop(idx)
+                        for k in list(st.session_state.keys()):
+                            if k.endswith(f"_{_id}"):
+                                del st.session_state[k]
+                        st.rerun()
 
-            with row[1]:
-                icon = "👁" if visible else "🚫"
-                if st.button(icon, key=f"vis_{_id}",
-                             help="Скрыть/показать в профиле",
-                             use_container_width=True):
-                    p["visible"] = not visible
-                    st.rerun()
+                with row[1]:
+                    icon = "👁" if visible else "🚫"
+                    if st.button(icon, key=f"vis_{_id}",
+                                 help="Скрыть/показать в профиле",
+                                 use_container_width=True):
+                        p["visible"] = not visible
+                        st.rerun()
 
-            with row[2]:
-                _t = p.get("Тип инструмента", "Опцион")
-                _short_t = {"Опцион": "Опцион", "Фьючерс": "Фьюч.",
-                            "Акция": "Акция", "Индекс": "Индекс"}.get(_t, _t)
-                st.markdown(
-                    f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
-                    f"{_short_t}</div>", unsafe_allow_html=True)
+                with row[2]:
+                    _t = p.get("Тип инструмента", "Опцион")
+                    _short_t = {"Опцион": "Опцион", "Фьючерс": "Фьюч.",
+                                "Акция": "Акция", "Индекс": "Индекс"}.get(_t, _t)
+                    st.markdown(
+                        f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
+                        f"{_short_t}</div>", unsafe_allow_html=True)
 
-            with row[3]:
-                _opt = p.get("Опцион", "—")
-                _opt_html = _color_call_put(_opt) if _opt in ("Call", "Put") else _opt
-                st.markdown(f"<div style='padding-top:6px; {gray};'>{_opt_html}</div>",
-                            unsafe_allow_html=True)
-
-            with row[4]:
-                _k = p.get("Страйк")
-                _k_txt = f"<b>{int(_k)}</b>" if _k is not None else "—"
-                st.markdown(f"<div style='padding-top:6px; {gray};'>{_k_txt}</div>",
-                            unsafe_allow_html=True)
-
-            with row[5]:
-                _exp_disp = p.get("Эксп.", "—")
-                # 🔧 формат DD.MM.YYYY
-                try:
-                    _exp_disp_fmt = datetime.strptime(_exp_disp, "%Y-%m-%d").strftime("%d.%m.%Y")
-                except Exception:
-                    _exp_disp_fmt = _exp_disp
-                _main_exp = st.session_state.get("selected_expiry", "")
-                _exp_color = "#7c4dff" if _exp_disp not in ("—", _main_exp) else "#333"
-                st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem; "
-                            f"color:{_exp_color}; font-weight:600;'>"
-                            f"{_exp_disp_fmt}</div>", unsafe_allow_html=True)
-
-            with row[6]:
-                _dte = "—"
-                _exp_str = p.get("Эксп.", "—")
-                if _exp_str and _exp_str != "—":
-                    try:
-                        _d = datetime.strptime(_exp_str, "%Y-%m-%d").date()
-                        _dte = f"{(_d - _today).days}"
-                    except Exception:
-                        pass
-                st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
-                            f"{_dte}</div>", unsafe_allow_html=True)
-
-            with row[7]:
-                st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
-                            f"{p.get('Тикер', '—')}</div>", unsafe_allow_html=True)
-
-            with row[8]:
-                kq = f"qty_{_id}"
-                if kq not in st.session_state:
-                    st.session_state[kq] = int(p.get("Кол-во", 1))
-                qc = st.columns([1, 3, 1])
-                with qc[0]:
-                    st.button("➖", key=f"qm_{_id}",
-                              on_click=_cb_qty_dec, args=(kq,),
-                              use_container_width=True,
-                              help="Уменьшить количество на 1")
-                with qc[1]:
-                    new_qty = st.number_input(
-                        "qty", min_value=-10000, max_value=10000, step=1,
-                        key=kq, label_visibility="collapsed")
-                with qc[2]:
-                    st.button("➕", key=f"qp_{_id}",
-                              on_click=_cb_qty_inc, args=(kq,),
-                              use_container_width=True,
-                              help="Увеличить количество на 1")
-                # 🔧 Без автоприсвоения — ждём нажатия «Обновить позицию»
-
-            with row[9]:
-                kp = f"price_{_id}"
-                if kp not in st.session_state:
-                    st.session_state[kp] = float(p.get("Цена", 0.0))
-                pc = st.columns([1, 3, 1])
-                with pc[0]:
-                    st.button("➖", key=f"pm_{_id}",
-                              on_click=_cb_price_dec, args=(kp,),
-                              use_container_width=True,
-                              help="−0.01 ₽")
-                with pc[1]:
-                    new_price = st.number_input(
-                        "price", min_value=0.0,
-                        step=0.01, format="%.4f",
-                        key=kp, label_visibility="collapsed")
-                with pc[2]:
-                    st.button("➕", key=f"pp_{_id}",
-                              on_click=_cb_price_inc, args=(kp,),
-                              use_container_width=True,
-                              help="+0.01 ₽")
-                # 🔧 Без автоприсвоения — ждём нажатия «Обновить позицию»
-
-            _theor = float(p.get("Теор.цена", 0))
-            _instr = p.get("Тип инструмента", "Опцион")
-            _isBA = (_instr == "БА" or p.get("Опцион") == "БА")
-            _com = 0.0 if _isBA else _calc_comm(float(p.get("Цена", 0)), _instr)
-            _qty = int(p.get("Кол-во", 0))
-            _price = float(p.get("Цена", 0))
-            _eff_price = _price + _com
-            _pnl = ((_theor - _price) * _qty if _isBA
-                    else (_theor - _eff_price) * _qty)
-
-            with row[10]:
-                st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
-                            f"{_theor:.4f}</div>", unsafe_allow_html=True)
-
-            with row[11]:
-                _color = "#00a651" if _pnl > 0 else ("#d32f2f" if _pnl < 0 else "#333")
-                st.markdown(f"<div style='padding-top:6px; {gray}; font-weight:700; "
-                            f"color:{_color};'>{_pnl:+,.2f} ₽</div>",
-                            unsafe_allow_html=True)
-
-            for ri, gr in zip([12, 13, 14, 15, 16],
-                              ["Дельта", "Гамма", "Вега", "Тета", "Ро"]):
-                val = p.get(gr)
-                txt = f"{val:+.4f}" if isinstance(val, (int, float)) else "—"
-                with row[ri]:
-                    st.markdown(f"<div style='padding-top:6px; {gray}; "
-                                f"font-size:.78rem;'>{txt}</div>",
+                with row[3]:
+                    _opt = p.get("Опцион", "—")
+                    _opt_html = _color_call_put(_opt) if _opt in ("Call", "Put") else _opt
+                    st.markdown(f"<div style='padding-top:6px; {gray};'>{_opt_html}</div>",
                                 unsafe_allow_html=True)
 
-            with row[17]:
-                st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
-                            f"{_com:.4f}</div>", unsafe_allow_html=True)
+                with row[4]:
+                    _k = p.get("Страйк")
+                    _k_txt = f"<b>{int(_k)}</b>" if _k is not None else "—"
+                    st.markdown(f"<div style='padding-top:6px; {gray};'>{_k_txt}</div>",
+                                unsafe_allow_html=True)
 
-        st.markdown("<hr style='margin:4px 0 4px 0; border:none; "
-                    "border-top:1px solid #e6edf4;'>", unsafe_allow_html=True)
+                with row[5]:
+                    _exp_disp = p.get("Эксп.", "—")
+                    try:
+                        _exp_disp_fmt = datetime.strptime(
+                            _exp_disp, "%Y-%m-%d").strftime("%d.%m.%Y")
+                    except Exception:
+                        _exp_disp_fmt = _exp_disp
+                    _main_exp = st.session_state.get("selected_expiry", "")
+                    _exp_color = "#7c4dff" if _exp_disp not in ("—", _main_exp) else "#333"
+                    st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem; "
+                                f"color:{_exp_color}; font-weight:600;'>"
+                                f"{_exp_disp_fmt}</div>", unsafe_allow_html=True)
 
-        # ---- Итоговая строка ----
-        _tot_com = _tot_pnl = _tot_delta = _tot_gamma = 0.0
-        _tot_vega = _tot_theta = _tot_rho = 0.0
-        for p in st.session_state.positions:
-            _q = int(p.get("Кол-во", 0))
-            _pr = float(p.get("Цена", 0))
-            _th = float(p.get("Теор.цена", 0))
-            _instr = p.get("Тип инструмента", "Опцион")
-            _isBA = (_instr == "БА" or p.get("Опцион") == "БА")
-            if _isBA:
-                _c = 0.0; _pl = (_th - _pr) * _q
-            else:
-                _c = _calc_comm(_pr, _instr)
-                _pl = (_th - _pr - _c) * _q
-            _tot_com += _c * abs(_q)
-            _tot_pnl += _pl
-            _tot_delta += (p.get("Дельта") or 0) * _q
-            _tot_gamma += (p.get("Гамма")  or 0) * _q
-            _tot_vega  += (p.get("Вега")   or 0) * _q
-            _tot_theta += (p.get("Тета")   or 0) * _q
-            _tot_rho   += (p.get("Ро")     or 0) * _q
+                with row[6]:
+                    _dte = "—"
+                    _exp_str = p.get("Эксп.", "—")
+                    if _exp_str and _exp_str != "—":
+                        try:
+                            _d = datetime.strptime(_exp_str, "%Y-%m-%d").date()
+                            _dte = f"{(_d - _today).days}"
+                        except Exception:
+                            pass
+                    st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
+                                f"{_dte}</div>", unsafe_allow_html=True)
 
-        tot_row = st.columns(COL_W)
-        with tot_row[0]:
-            if st.button("🗑", key="clear_all_positions",
-                         help="Удалить все позиции",
-                         use_container_width=True):
-                for k in list(st.session_state.keys()):
-                    if k.startswith(("qty_", "price_", "qp_", "qm_",
-                                      "pp_", "pm_")):
-                        del st.session_state[k]
-                st.session_state.positions = []
-                st.rerun()
-        with tot_row[2]:
-            st.markdown("<div style='padding-top:6px; font-size:.8rem; "
-                        "color:#2c506d; font-weight:700;'>ГО:</div>",
-                        unsafe_allow_html=True)
-        with tot_row[7]:
-            st.markdown("<div style='padding-top:6px; font-size:.8rem; "
-                        "color:#2c506d; font-weight:700;'>Итого:</div>",
-                        unsafe_allow_html=True)
+                with row[7]:
+                    st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
+                                f"{p.get('Тикер', '—')}</div>", unsafe_allow_html=True)
 
-        _color_pnl_tot = "#00a651" if _tot_pnl > 0 else ("#d32f2f" if _tot_pnl < 0 else "#333")
-        with tot_row[11]:
-            st.markdown(f"<div style='padding-top:6px; font-weight:800; "
-                        f"color:{_color_pnl_tot};'>{_tot_pnl:+,.2f} ₽</div>",
-                        unsafe_allow_html=True)
-        with tot_row[12]:
-            st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                        f"{_tot_delta:+.3f}</div>", unsafe_allow_html=True)
-        with tot_row[13]:
-            st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                        f"{_tot_gamma:+.4f}</div>", unsafe_allow_html=True)
-        with tot_row[14]:
-            st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                        f"{_tot_vega:+.3f}</div>", unsafe_allow_html=True)
-        with tot_row[15]:
-            st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                        f"{_tot_theta:+.3f}</div>", unsafe_allow_html=True)
-        with tot_row[16]:
-            st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                        f"{_tot_rho:+.3f}</div>", unsafe_allow_html=True)
-        with tot_row[17]:
-            st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                        f"{_tot_com:,.4f}</div>", unsafe_allow_html=True)
+                with row[8]:
+                    kq = f"qty_{_id}"
+                    if kq not in st.session_state:
+                        st.session_state[kq] = int(p.get("Кол-во", 1))
+                    qc = st.columns([1, 3, 1])
+                    with qc[0]:
+                        st.button("➖", key=f"qm_{_id}",
+                                  on_click=_cb_qty_dec, args=(kq,),
+                                  use_container_width=True,
+                                  help="Уменьшить количество на 1")
+                    with qc[1]:
+                        new_qty = st.number_input(
+                            "qty", min_value=-10000, max_value=10000, step=1,
+                            key=kq, label_visibility="collapsed")
+                    with qc[2]:
+                        st.button("➕", key=f"qp_{_id}",
+                                  on_click=_cb_qty_inc, args=(kq,),
+                                  use_container_width=True,
+                                  help="Увеличить количество на 1")
+                    # Без автоприсвоения — ждём «Обновить позицию»
+
+                with row[9]:
+                    kp = f"price_{_id}"
+                    if kp not in st.session_state:
+                        st.session_state[kp] = float(p.get("Цена", 0.0))
+                    pc = st.columns([1, 3, 1])
+                    with pc[0]:
+                        st.button("➖", key=f"pm_{_id}",
+                                  on_click=_cb_price_dec, args=(kp,),
+                                  use_container_width=True,
+                                  help="−0.01 ₽")
+                    with pc[1]:
+                        new_price = st.number_input(
+                            "price", min_value=0.0,
+                            step=0.01, format="%.4f",
+                            key=kp, label_visibility="collapsed")
+                    with pc[2]:
+                        st.button("➕", key=f"pp_{_id}",
+                                  on_click=_cb_price_inc, args=(kp,),
+                                  use_container_width=True,
+                                  help="+0.01 ₽")
+                    # Без автоприсвоения — ждём «Обновить позицию»
+
+                _theor = float(p.get("Теор.цена", 0))
+                _instr = p.get("Тип инструмента", "Опцион")
+                _isBA = (_instr == "БА" or p.get("Опцион") == "БА")
+                _com = 0.0 if _isBA else _calc_comm(float(p.get("Цена", 0)), _instr)
+                _qty = int(p.get("Кол-во", 0))
+                _price = float(p.get("Цена", 0))
+                _eff_price = _price + _com
+                _pnl = ((_theor - _price) * _qty if _isBA
+                        else (_theor - _eff_price) * _qty)
+
+                with row[10]:
+                    st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
+                                f"{_theor:.4f}</div>", unsafe_allow_html=True)
+
+                with row[11]:
+                    _color = "#00a651" if _pnl > 0 else ("#d32f2f" if _pnl < 0 else "#333")
+                    st.markdown(f"<div style='padding-top:6px; {gray}; font-weight:700; "
+                                f"color:{_color};'>{_pnl:+,.2f} ₽</div>",
+                                unsafe_allow_html=True)
+
+                for ri, gr in zip([12, 13, 14, 15, 16],
+                                  ["Дельта", "Гамма", "Вега", "Тета", "Ро"]):
+                    val = p.get(gr)
+                    txt = f"{val:+.4f}" if isinstance(val, (int, float)) else "—"
+                    with row[ri]:
+                        st.markdown(f"<div style='padding-top:6px; {gray}; "
+                                    f"font-size:.78rem;'>{txt}</div>",
+                                    unsafe_allow_html=True)
+
+                with row[17]:
+                    st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
+                                f"{_com:.4f}</div>", unsafe_allow_html=True)
+
+            st.markdown("<hr style='margin:4px 0 4px 0; border:none; "
+                        "border-top:1px solid #e6edf4;'>", unsafe_allow_html=True)
+
+            # ---- Итоговая строка ----
+            _tot_com = _tot_pnl = _tot_delta = _tot_gamma = 0.0
+            _tot_vega = _tot_theta = _tot_rho = 0.0
+            for p in st.session_state.positions:
+                _q = int(p.get("Кол-во", 0))
+                _pr = float(p.get("Цена", 0))
+                _th = float(p.get("Теор.цена", 0))
+                _instr = p.get("Тип инструмента", "Опцион")
+                _isBA = (_instr == "БА" or p.get("Опцион") == "БА")
+                if _isBA:
+                    _c = 0.0; _pl = (_th - _pr) * _q
+                else:
+                    _c = _calc_comm(_pr, _instr)
+                    _pl = (_th - _pr - _c) * _q
+                _tot_com += _c * abs(_q)
+                _tot_pnl += _pl
+                _tot_delta += (p.get("Дельта") or 0) * _q
+                _tot_gamma += (p.get("Гамма")  or 0) * _q
+                _tot_vega  += (p.get("Вега")   or 0) * _q
+                _tot_theta += (p.get("Тета")   or 0) * _q
+                _tot_rho   += (p.get("Ро")     or 0) * _q
+
+            tot_row = st.columns(COL_W)
+            with tot_row[0]:
+                if st.button("🗑", key="clear_all_positions",
+                             help="Удалить все позиции",
+                             use_container_width=True):
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(("qty_", "price_", "qp_", "qm_",
+                                          "pp_", "pm_")):
+                            del st.session_state[k]
+                    st.session_state.positions = []
+                    st.rerun()
+            with tot_row[2]:
+                st.markdown("<div style='padding-top:6px; font-size:.8rem; "
+                            "color:#2c506d; font-weight:700;'>ГО:</div>",
+                            unsafe_allow_html=True)
+            with tot_row[7]:
+                st.markdown("<div style='padding-top:6px; font-size:.8rem; "
+                            "color:#2c506d; font-weight:700;'>Итого:</div>",
+                            unsafe_allow_html=True)
+
+            _color_pnl_tot = "#00a651" if _tot_pnl > 0 else ("#d32f2f" if _tot_pnl < 0 else "#333")
+            with tot_row[11]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:800; "
+                            f"color:{_color_pnl_tot};'>{_tot_pnl:+,.2f} ₽</div>",
+                            unsafe_allow_html=True)
+            with tot_row[12]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
+                            f"{_tot_delta:+.3f}</div>", unsafe_allow_html=True)
+            with tot_row[13]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
+                            f"{_tot_gamma:+.4f}</div>", unsafe_allow_html=True)
+            with tot_row[14]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
+                            f"{_tot_vega:+.3f}</div>", unsafe_allow_html=True)
+            with tot_row[15]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
+                            f"{_tot_theta:+.3f}</div>", unsafe_allow_html=True)
+            with tot_row[16]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
+                            f"{_tot_rho:+.3f}</div>", unsafe_allow_html=True)
+            with tot_row[17]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
+                            f"{_tot_com:,.4f}</div>", unsafe_allow_html=True)
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # =========================================================
-        # 🔧 Кнопки «Обновить позицию» + «Экспорт CSV»
+        # Кнопки «Обновить позицию» + «Экспорт CSV»
         # =========================================================
         _btn1, _btn2, _btn3 = st.columns([1, 1, 3])
         with _btn1:
@@ -3339,7 +3412,6 @@ def _render_position_tab():
                                key="positions_export_btn")
 
         if _refresh_clicked:
-            # Обновляем данные из доски для каждой опционной позиции
             for _pi, _p in enumerate(st.session_state.positions):
                 _instr_p = _p.get("Тип инструмента", "Опцион")
                 if _instr_p != "Опцион":
@@ -3366,7 +3438,6 @@ def _render_position_tab():
                 _p["Тета"]   = _row_p.get("theta")
                 _p["Ро"]     = _row_p.get("rho")
                 _p["_vol"]   = float(_row_p.get("volatility") or 20.0)
-                # применяем ручные правки из session_state
                 _kp_p = f"price_{_p.get('_id')}"
                 _kq_p = f"qty_{_p.get('_id')}"
                 if _kp_p in st.session_state:
@@ -3378,7 +3449,7 @@ def _render_position_tab():
             st.rerun()
 
         # =========================================================
-        # Определение опционной конструкции (без изменений)
+        # Определение опционной конструкции
         # =========================================================
         try:
             _visible_positions = [p for p in st.session_state.positions
@@ -3659,7 +3730,7 @@ def _render_position_tab():
                 st.caption("Точки безубыточности в диапазоне не найдены.")
 
     # ==================================================================
-    # 🔧 БИРЖЕВЫЕ ГРАФИКИ D1 / H1 (перенесены с «Калькулятора»)
+    # БИРЖЕВЫЕ ГРАФИКИ D1 / H1
     # ==================================================================
     st.markdown("---")
     st.markdown("### Биржевые графики")
@@ -3738,6 +3809,75 @@ def _render_board_tab():
         series_code = st.session_state.get("selected_series_code", "")
         expiry_str = st.session_state.get("selected_expiry", "")
 
+        # ============================================================
+        # СВОДНАЯ ТАБЛИЦА ВСЕХ СЕРИЙ — клик по строке меняет серию
+        # ============================================================
+        st.markdown(f"### Все серии опционов {asset} "
+                    f"({asset_type_ui.lower()})")
+        try:
+            _df_overview = fetch_series_overview(asset, asset_type_ui)
+        except Exception as _e:
+            _df_overview = pd.DataFrame()
+            st.warning(f"Не удалось загрузить сводку серий: {_e}")
+
+        if not _df_overview.empty:
+            _df_show = _df_overview.drop(columns=["_series_code",
+                                                    "_expiry_raw",
+                                                    "_days_to"])
+
+            _df_styler = _df_show.style.format({
+                "Объём, ₽":     "{:,.0f}",
+                "Об.контр.":    "{:,.0f}",
+                "Откр.поз.":    "{:,.0f}",
+                "Изменение, ₽": "{:+,.0f}",
+            }, na_rep="—").apply(
+                lambda row: [
+                    ("color: #00a651; font-weight: 700;"
+                     if col == "Изменение, ₽" and isinstance(row[col], (int, float))
+                     and row[col] > 0
+                     else ("color: #d32f2f; font-weight: 700;"
+                           if col == "Изменение, ₽"
+                           and isinstance(row[col], (int, float))
+                           and row[col] < 0
+                           else ""))
+                    for col in row.index
+                ], axis=1)
+
+            _sel_event = st.dataframe(
+                _df_styler,
+                use_container_width=True,
+                hide_index=True,
+                height=min(120 + 35 * len(_df_show), 420),
+                on_select="rerun",
+                selection_mode="single-row",
+                key="series_overview_table",
+            )
+
+            _sel_rows = []
+            try:
+                _sel_rows = list(getattr(_sel_event.selection, "rows", []) or [])
+            except Exception:
+                _sel_rows = []
+
+            if _sel_rows:
+                _row_idx = _sel_rows[0]
+                if 0 <= _row_idx < len(_df_overview):
+                    _picked = _df_overview.iloc[_row_idx]
+                    _new_code = _picked["_series_code"]
+                    _new_expiry = _picked["_expiry_raw"]
+                    if _new_code != series_code:
+                        st.session_state.selected_asset = asset
+                        st.session_state.selected_asset_type_ui = asset_type_ui
+                        st.session_state.selected_series_code = _new_code
+                        st.session_state.selected_expiry = _new_expiry
+                        st.session_state.board_loaded = True
+                        st.rerun()
+
+        st.markdown("---")
+
+        # ============================================================
+        # ДОСКА ОПЦИОНОВ ВЫБРАННОЙ СЕРИИ
+        # ============================================================
         buy_level = float(st.session_state.get("_calc_level_buy", 0) or 0)
         sell_level = float(st.session_state.get("_calc_level_sell", 0) or 0)
 
@@ -3798,18 +3938,9 @@ def _render_board_tab():
         except Exception:
             pass
 
-        col_t1, col_t2 = st.columns([3, 2])
-        with col_t1:
-            highlight_on = st.toggle(
-                "Раскрасить Bid/Offer (выгодные цены) и греки", value=True)
-        with col_t2:
-            if highlight_on:
-                st.markdown(
-                    "<div style='font-size:.78rem; color:#4a6f8a; "
-                    "padding-top:.4rem;'>"
-                    "🟪 Offer &lt; Theor → выгодно купить · "
-                    "🟪 Bid &gt; Theor → выгодно продать</div>",
-                    unsafe_allow_html=True)
+        # Toggle без подсказки
+        highlight_on = st.toggle(
+            "Раскрасить Bid/Offer (выгодные цены) и греки", value=True)
 
         try:
             board = fetch_optionboard(asset, asset_type_ui, series_code)
@@ -3898,7 +4029,7 @@ def _render_board_tab():
                     return "#fcff00"
                 return "#ff0000"
 
-            # 🔧 Новая логика для Bid/Offer:
+            # Новая логика для Bid/Offer:
             #   Bid > theorprice  → выгодно ПРОДАТЬ → цвет уровня продаж (#fb92f0)
             #   Offer < theorprice → выгодно КУПИТЬ  → цвет уровня покупок (#9c00ff)
             def _bid_offer_color(price, theor, is_bid):
@@ -3910,13 +4041,11 @@ def _render_board_tab():
                 if price <= 0 or theor <= 0:
                     return None
                 if is_bid:
-                    # предложение купить у нас — выгодно, если выше теор.
                     if price > theor:
-                        return "#fb92f0"   # цвет уровня продаж
+                        return "#fb92f0"
                 else:
-                    # оффер продажи нам — выгодно, если ниже теор.
                     if price < theor:
-                        return "#9c00ff"   # цвет уровня покупок
+                        return "#9c00ff"
                 return None
 
             def style_row(row):
@@ -3949,7 +4078,6 @@ def _render_board_tab():
                         style = "background-color: #e3e7ec; font-weight: bold"
 
                     if highlight_on:
-                        # Bid/Offer — новое правило
                         if col in ("Call_Bid", "Put_Bid"):
                             theor_col = ("Call_Theor" if col.startswith("Call_")
                                          else "Put_Theor")
@@ -3966,7 +4094,6 @@ def _render_board_tab():
                             if c:
                                 style = (f"background-color: {c}; "
                                          f"color: white; font-weight: 700")
-                        # Греки — старая логика
                         elif col in ("Call_Delta", "Put_Delta"):
                             c = _delta_color(row[col])
                             if c:
