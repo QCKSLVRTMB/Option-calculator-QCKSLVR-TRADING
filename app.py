@@ -1107,7 +1107,6 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_series_overview(asset: str, asset_type_ui: str):
-    """Сводная таблица по всем сериям: тип, экспирация, объём, ОИ, изменение."""
     series_list = fetch_optionseries(asset, asset_type_ui)
     if not series_list:
         return pd.DataFrame()
@@ -1437,7 +1436,7 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
                      tickvals=_strike_vals if _strike_vals else None,
                      ticktext=_strike_text if _strike_text else None,
                      tickfont=dict(size=10, color="#9c00ff"),
-                     showspikes=True, spikemode='across', snapsnap='cursor' if False else 'cursor',
+                     showspikes=True, spikemode='across', spikesnap='cursor',
                      spikecolor='#888888', spikethickness=1, spikedash='dot')
     fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
                      side="left", row=2, col=1,
@@ -1525,26 +1524,26 @@ def format_series_label(expiry_str: str) -> str:
 
 
 # ================= Новые функции: alert_targets =================
-def _nearest_otm_strike(strikes, level):
-    """Ближайший страйк ≥ level (для Покупки Call / Продажи Put).
-       Если такого нет — берём максимальный."""
+def _nearest_strike_above(strikes, level):
+    """Ближайший страйк СТРОГО ВЫШЕ level (для OTM Call).
+       Если такого нет — максимальный."""
     if not strikes or level is None:
         return None
-    s_sorted = sorted(float(s) for s in strikes)
+    s_sorted = sorted([float(s) for s in strikes])
     for k in s_sorted:
-        if k >= float(level):
+        if k > float(level):
             return k
     return s_sorted[-1]
 
 
-def _nearest_itm_strike(strikes, level):
-    """Ближайший страйк ≤ level (для Продажи Call / Покупки Put).
-       Если такого нет — берём минимальный."""
+def _nearest_strike_below(strikes, level):
+    """Ближайший страйк СТРОГО НИЖЕ level (для OTM Put).
+       Если такого нет — минимальный."""
     if not strikes or level is None:
         return None
-    s_sorted = sorted((float(s) for s in strikes), reverse=True)
+    s_sorted = sorted([float(s) for s in strikes], reverse=True)
     for k in s_sorted:
-        if k <= float(level):
+        if k < float(level):
             return k
     return s_sorted[-1]
 
@@ -1572,16 +1571,18 @@ def _get_board_price_for(board_data, opt_type, strike, side):
 def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
     """Структура alert_targets для iframe.
 
-    Правило OTM/ITM:
-      • Уровень покупок (Buy) — мы покупаем Call (OTM) / продаём Put (ITM).
-        → strikes_buy.call = ближайший OTM (≥ level)
-        → strikes_buy.put  = тот же страйк (для Put он ITM)
-      • Уровень продаж (Sell) — мы продаём Call (ITM) / покупаем Put (OTM).
-        → strikes_sell.call = ближайший ITM (≤ level)
-        → strikes_sell.put  = тот же страйк (для Put он OTM)
-      Цены:
-        • prices_buy.call / prices_buy.put  — по offer (мы покупаем)
-        • prices_sell.call / prices_sell.put — по bid  (мы продаём)
+    Логика OTM-опционов на уровнях разворота:
+      • Уровень покупок — цена развернётся ВВЕРХ:
+        + OTM Call (K > level) — дешёвый, на развороте войдёт в деньги
+        − OTM Put  (K < level) — продаём, считаем что ниже не пойдёт
+      • Уровень продаж — цена развернётся ВНИЗ:
+        − OTM Call (K > level) — продаём, считаем что выше не пойдёт
+        + OTM Put  (K < level) — дешёвый, на развороте вниз войдёт в деньги
+
+    Call всегда берём ВЫШЕ уровня, Put всегда НИЖЕ уровня.
+    Цены:
+      • покупка → Offer
+      • продажа → Bid
     """
     if not board_data:
         return None
@@ -1595,12 +1596,13 @@ def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
     lvl_buy = levels.get("buy") if levels else None
     lvl_sell = levels.get("sell") if levels else None
 
-    K_buy_call  = _nearest_otm_strike(all_strikes, lvl_buy) if lvl_buy else None
-    K_buy_put   = K_buy_call   # для Put тот же страйк (ITM)
-    K_sell_call = _nearest_itm_strike(all_strikes, lvl_sell) if lvl_sell else None
-    K_sell_put  = K_sell_call  # для Put тот же страйк (OTM)
+    # Call — всегда OTM ВЫШЕ уровня; Put — всегда OTM НИЖЕ уровня
+    K_buy_call  = _nearest_strike_above(all_strikes, lvl_buy)
+    K_buy_put   = _nearest_strike_below(all_strikes, lvl_buy)
+    K_sell_call = _nearest_strike_above(all_strikes, lvl_sell)
+    K_sell_put  = _nearest_strike_below(all_strikes, lvl_sell)
 
-    def _price_map(strike, opt_type, side):
+    def _price_for(strike, opt_type, side):
         if strike is None:
             return {}
         p = _get_board_price_for(board_data, opt_type, strike, side)
@@ -1613,20 +1615,20 @@ def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
         "lvl_buy": lvl_buy,
         "lvl_sell": lvl_sell,
         "strikes_buy": {
-            "call": K_buy_call,
-            "put":  K_buy_put,
+            "call": K_buy_call,    # + OTM Call (покупаем)
+            "put":  K_buy_put,     # − OTM Put  (продаём)
         },
         "strikes_sell": {
-            "call": K_sell_call,
-            "put":  K_sell_put,
+            "call": K_sell_call,   # − OTM Call (продаём)
+            "put":  K_sell_put,    # + OTM Put  (покупаем)
         },
         "prices_buy": {
-            "call": _price_map(K_buy_call, 'call', 'Buy'),
-            "put":  _price_map(K_buy_put,  'put',  'Buy'),
+            "call": _price_for(K_buy_call, 'call', 'Buy'),    # покупка Call → Offer
+            "put":  _price_for(K_buy_put,  'put',  'Sell'),   # продажа Put  → Bid
         },
         "prices_sell": {
-            "call": _price_map(K_sell_call, 'call', 'Sell'),
-            "put":  _price_map(K_sell_put,  'put',  'Sell'),
+            "call": _price_for(K_sell_call, 'call', 'Sell'),  # продажа Call → Bid
+            "put":  _price_for(K_sell_put,  'put',  'Buy'),   # покупка Put  → Offer
         },
     }
 
@@ -1682,7 +1684,7 @@ st.session_state["_calc_riskfree"]   = _safe_float_qp("rf_buy", 0.0)
 st.session_state["_calc_volatility"] = _safe_float_qp("vol_buy", 0.0)
 st.session_state["_calc_dividend"]   = _safe_float_qp("div_buy", 0.0)
 
-# 🔧 Новая последовательность: Калькулятор → Доска → Позиция → Оповещения
+# 🔧 Новый порядок вкладок: Калькулятор → Доска → Позиция → Оповещения
 tab_calc, tab_board, tab_position, tab_alerts = st.tabs([
     "Калькулятор",
     "Доска опционов и кривая волатильности",
@@ -1698,6 +1700,7 @@ tab_calc, tab_board, tab_position, tab_alerts = st.tabs([
 def _render_calc_tab():
     st.header("Калькулятор опционов (Black-Scholes)")
 
+    # Собственные ключи session_state — не пересекаются с «Доской»
     if "calc_asset_ticker" not in st.session_state:
         st.session_state.calc_asset_ticker = "SBER"
     if "calc_asset_category" not in st.session_state:
@@ -1716,10 +1719,7 @@ def _render_calc_tab():
     # ============================================================
     _alert_assets = get_alert_assets_list()
 
-    with st.expander(
-        "Актив и опционная серия",
-        expanded=True,
-    ):
+    with st.expander("Актив и опционная серия", expanded=True):
         # --- Выбор актива из оповещений ---
         if _alert_assets:
             _opts = ["— выберите актив из оповещений —"] + [
@@ -1757,15 +1757,14 @@ def _render_calc_tab():
                 placeholder="SBER, GAZP, RTS…",
             ).strip()
         with _pc2:
+            _cat_opts = ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
+            _cat_idx = (_cat_opts.index(st.session_state.calc_asset_category)
+                        if st.session_state.calc_asset_category in _cat_opts
+                        else 0)
             _asset_type_ui = st.selectbox(
                 "Категория БА",
-                ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"],
-                index=["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"].index(
-                    st.session_state.calc_asset_category
-                    if st.session_state.calc_asset_category in
-                    ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
-                    else "Акция"
-                ),
+                _cat_opts,
+                index=_cat_idx,
                 key="calc_asset_type_select",
             )
 
@@ -1781,8 +1780,7 @@ def _render_calc_tab():
 
         # --- Автозагрузка серий при смене актива ---
         _loaded_for = st.session_state.get("calc_autoloaded_for", (None, None))
-        if (_asset_canon
-                and (_asset_canon, _asset_type_ui) != _loaded_for):
+        if _asset_canon and (_asset_canon, _asset_type_ui) != _loaded_for:
             with st.spinner("Загрузка опционных серий…"):
                 try:
                     _series_loaded = fetch_optionseries(_asset_canon, _asset_type_ui)
@@ -1813,7 +1811,6 @@ def _render_calc_tab():
             st.session_state.calc_selected_series = _selected["code"]
             st.session_state.calc_selected_expiry = _selected["expiry"]
 
-            # Инфо о серии
             try:
                 _info = fetch_series_info(_asset_canon, _asset_type_ui,
                                            _selected["code"])
@@ -1823,7 +1820,7 @@ def _render_calc_tab():
                 st.warning(f"Не удалось загрузить информацию о серии: {_e}")
 
     # ============================================================
-    # УРОВНИ ИЗ ОПОВЕЩЕНИЙ + ФОРМИРОВАНИЕ alert_targets
+    # УРОВНИ ИЗ ОПОВЕЩЕНИЙ
     # ============================================================
     _levels = find_alert_levels(_asset_canon, category=_asset_type_ui)
     if _levels["found"]:
@@ -1877,11 +1874,11 @@ def _render_calc_tab():
             "buy": _levels.get("buy") if _levels.get("found") else None,
             "sell": _levels.get("sell") if _levels.get("found") else None,
         },
-        "alert_targets": _alert_targets,  # 🔧 НОВОЕ
+        "alert_targets": _alert_targets,
         "market_price": None,
     }
 
-    # Заполняем страйки и central strike, если есть доска
+    # Страйки и central strike
     if _board_calc is not None:
         try:
             _calls_inj = _board_calc.get('call') or []
@@ -1995,7 +1992,7 @@ def _render_calc_tab():
 def _render_board_tab():
     st.header("Доска опционов и кривая волатильности")
 
-    # 🔧 Собственные ключи session_state — не пересекаются с «Калькулятором»
+    # Собственные ключи session_state — не пересекаются с «Калькулятором»
     if "board_asset" not in st.session_state:
         st.session_state.board_asset = "SBER"
     if "board_category" not in st.session_state:
@@ -2137,7 +2134,7 @@ def _render_board_tab():
                 _picked = _df_overview.iloc[_row_idx]
                 _new_code = _picked["_series_code"]
                 _new_expiry = _picked["_expiry_raw"]
-                # 🔧 Меняем ТОЛЬКО board_* ключи — калькулятор не трогаем
+                # Меняем ТОЛЬКО board_* ключи — калькулятор не трогаем
                 if _new_code != st.session_state.board_series_code:
                     st.session_state.board_series_code = _new_code
                     st.session_state.board_expiry = _new_expiry
@@ -2155,7 +2152,6 @@ def _render_board_tab():
         st.info("Выберите серию из таблицы выше.")
         st.stop()
 
-    # 🔧 Заголовок читает ТЕКУЩЕЕ значение из session_state — обновляется корректно
     st.markdown(
         f"### Доска опционов — **{_board_asset}** "
         f"(дата исполнения: {format_series_label(_active_expiry)})"
@@ -2576,9 +2572,8 @@ def _render_position_tab():
         st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
 
     def _get_board_price(_strike, _opt_type, _side_internal, _c_map, _p_map):
-        """Авто-цена для опциона:
-           Покупка → offer, Продажа → bid (fallback: theorprice, last).
-        """
+        """Авто-цена для опциона: Покупка → offer, Продажа → bid
+           (fallback: theorprice, last)."""
         if _strike is None:
             return 0.0
         src = _c_map if _opt_type == "Call" else _p_map
@@ -2616,7 +2611,7 @@ def _render_position_tab():
         if "positions" not in st.session_state:
             st.session_state.positions = []
 
-        # 🔧 Источник данных — вкладка «Доска» (board_*)
+        # Источник данных — вкладка «Доска» (board_*)
         _asset_now_all = st.session_state.get("board_asset", "")
         _atype_now_all = st.session_state.get("board_category", "")
         _series_now = st.session_state.get("board_series_code", "")
@@ -2755,13 +2750,10 @@ def _render_position_tab():
                         ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
                                    else p_map.get(chosen_strike, {})) \
                                   if chosen_strike is not None else {}
-                        # Авто-цена из доски: Покупка→offer, Продажа→bid
                         _auto_price = 0.0
                         if instrument_type == "Опцион" and chosen_strike is not None:
                             _auto_price = _get_board_price(chosen_strike, opt_type,
                                                             side, c_map, p_map)
-                        # 🔧 Поле цены — только для ручного ввода,
-                        # по умолчанию пустое; авто-цена подставится ниже
                         price_input = st.number_input(
                             "Цена, ₽ (0 = взять из доски)", min_value=0.0,
                             value=0.0, step=0.01, format="%.4f",
@@ -2777,7 +2769,7 @@ def _render_position_tab():
                         st.text_input("Тикер (авто)", value=ticker_val,
                                        disabled=True, key="form_ticker_disp")
 
-                    # 🔧 НОВЫЙ ФОРМАТ: «+C270 16,7500»
+                    # Авто-цена в формате «+C270 16,7500»
                     use_auto_price = True
                     if instrument_type == "Опцион" and chosen_strike is not None:
                         if _auto_price > 0:
@@ -3805,7 +3797,7 @@ def _render_alerts_tab():
 # ==================================================================
 # ============ ВЫЗОВ РЕНДЕР-ФУНКЦИЙ ВНУТРИ st.tabs =================
 # ==================================================================
-# 🔧 Порядок: Калькулятор → Доска → Позиция → Оповещения
+# 🔧 Порядок вкладок: Калькулятор → Доска → Позиция → Оповещения
 with tab_calc:
     _render_calc_tab()
 
