@@ -3436,8 +3436,15 @@ def _render_position_tab():
     st.markdown("---")
     st.markdown("### График профиля позиции")
 
-    payoff_positions = [p for p in st.session_state.positions
-                        if p.get("visible", True)]
+    # 🔧 Payoff строится ТОЛЬКО по позициям выбранного актива
+    _pos_asset_now = st.session_state.get("pos_asset", "")
+    _pos_cat_now = st.session_state.get("pos_category", "")
+    payoff_positions = [
+        p for p in st.session_state.positions
+        if p.get("visible", True)
+        and (p.get("_asset") or _pos_asset_now) == _pos_asset_now
+        and (p.get("_atype") or _pos_cat_now) == _pos_cat_now
+    ]
 
     if not payoff_positions:
         st.caption("Нет видимых позиций для построения профиля.")
@@ -3460,18 +3467,16 @@ def _render_position_tab():
                 f"📅 В портфеле **разные даты исполнения**. "
                 f"Payoff построен на **{_anchor_str}**.")
 
-        F_current = st.session_state.get("_current_market_price", None)
-        if F_current is None:
-            try:
-                _atype_f = st.session_state.get("pos_category", "")
-                _eng_f, _mkt_f = _get_engine_market(_atype_f)
-                _secid_f = resolve_underlying_secid(
-                    st.session_state.get("pos_asset", ""), _atype_f)
-                F_current = get_last_close_price(_secid_f, _eng_f, _mkt_f)
-                if F_current is not None:
-                    st.session_state["_current_market_price"] = F_current
-            except Exception:
-                pass
+        # 🔧 Всегда берём свежую цену для выбранного в pos_* актива
+        F_current = None
+        try:
+            _atype_f = st.session_state.get("pos_category", "")
+            _eng_f, _mkt_f = _get_engine_market(_atype_f)
+            _secid_f = resolve_underlying_secid(
+                st.session_state.get("pos_asset", ""), _atype_f)
+            F_current = get_last_close_price(_secid_f, _eng_f, _mkt_f)
+        except Exception:
+            F_current = None
 
         all_pos_strikes = sorted({float(p["Страйк"]) for p in payoff_positions
                                    if p.get("Страйк") is not None})
