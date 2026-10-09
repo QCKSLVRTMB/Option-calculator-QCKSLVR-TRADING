@@ -1542,7 +1542,7 @@ def _nearest_itm_strike(strikes, level):
        Если такого нет — берём минимальный."""
     if not strikes or level is None:
         return None
-    s_sorted = sorted(float(s) for s in strikes, reverse=True)
+    s_sorted = sorted((float(s) for s in strikes), reverse=True)
     for k in s_sorted:
         if k <= float(level):
             return k
