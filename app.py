@@ -3644,7 +3644,7 @@ def _render_position_tab():
     _series_ch = st.session_state.get("pos_series_code", "")
 
     if not (_asset_ch and _series_ch):
-        st.info("Выберите актив и серию в блоке выше."))
+        st.info("Выберите актив и серию в блоке выше.")
     else:
         try:
             _eng, _mkt = _get_engine_market(_atype_ch)
