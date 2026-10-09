@@ -8,6 +8,7 @@ import math
 import re
 import uuid
 import time
+import hashlib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from pathlib import Path
@@ -22,7 +23,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# 🔧 Однократный сброс кэша при старте сессии
 if "cache_cleared_v4" not in st.session_state:
     st.cache_data.clear()
     st.session_state["cache_cleared_v4"] = True
@@ -819,7 +819,6 @@ def _calc_comm_ui(premium, instr_type="Опцион"):
 
 
 # ================= Дивиденды (smart-lab.ru) =================
-# 🔧 TTL 3600 → 21600 (дивиденды не меняются каждые 6 часов)
 @st.cache_data(ttl=21600, show_spinner=False)
 def fetch_dividends_smartlab() -> pd.DataFrame:
     url = "https://smart-lab.ru/dividends/index/order_by_ticker/desc/"
@@ -1047,7 +1046,6 @@ def _get_engine_market(asset_type_ui: str):
 
 
 # ================= Resolve secid =================
-# 🔧 TTL 3600 → 86400 (список контрактов и secid меняются редко)
 @st.cache_data(ttl=86400, show_spinner=False)
 def resolve_underlying_secid(asset_code: str, asset_type_ui: str):
     if asset_type_ui == "Акция":
@@ -1263,7 +1261,6 @@ def apply_parity_delta(position: dict) -> dict:
 
 
 # ================= Excel-оповещения =================
-# 🔧 Кэш в session_state: (ticker, category) → результат
 def find_alert_levels(ticker: str, category: str = None):
     df = st.session_state.get("alerts_df")
     if df is None or df.empty:
@@ -1455,10 +1452,6 @@ def fetch_central_strike(asset_code, series_code, asset_type):
     return None
 
 
-# 🔧 ИСПРАВЛЕНО (п. 2 из анализа):
-#   • сначала правильный moex_type, потом fallback — 1 запрос вместо 5;
-#   • central_strike берём из fetch_series_info (переиспользуем кэш),
-#     чтобы не дёргать ISS второй раз.
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
     asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
@@ -1480,7 +1473,6 @@ def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
     if not board_data:
         raise RuntimeError("Не удалось получить доску опционов")
 
-    # central_strike: сначала из кэша серии, при неудаче — fallback-функция
     cs = None
     try:
         _s_info = fetch_series_info(asset, asset_type_ui, series_code)
@@ -1571,7 +1563,7 @@ def get_last_close_price(secid: str, engine: str, market: str):
         return None
 
 
-# ================= Payoff-расчёты (с поддержкой разных экспираций) =================
+# ================= Payoff-расчёты =================
 def _months_between(d1: date, d2: date) -> float:
     return max((d2 - d1).days, 0) / 365.0
 
@@ -2162,7 +2154,6 @@ def _render_alert_card(r: dict) -> str:
 
 
 # ================= postMessage-мост =================
-# 🔧 По умолчанию 2 задержки (300 / 1500 мс) вместо 9 — меньше перерисовок iframe
 def _send_to_iframes(payload: dict, delays=(300, 1500)):
     delays_js = "\n".join([f"setTimeout(send, {d});" for d in delays])
     js = f"""
@@ -2185,7 +2176,6 @@ def _send_to_iframes(payload: dict, delays=(300, 1500)):
     components.html(js, height=0)
 
 
-# 🔧 Все push_* используют дефолтные 2 задержки (300, 1500)
 def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
     _send_to_iframes({"type": "setExpiry", "value": expiry_str,
                       "series_code": series_code})
@@ -2233,36 +2223,20 @@ st.session_state["_calc_riskfree"]   = _safe_float_qp("rf_buy", 0.0)
 st.session_state["_calc_volatility"] = _safe_float_qp("vol_buy", 0.0)
 st.session_state["_calc_dividend"]   = _safe_float_qp("div_buy", 0.0)
 
-# 🔧 ИСПРАВЛЕНО (п. 1 из анализа):
-# Заменяем st.tabs на radio-меню + условный рендер активной вкладки.
-# Streamlit рендерит тела ВСЕХ вкладок на каждом rerun — теперь только активную.
-TAB_NAMES = ["Калькулятор", "Позиция",
-             "Доска опционов и кривая волатильности", "Оповещения"]
-
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = TAB_NAMES[0]
-
-# Радио-«меню» над контентом (визуально как табы)
-_active_default = st.session_state.get("active_tab", TAB_NAMES[0])
-if _active_default not in TAB_NAMES:
-    _active_default = TAB_NAMES[0]
-
-active_tab = st.radio(
-    "Раздел",
-    TAB_NAMES,
-    index=TAB_NAMES.index(_active_default),
-    horizontal=True,
-    label_visibility="collapsed",
-    key="active_tab_radio",
-)
-st.session_state["active_tab"] = active_tab
-st.markdown("---")
+# 🔧 ВАРИАНТ 1: st.tabs + @st.fragment.
+#  • st.tabs — переключение вкладок клиентское, БЕЗ rerun → iframe калькулятора не перезагружается.
+#  • @st.fragment на каждой вкладке — клик по виджету перерисовывает только этот фрагмент.
+tab_calc, tab_position, tab_board, tab_alerts = st.tabs([
+    "Калькулятор", "Позиция",
+    "Доска опционов и кривая волатильности", "Оповещения",
+])
 
 
 # ==================================================================
 # ============ ВКЛАДКА 1: КАЛЬКУЛЯТОР =============================
 # ==================================================================
-if active_tab == "Калькулятор":
+@st.fragment
+def _render_calc_tab():
     st.header("Калькулятор опционов")
 
     if "asset_input" not in st.session_state:
@@ -2542,14 +2516,23 @@ if active_tab == "Калькулятор":
             st.error(f"Не удалось прочитать index.html: {e}")
             calc_html = None
 
+    # 🔧 Кэш HTML калькулятора по хешу полезной нагрузки.
+    # Если _inject не изменился (переключение табов), отдаём ту же строку —
+    # Streamlit-диффинг сохраняет iframe, initAll() не перезапускается.
     if calc_html is not None:
         if HTML_PLACEHOLDER not in calc_html:
             st.warning("⚠ В index.html не найден плейсхолдер "
                        "`/*__INJECT_PLACEHOLDER__*/{}`.")
         else:
-            _inject_json = json.dumps(_inject, ensure_ascii=False, default=str)
-            _inject_json = _inject_json.replace("</", "<\\/")
-            calc_html = calc_html.replace(HTML_PLACEHOLDER, _inject_json)
+            _inject_json = json.dumps(_inject, ensure_ascii=False,
+                                      default=str, sort_keys=True)
+            _inject_hash = hashlib.md5(_inject_json.encode()).hexdigest()
+            _cache_key = f"_calc_html_{_inject_hash}"
+            if _cache_key not in st.session_state:
+                st.session_state[_cache_key] = calc_html.replace(
+                    HTML_PLACEHOLDER,
+                    _inject_json.replace("</", "<\\/"))
+            calc_html = st.session_state[_cache_key]
 
     col_calc, col_charts = st.columns([1.05, 1])
 
@@ -2596,9 +2579,6 @@ if active_tab == "Калькулятор":
                 except Exception:
                     pass
 
-                # 🔧 ИСПРАВЛЕНО (п. 5 из анализа):
-                #   было «с 1 января» (до 365 дней), стало 180 дней —
-                #   достаточно для контекста D1-графика.
                 _d1_days = 180
                 _h1_days = 25
 
@@ -2639,7 +2619,8 @@ if active_tab == "Калькулятор":
         # ==================================================================
 # ============ ВКЛАДКА 2: ПОЗИЦИЯ ==================================
 # ==================================================================
-if active_tab == "Позиция":
+@st.fragment
+def _render_position_tab():
     st.header("Управление позицией")
 
     col_ctrl, col_add = st.columns([1, 1.7], gap="medium")
@@ -3145,8 +3126,7 @@ if active_tab == "Позиция":
                                                f"{_src_label} "
                                                f"по {final_pos_price:.4f} ₽")
                                     st.rerun()
-
-    # ==================================================================
+                                        # ==================================================================
     # ТЕКУЩИЕ ПОЗИЦИИ
     # ==================================================================
     st.markdown("---")
@@ -3508,10 +3488,8 @@ if active_tab == "Позиция":
                         f"IV и греков.  \nСтрочка **⭐ = текущий выбор** "
                         f"(серия открыта в портфеле).")
 
-                    # 🔧 ИСПРАВЛЕНО (п. 3 из анализа):
-                    # Раньше было N страйков × M серий вызовов fetch_optionboard
-                    # внутри двойного цикла. Теперь — предзагрузка всех досок
-                    # в словарь ОДИН РАЗ, в циклах — только dict-lookup.
+                    # 🔧 Предзагрузка досок ВСЕХ серий один раз,
+                    # затем в циклах — только dict-lookup.
                     _boards_by_series = {}
                     for _s in _all_series_cmp:
                         _scode = _s["code"]
@@ -3879,7 +3857,8 @@ if active_tab == "Позиция":
                 # ==================================================================
 # ============ ВКЛАДКА 3: ДОСКА ОПЦИОНОВ ===========================
 # ==================================================================
-if active_tab == "Доска опционов и кривая волатильности":
+@st.fragment
+def _render_board_tab():
     if not st.session_state.get("series_list"):
         st.info("Сначала выберите опционную серию на вкладке «Калькулятор».")
     elif "selected_series_code" not in st.session_state:
@@ -4176,7 +4155,8 @@ if active_tab == "Доска опционов и кривая волатильн
 # ==================================================================
 # ============ ВКЛАДКА 4: ОПОВЕЩЕНИЯ ===============================
 # ==================================================================
-if active_tab == "Оповещения":
+@st.fragment
+def _render_alerts_tab():
     st.header("Оповещения по уровням")
 
     if "alerts_df" not in st.session_state:
@@ -4199,8 +4179,6 @@ if active_tab == "Оповещения":
                      type="primary", key="alerts_manual_refresh"):
             st.session_state.sheet_cache_buster += 1
             st.session_state.alerts_loaded_at = None
-            # 🔧 Сброс кэша уровней, чтобы после обновления листа
-            #    подтянулись свежие значения покупки/продажи
             st.session_state["_alert_levels_cache"] = {}
             st.rerun()
 
@@ -4223,7 +4201,6 @@ if active_tab == "Оповещения":
                         st.session_state.alerts_source = "Excel (ручная загрузка)"
                         st.session_state.alerts_loaded_at = datetime.now().strftime("%H:%M:%S")
                         st.session_state.alerts_error = None
-                        # 🔧 Сброс кэша уровней
                         st.session_state["_alert_levels_cache"] = {}
                         st.success(f"Загружено: {len(_df_norm)} строк")
                         st.rerun()
@@ -4272,10 +4249,8 @@ if active_tab == "Оповещения":
         st.info("Нет данных для отображения. Загрузите Excel или проверьте "
                 "доступность Google Sheets.")
     else:
-        # 🔧 ИСПРАВЛЕНО (п. 4 из анализа):
-        #   было run_every="5s" — 5 секунд для CLOSE D1 избыточны и грузят ISS.
-        #   стало run_every="30s" — достаточно для дневных баров.
-        #   Плюс сам lazy-таб (radio) уже не рендерит эту вкладку, пока она не активна.
+        # 🔧 Вложенный fragment с run_every="30s" — тикает ТОЛЬКО live-блок,
+        # контролы (radio, popover, uploader) остаются стабильными.
         @st.fragment(run_every="30s")
         def _render_alerts_live():
             _df_alerts = st.session_state.get("alerts_df")
@@ -4430,3 +4405,19 @@ if active_tab == "Оповещения":
                     key="alerts_export_csv")
 
         _render_alerts_live()
+
+
+# ==================================================================
+# ============ ВЫЗОВ РЕНДЕР-ФУНКЦИЙ ВНУТРИ st.tabs =================
+# ==================================================================
+with tab_calc:
+    _render_calc_tab()
+
+with tab_position:
+    _render_position_tab()
+
+with tab_board:
+    _render_board_tab()
+
+with tab_alerts:
+    _render_alerts_tab()
