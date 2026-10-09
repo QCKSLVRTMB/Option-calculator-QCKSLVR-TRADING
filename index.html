@@ -50,6 +50,8 @@
   .validation-msg.show { display: block; }
   .expiry-source { font-size: .68rem; color: #2c7da0; margin-top: 2px;
                    min-height: 12px; }
+  .board-price-hint { font-size: .72rem; color: #1c5a7a; margin-top: 4px;
+                      font-weight: 600; min-height: 14px; }
   #strikeBuy, #strikeSell { font-weight: 700; }
   .result-block { margin-top: 10px; border-radius: 14px; padding: 12px 14px;
                   border: 1px solid #e2edf4; }
@@ -124,7 +126,9 @@
         <div class="form-row">
           <div class="form-group"><label>Дата исполнения</label>
             <input type="date" id="expiryDateBuy">
-            <div class="expiry-source" id="expirySourceBuy"></div></div>
+            <div class="expiry-source" id="expirySourceBuy"></div>
+            <div class="board-price-hint" id="boardPriceHintBuy"></div>
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group"><label>Безрисковая ставка %</label>
@@ -163,7 +167,9 @@
         <div class="form-row">
           <div class="form-group"><label>Дата исполнения</label>
             <input type="date" id="expiryDateSell">
-            <div class="expiry-source" id="expirySourceSell"></div></div>
+            <div class="expiry-source" id="expirySourceSell"></div>
+            <div class="board-price-hint" id="boardPriceHintSell"></div>
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group"><label>Безрисковая ставка %</label>
@@ -326,6 +332,55 @@
   function renderStrikes() {
     renderStrikesFor('strikeBuy', document.getElementById('optionTypeBuy').value);
     renderStrikesFor('strikeSell', document.getElementById('optionTypeSell').value);
+  }
+
+  // Формат «+C270 16,7500» / «-P280 5,20»
+  function _fmtBoardPrice(optType, side, strike, price) {
+    if (price == null || !isFinite(price) || price <= 0) return '—';
+    const sign   = side === 'Buy' ? '+' : '-';
+    const letter = optType === 'call' ? 'C' : 'P';
+    const kStr   = Number.isInteger(Number(strike)) ? String(Number(strike)) : String(strike);
+    const pStr   = Number(price).toFixed(4).replace('.', ',');
+    return `${sign}${letter}${kStr} ${pStr}`;
+  }
+
+  // Подстановка страйка по правилу OTM/ITM для уровней из оповещений
+  function applyAlertStrike(suf) {
+    const at = (__INJECT__ && __INJECT__.alert_targets) || null;
+    if (!at) return;
+    const typeEl = document.getElementById('optionType' + suf);
+    const selEl  = document.getElementById('strike' + suf);
+    if (!typeEl || !selEl) return;
+    const optType = typeEl.value;
+    const mapKey  = (suf === 'Buy') ? 'strikes_buy' : 'strikes_sell';
+    const targets = at[mapKey] || {};
+    const target  = targets[optType];
+    if (target == null) return;
+    const opt = Array.from(selEl.options).find(o => String(o.value) === String(target));
+    if (opt) {
+      selEl.value = String(target);
+      applySelectColor(selEl);
+    }
+  }
+
+  // Показать строку «Цена из доски опционов: +C270 16,7500»
+  function renderBoardPriceHint(suf) {
+    const at = (__INJECT__ && __INJECT__.alert_targets) || null;
+    const hintEl = document.getElementById('boardPriceHint' + suf);
+    if (!hintEl) return;
+    if (!at) { hintEl.innerText = ''; return; }
+    const typeEl = document.getElementById('optionType' + suf);
+    const selEl  = document.getElementById('strike' + suf);
+    if (!typeEl || !selEl) { hintEl.innerText = ''; return; }
+    const optType = typeEl.value;
+    const strike  = selEl.value;
+    const mapKey  = (suf === 'Buy') ? 'prices_buy' : 'prices_sell';
+    const prices  = (at[mapKey] || {})[optType] || {};
+    const price   = prices[String(strike)];
+    if (price == null) { hintEl.innerText = ''; return; }
+    const side = suf === 'Buy' ? 'Buy' : 'Sell';
+    hintEl.innerText = 'Цена из доски опционов: '
+      + _fmtBoardPrice(optType, side, strike, Number(price));
   }
 
   function validateDateField(fieldId, msgId) {
@@ -585,7 +640,6 @@
    'volatilityBuy','volatilitySell','dividendBuy','dividendSell']
     .forEach(id => document.getElementById(id)?.addEventListener('input', syncToParent));
 
-  // Ручное изменение даты экспирации — сброс подписи источника
   ['expiryDateBuy','expiryDateSell'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', function(){
       const suf = id.endsWith('Buy') ? 'Buy' : 'Sell';
@@ -596,21 +650,29 @@
   });
 
   document.getElementById('optionTypeBuy').addEventListener('change', function(){
-    renderStrikesFor('strikeBuy', this.value); updatePrices(); saveSettings();
+    renderStrikesFor('strikeBuy', this.value);
+    applyAlertStrike('Buy');
+    renderBoardPriceHint('Buy');
+    updatePrices(); saveSettings();
   });
   document.getElementById('optionTypeSell').addEventListener('change', function(){
-    renderStrikesFor('strikeSell', this.value); updatePrices(); saveSettings();
+    renderStrikesFor('strikeSell', this.value);
+    applyAlertStrike('Sell');
+    renderBoardPriceHint('Sell');
+    updatePrices(); saveSettings();
   });
   document.getElementById('strikeBuy').addEventListener('change', function(){
     applySelectColor(this);
     const iv = getIVForStrike(this.value);
     if (iv != null) document.getElementById('volatilityBuy').value = iv;
+    renderBoardPriceHint('Buy');
     updatePrices(); saveSettings();
   });
   document.getElementById('strikeSell').addEventListener('change', function(){
     applySelectColor(this);
     const iv = getIVForStrike(this.value);
     if (iv != null) document.getElementById('volatilitySell').value = iv;
+    renderBoardPriceHint('Sell');
     updatePrices(); saveSettings();
   });
 
@@ -627,6 +689,8 @@
       document.getElementById('volatility'+suf).value = '30';
       document.getElementById('dividend'+suf).value = '0';
       document.getElementById('expirySource'+suf).innerText = '';
+      const hintEl = document.getElementById('boardPriceHint'+suf);
+      if (hintEl) hintEl.innerText = '';
     });
     if (__strikeList.length) renderStrikes();
     updatePrices(); saveSettings(); syncToParent();
@@ -705,8 +769,20 @@
       document.getElementById('volatilitySell').value = '30';
     }
 
-    // 6. Уровни из alerts
-    if (inj.alerts) {
+    // 6. Уровни и страйки из alert_targets
+    if (inj.alert_targets) {
+      const at = inj.alert_targets;
+      if (at.lvl_buy != null) {
+        document.getElementById('priceBuy').value = Number(at.lvl_buy).toFixed(2);
+      }
+      if (at.lvl_sell != null) {
+        document.getElementById('priceSell').value = Number(at.lvl_sell).toFixed(2);
+      }
+      applyAlertStrike('Buy');
+      applyAlertStrike('Sell');
+      renderBoardPriceHint('Buy');
+      renderBoardPriceHint('Sell');
+    } else if (inj.alerts) {
       if (inj.alerts.buy != null) {
         document.getElementById('priceBuy').value = Number(inj.alerts.buy).toFixed(2);
       }
@@ -715,7 +791,7 @@
       }
     }
 
-    // 7. Рыночная цена БА (панель сверху)
+    // 7. Рыночная цена БА
     if (inj.market_price != null) {
       const _mp = Number(inj.market_price);
       document.getElementById('marketPrice').innerText = _mp.toFixed(2) + ' ₽';
