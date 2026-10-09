@@ -1523,6 +1523,90 @@ def format_series_label(expiry_str: str) -> str:
         return f"⚪ {expiry_str}"
 
 
+def _card_style_full() -> str:
+    return "border:2px solid #00a651;"
+
+
+def _card_style_partial() -> str:
+    return "border:1px solid #e2edf4;"
+
+
+def _render_alert_card(r: dict) -> str:
+    _ticker = r["ticker"]
+    _category = r["category"]
+    _last = r["market_price"]
+    _lvl_buy = r["lvl_buy"]
+    _lvl_sell = r["lvl_sell"]
+    _buy_dev = r["buy_dev_pct"]
+    _sell_dev = r["sell_dev_pct"]
+    _buy_active = r["buy_active"]
+    _sell_active = r["sell_active"]
+
+    _price_str = f"{_last:,.2f} ₽" if _last else "— ₽"
+    _buy_dev_str = f"{_buy_dev:+.2f} %" if _buy_dev is not None else "—"
+    _sell_dev_str = f"{_sell_dev:+.2f} %" if _sell_dev is not None else "—"
+
+    _buy_bg = "#0a8f3c" if _buy_active else "#e6e9ec"
+    _buy_fg = "#ffffff" if _buy_active else "#5a6b78"
+    _sell_bg = "#0a8f3c" if _sell_active else "#e6e9ec"
+    _sell_fg = "#ffffff" if _sell_active else "#5a6b78"
+    _buy_mark = "✓" if _buy_active else "·"
+    _sell_mark = "✓" if _sell_active else "·"
+
+    return f"""
+    <div style="border:1px solid #cfd6dc; border-radius:8px; padding:10px 12px;
+                background:#ffffff; margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <div style="font-size:1.15rem; font-weight:700; color:#111; line-height:1.1;">
+          {_ticker}</div>
+        <div style="font-size:1.05rem; font-weight:700; color:#111;">
+          {_price_str}</div>
+      </div>
+      <div style="font-size:.68rem; color:#5a6b78; margin-top:2px;
+                  text-transform:uppercase; letter-spacing:.06em;">
+        {_category}</div>
+
+      <div style="display:flex; gap:6px; margin-top:10px;">
+        <div style="flex:1; background:#f2f4f6; border:1px solid #d8dee3;
+                    border-radius:6px; padding:7px 9px;">
+          <div style="font-size:.6rem; color:#333; font-weight:700;
+                      text-transform:uppercase; letter-spacing:.06em;">
+            Покупка</div>
+          <div style="font-size:1.02rem; font-weight:700; color:#111;
+                      line-height:1.2; margin-top:2px;">{_lvl_buy:.2f}</div>
+          <div style="font-size:.76rem; color:#333; margin-top:1px;">
+            {_buy_dev_str}</div>
+        </div>
+        <div style="flex:1; background:#f2f4f6; border:1px solid #d8dee3;
+                    border-radius:6px; padding:7px 9px;">
+          <div style="font-size:.6rem; color:#333; font-weight:700;
+                      text-transform:uppercase; letter-spacing:.06em;">
+            Продажа</div>
+          <div style="font-size:1.02rem; font-weight:700; color:#111;
+                      line-height:1.2; margin-top:2px;">{_lvl_sell:.2f}</div>
+          <div style="font-size:.76rem; color:#333; margin-top:1px;">
+            {_sell_dev_str}</div>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:6px; margin-top:8px;">
+        <div style="flex:1; text-align:center; padding:6px;
+                    border-radius:6px; font-size:.82rem; font-weight:700;
+                    background:{_buy_bg}; color:{_buy_fg};
+                    letter-spacing:.05em;">
+          {_buy_mark} ПОКУПКА
+        </div>
+        <div style="flex:1; text-align:center; padding:6px;
+                    border-radius:6px; font-size:.82rem; font-weight:700;
+                    background:{_sell_bg}; color:{_sell_fg};
+                    letter-spacing:.05em;">
+          {_sell_mark} ПРОДАЖА
+        </div>
+      </div>
+    </div>
+    """
+
+
 # ================= Новые функции: alert_targets =================
 def _nearest_strike_above(strikes, level):
     """Ближайший страйк СТРОГО ВЫШЕ level (для OTM Call).
