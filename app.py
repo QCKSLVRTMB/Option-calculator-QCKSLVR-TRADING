@@ -2528,6 +2528,73 @@ def _render_board_tab():
 def _render_position_tab():
     st.header("Управление позицией")
 
+    # ============================================================
+    # ВЫБОР АКТИВА (свой селектор, аналогичный «Доске»)
+    # ============================================================
+    if "pos_asset" not in st.session_state:
+        st.session_state.pos_asset = st.session_state.get("board_asset", "SBER")
+    if "pos_category" not in st.session_state:
+        st.session_state.pos_category = st.session_state.get("board_category", "Акция")
+    if "pos_series_list" not in st.session_state:
+        st.session_state.pos_series_list = []
+    if "pos_series_code" not in st.session_state:
+        st.session_state.pos_series_code = ""
+    if "pos_expiry" not in st.session_state:
+        st.session_state.pos_expiry = ""
+    if "pos_autoloaded_for" not in st.session_state:
+        st.session_state.pos_autoloaded_for = (None, None)
+
+    _pc1, _pc2 = st.columns([3, 2])
+    with _pc1:
+        _pos_raw_asset = st.text_input(
+            "Базовый актив (для позиции)",
+            value=st.session_state.pos_asset,
+            key="pos_asset_input",
+            placeholder="SBER, GAZP, RTS…",
+        ).strip()
+    with _pc2:
+        _pos_cat_opts = ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
+        _pos_cat_idx = (_pos_cat_opts.index(st.session_state.pos_category)
+                        if st.session_state.pos_category in _pos_cat_opts else 0)
+        _pos_cat = st.selectbox(
+            "Категория БА",
+            _pos_cat_opts,
+            index=_pos_cat_idx,
+            key="pos_category_select",
+        )
+
+    _pos_asset = resolve_canonical_asset_code(_pos_raw_asset, _pos_cat)
+
+    if (_pos_asset != st.session_state.pos_asset
+            or _pos_cat != st.session_state.pos_category):
+        st.session_state.pos_asset = _pos_asset
+        st.session_state.pos_category = _pos_cat
+        st.session_state.pos_series_list = []
+        st.session_state.pos_series_code = ""
+        st.session_state.pos_expiry = ""
+        st.session_state.pos_autoloaded_for = (None, None)
+
+    _pos_loaded_for = st.session_state.get("pos_autoloaded_for", (None, None))
+    if _pos_asset and (_pos_asset, _pos_cat) != _pos_loaded_for:
+        with st.spinner(f"Загрузка серий для {_pos_asset}…"):
+            try:
+                _pos_series_new = fetch_optionseries(_pos_asset, _pos_cat)
+                st.session_state.pos_series_list = _pos_series_new or []
+                st.session_state.pos_autoloaded_for = (_pos_asset, _pos_cat)
+                if _pos_series_new and not st.session_state.pos_series_code:
+                    _s_first = sorted(_pos_series_new,
+                                       key=lambda x: x.get("expiry", ""))[0]
+                    st.session_state.pos_series_code = _s_first["code"]
+                    st.session_state.pos_expiry = _s_first["expiry"]
+                if not _pos_series_new:
+                    st.warning(f"⚠ ISS не вернул ни одной серии "
+                               f"для **{_pos_asset}** ({_pos_cat}).")
+            except Exception as e:
+                st.error(f"Ошибка загрузки серий: {e}")
+                st.session_state.pos_series_list = []
+
+    st.markdown("---")
+
     col_ctrl, col_add = st.columns([1, 1.7], gap="medium")
 
     # ---------- ЛЕВАЯ КОЛОНКА: параметры ----------
@@ -2695,18 +2762,18 @@ def _render_position_tab():
         if "positions" not in st.session_state:
             st.session_state.positions = []
 
-        # Источник данных — вкладка «Доска» (board_*)
-        _asset_now_all = st.session_state.get("board_asset", "")
-        _atype_now_all = st.session_state.get("board_category", "")
-        _series_now = st.session_state.get("board_series_code", "")
-        _expiry_now = st.session_state.get("board_expiry", "")
+        # Источник данных — свой селектор на «Позиции» (pos_*)
+        _asset_now_all = st.session_state.get("pos_asset", "")
+        _atype_now_all = st.session_state.get("pos_category", "")
+        _series_now = st.session_state.get("pos_series_code", "")
+        _expiry_now = st.session_state.get("pos_expiry", "")
 
         if not (_asset_now_all and _atype_now_all and _series_now):
             st.warning("Сначала выберите актив и серию на вкладке «Доска».")
         else:
             _all_series = fetch_all_series_for_asset(_asset_now_all, _atype_now_all)
             if not _all_series:
-                _all_series = st.session_state.get("board_series_list", [])
+                _all_series = st.session_state.get("pos_series_list", [])
 
             _series_labels = [format_series_label(s["expiry"]) for s in _all_series]
             _series_by_label = {lab: s for lab, s in zip(_series_labels, _all_series)}
@@ -3310,9 +3377,9 @@ def _render_position_tab():
                 _instr_p = _p.get("Тип инструмента", "Опцион")
                 if _instr_p != "Опцион":
                     continue
-                _asset_p = _p.get("_asset") or st.session_state.get("board_asset", "")
-                _atype_p = _p.get("_atype") or st.session_state.get("board_category", "")
-                _scode_p = _p.get("_series_code") or st.session_state.get("board_series_code", "")
+                _asset_p = _p.get("_asset") or st.session_state.get("pos_asset", "")
+                _atype_p = _p.get("_atype") or st.session_state.get("pos_category", "")
+                _scode_p = _p.get("_series_code") or st.session_state.get("pos_series_code", "")
                 if not (_asset_p and _atype_p and _scode_p):
                     continue
                 try:
@@ -3396,10 +3463,10 @@ def _render_position_tab():
         F_current = st.session_state.get("_current_market_price", None)
         if F_current is None:
             try:
-                _atype_f = st.session_state.get("board_category", "")
+                _atype_f = st.session_state.get("pos_category", "")
                 _eng_f, _mkt_f = _get_engine_market(_atype_f)
                 _secid_f = resolve_underlying_secid(
-                    st.session_state.get("board_asset", ""), _atype_f)
+                    st.session_state.get("pos_asset", ""), _atype_f)
                 F_current = get_last_close_price(_secid_f, _eng_f, _mkt_f)
                 if F_current is not None:
                     st.session_state["_current_market_price"] = F_current
@@ -3572,12 +3639,12 @@ def _render_position_tab():
     st.markdown("---")
     st.markdown("### Биржевые графики")
 
-    _asset_ch = st.session_state.get("board_asset", "")
-    _atype_ch = st.session_state.get("board_category", "")
-    _series_ch = st.session_state.get("board_series_code", "")
+    _asset_ch = st.session_state.get("pos_asset", "")
+    _atype_ch = st.session_state.get("pos_category", "")
+    _series_ch = st.session_state.get("pos_series_code", "")
 
     if not (_asset_ch and _series_ch):
-        st.info("Выберите актив и серию на вкладке «Доска».")
+        st.info("Выберите актив и серию в блоке выше."))
     else:
         try:
             _eng, _mkt = _get_engine_market(_atype_ch)
