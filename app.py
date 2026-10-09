@@ -1388,7 +1388,7 @@ def fetch_series_info(asset: str, asset_type_ui: str, series_code: str):
         "Тип БА": data.get('asset_type', '—'),
         "Тикер": data.get('futures_code', '—'),
         "Тип серии": data.get('series_type', '—'),
-        "Дата экспирации": data.get('expiration_date', '—'),
+        "Дата исполнения": data.get('expiration_date', '—'),
         "Центральный страйк": data.get('central_strike', '—'),
     }
     for side_key, label in (('call', 'Опционы Call'), ('put', 'Опционы Put')):
@@ -1936,6 +1936,16 @@ def _side_from_qty(qty: int) -> str:
     return "—"
 
 
+def _side_ui(side: str) -> str:
+    """Buy / Sell → Покупка / Продажа (только для отображения)."""
+    return {"Buy": "Покупка", "Sell": "Продажа"}.get(side, side)
+
+
+def _side_internal(side_ui: str) -> str:
+    """Покупка / Продажа → Buy / Sell (для внутренней логики)."""
+    return {"Покупка": "Buy", "Продажа": "Sell"}.get(side_ui, side_ui)
+
+
 def _new_position_id() -> str:
     return uuid.uuid4().hex[:8]
 
@@ -1954,6 +1964,15 @@ def expiry_marker(expiry_str: str) -> str:
     if d <= end_week_after:
         return "🔵"
     return "🟢"
+
+
+def format_series_label(expiry_str: str) -> str:
+    """'2026-10-28' → '🟢 28.10.2026' — единый формат «Дата исполнения»."""
+    try:
+        d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+        return f"{expiry_marker(expiry_str)} {d.strftime('%d.%m.%Y')}"
+    except Exception:
+        return f"⚪ {expiry_str}"
 
 
 # ================= Матчинг стратегий =================
@@ -2223,9 +2242,6 @@ st.session_state["_calc_riskfree"]   = _safe_float_qp("rf_buy", 0.0)
 st.session_state["_calc_volatility"] = _safe_float_qp("vol_buy", 0.0)
 st.session_state["_calc_dividend"]   = _safe_float_qp("div_buy", 0.0)
 
-# 🔧 ВАРИАНТ 1: st.tabs + @st.fragment.
-#  • st.tabs — переключение вкладок клиентское, БЕЗ rerun → iframe калькулятора не перезагружается.
-#  • @st.fragment на каждой вкладке — клик по виджету перерисовывает только этот фрагмент.
 tab_calc, tab_position, tab_board, tab_alerts = st.tabs([
     "Калькулятор", "Позиция",
     "Доска опционов и кривая волатильности", "Оповещения",
@@ -2247,7 +2263,7 @@ def _render_calc_tab():
     _need_expand = not st.session_state.get("board_loaded", False)
 
     with st.expander(
-        "Параметры инструмента (Тикер · Категория БА · Опционная серия)",
+        "Параметры инструмента (Тикер · Категория БА · Дата исполнения)",
         expanded=_need_expand,
     ):
         with st.expander("Справочник инструментов MOEX — кликните по тикеру",
@@ -2286,6 +2302,8 @@ def _render_calc_tab():
                                     st.session_state.asset_input = code
                                     st.session_state.asset_type_ui = asset_type
                                     st.session_state.board_loaded = False
+                                    st.session_state.series_list = []
+                                    st.session_state.series_autoloaded_for = (None, None)
                                     st.rerun()
                                 st.caption(name)
 
@@ -2301,22 +2319,22 @@ def _render_calc_tab():
 
         asset = resolve_canonical_asset_code(_raw_asset, asset_type_ui)
 
-        _last_loaded = st.session_state.get("series_autoloaded_for", (None, None))
-        if asset and (asset, asset_type_ui) != _last_loaded:
-            with st.spinner("Загрузка серий…"):
-                _ok = autoload_series_for(asset, asset_type_ui)
-                if not _ok:
-                    st.session_state.series_list = []
-                    st.session_state.series_autoloaded_for = (asset, asset_type_ui)
+        # 🔧 Автозагрузка серий убрана. Серии грузятся ТОЛЬКО по кнопке ниже.
+        _loaded_for = st.session_state.get("series_autoloaded_for", (None, None))
+        _series_ready = (bool(st.session_state.get("series_list"))
+                         and _loaded_for == (asset, asset_type_ui))
 
         if st.button("Загрузить доску опционов",
                      use_container_width=True,
-                     type="primary"):
-            with st.spinner("Загрузка серий..."):
+                     type="primary",
+                     key="calc_load_board_btn"):
+            with st.spinner("Загрузка серий…"):
                 try:
                     _series_loaded = fetch_optionseries(asset, asset_type_ui)
                     st.session_state.series_list = _series_loaded
                     st.session_state.series_autoloaded_for = (asset, asset_type_ui)
+                    _loaded_for = (asset, asset_type_ui)
+                    _series_ready = bool(_series_loaded)
                     if not _series_loaded:
                         _atype_hint = ASSET_TYPE_MAP.get(asset_type_ui, '—')
                         st.warning(
@@ -2326,14 +2344,15 @@ def _render_calc_tab():
                 except Exception as e:
                     st.error(f"Ошибка загрузки серий: {e}")
                     st.session_state.series_list = []
+                    _series_ready = False
 
-        if st.session_state.get("series_list"):
+        if _series_ready:
             sorted_series = sorted(st.session_state.series_list,
                                     key=lambda x: x.get("expiry", ""))
-            option_labels = [f"{expiry_marker(s['expiry'])} {s['expiry']} — {s['code']}"
-                             for s in sorted_series]
-            chosen = st.selectbox("Дата экспирации (серия)",
-                                   option_labels, index=0)
+            # 🔧 Единый формат «🟢 28.10.2026» без кода серии
+            option_labels = [format_series_label(s["expiry"]) for s in sorted_series]
+            chosen = st.selectbox("Дата исполнения",
+                                   option_labels, index=0, key="calc_series_select")
             chosen_idx = option_labels.index(chosen)
             selected = sorted_series[chosen_idx]
             series_code = selected["code"]
@@ -2361,7 +2380,7 @@ def _render_calc_tab():
             expiry_str = st.session_state.get("selected_expiry", "")
 
             st.success(f"Выбрана серия: **{asset}** ({asset_type_ui}) · "
-                       f"Экспирация **{expiry_str}** · код `{series_code}`")
+                       f"Дата исполнения **{expiry_str}** · код `{series_code}`")
 
             _alert_levels = find_alert_levels(asset, category=asset_type_ui)
             if _alert_levels["found"]:
@@ -2405,7 +2424,6 @@ def _render_calc_tab():
         "alerts": {"ticker": "", "buy": None, "sell": None},
         "market_price": None,
     }
-    _futures_contract_for_chart = None
 
     if st.session_state.get("board_loaded") and "selected_series_code" in st.session_state:
         _asset_inj = st.session_state.get("selected_asset", "")
@@ -2450,14 +2468,6 @@ def _render_calc_tab():
         except Exception:
             pass
 
-        try:
-            _ser_info_inj = fetch_series_info(_asset_inj, _atype_inj, _series_inj)
-            _futures_contract_for_chart = _ser_info_inj.get("Тикер", "")
-            if _futures_contract_for_chart == "—":
-                _futures_contract_for_chart = None
-        except Exception:
-            pass
-
         if _atype_inj == "Акция":
             try:
                 _rf_inj = get_risk_free_rate_for_expiry(_expiry_inj)
@@ -2492,10 +2502,7 @@ def _render_calc_tab():
             else:
                 _eng_mkt, _mkt_mkt = "stock", "shares"
 
-            if _futures_contract_for_chart:
-                _mkt_secid = _futures_contract_for_chart
-            else:
-                _mkt_secid = resolve_underlying_secid(_asset_inj, _atype_inj)
+            _mkt_secid = resolve_underlying_secid(_asset_inj, _atype_inj)
 
             _close_price = get_last_close_price(_mkt_secid, _eng_mkt, _mkt_mkt)
             if _close_price is not None:
@@ -2516,9 +2523,8 @@ def _render_calc_tab():
             st.error(f"Не удалось прочитать index.html: {e}")
             calc_html = None
 
-    # 🔧 Кэш HTML калькулятора по хешу полезной нагрузки.
-    # Если _inject не изменился (переключение табов), отдаём ту же строку —
-    # Streamlit-диффинг сохраняет iframe, initAll() не перезапускается.
+    # Кэш HTML калькулятора по хешу полезной нагрузки —
+    # при одинаковом _inject iframe не пересоздаётся.
     if calc_html is not None:
         if HTML_PLACEHOLDER not in calc_html:
             st.warning("⚠ В index.html не найден плейсхолдер "
@@ -2534,84 +2540,11 @@ def _render_calc_tab():
                     _inject_json.replace("</", "<\\/"))
             calc_html = st.session_state[_cache_key]
 
-    col_calc, col_charts = st.columns([1.05, 1])
-
-    with col_calc:
-        if calc_html is None:
-            st.info("Калькулятор недоступен.")
-        else:
-            components.html(calc_html, height=1100, scrolling=True)
-
-    with col_charts:
-        st.markdown("### Биржевые графики")
-        if not st.session_state.get("board_loaded"):
-            st.info("Выберите серию и загрузите доску.")
-        else:
-            try:
-                _asset_ch = st.session_state.get("selected_asset", "")
-                _atype_ch = st.session_state.get("selected_asset_type_ui", "")
-                _series_ch = st.session_state.get("selected_series_code", "")
-
-                if _atype_ch in ("Фьючерс", "Валюта", "Товар"):
-                    _eng, _mkt = "futures", "forts"
-                elif _atype_ch == "Индекс":
-                    _eng, _mkt = "stock", "index"
-                else:
-                    _eng, _mkt = "stock", "shares"
-
-                if _futures_contract_for_chart:
-                    _secid_ch = _futures_contract_for_chart
-                else:
-                    _secid_ch = resolve_underlying_secid(_asset_ch, _atype_ch) or _asset_ch
-
-                _strikes_ch = []
-                try:
-                    _board_ch = fetch_optionboard(_asset_ch, _atype_ch, _series_ch)
-                    _calls_ch = _board_ch.get('call') or []
-                    _puts_ch  = _board_ch.get('put')  or []
-                    _strikes_ch = sorted({
-                        float(c['strike']) for c in _calls_ch
-                        if c.get('strike') is not None
-                    } | {
-                        float(p['strike']) for p in _puts_ch
-                        if p.get('strike') is not None
-                    })
-                except Exception:
-                    pass
-
-                _d1_days = 180
-                _h1_days = 25
-
-                _df_d1 = fetch_bars(_secid_ch, interval=24, days=_d1_days,
-                                    engine=_eng, market=_mkt)
-                _df_h1 = fetch_bars(_secid_ch, interval=60, days=_h1_days,
-                                    engine=_eng, market=_mkt)
-
-                _buy_ch  = float(st.session_state.get("_calc_level_buy", 0) or 0)
-                _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
-
-                _current_price_ch = None
-                try:
-                    _current_price_ch = get_last_close_price(_secid_ch, _eng, _mkt)
-                except Exception:
-                    pass
-
-                _chart_label = _futures_contract_for_chart or _asset_ch
-
-                render_exchange_chart(
-                    _df_d1, st.session_state.get("positions", []),
-                    _buy_ch, _sell_ch, _strikes_ch,
-                    f"D1 — {_chart_label}", "chart_d1_tab",
-                    current_price=_current_price_ch,
-                    comm_func=_calc_comm_ui)
-                render_exchange_chart(
-                    _df_h1, st.session_state.get("positions", []),
-                    _buy_ch, _sell_ch, _strikes_ch,
-                    f"H1 — {_chart_label}", "chart_h1_tab",
-                    current_price=_current_price_ch,
-                    comm_func=_calc_comm_ui)
-            except Exception as e:
-                st.warning(f"Не удалось построить графики: {e}")
+    # 🔧 Калькулятор на всю ширину — графики D1/H1 переехали на «Позицию»
+    if calc_html is None:
+        st.info("Калькулятор недоступен.")
+    else:
+        components.html(calc_html, height=1100, scrolling=True)
 
     if st.session_state.get("board_loaded") and "selected_expiry" in st.session_state:
         push_expiry_to_calculator(st.session_state.selected_expiry,
@@ -2750,6 +2683,26 @@ def _render_position_tab():
     def _cb_price_inc(key):
         st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
 
+    def _get_board_price(_strike, _opt_type, _side_internal, _c_map, _p_map):
+        """Авто-цена для опциона:
+           Buy → offer, Sell → bid (fallback: theorprice, last).
+        """
+        if _strike is None:
+            return 0.0
+        src = _c_map if _opt_type == "Call" else _p_map
+        row = src.get(_strike, {})
+        if not row:
+            return 0.0
+        v = row.get('offer') if _side_internal == "Buy" else row.get('bid')
+        if v is None or v <= 0:
+            v = row.get('theorprice')
+        if v is None or v <= 0:
+            v = row.get('last')
+        try:
+            return float(v) if v and v > 0 else 0.0
+        except Exception:
+            return 0.0
+
     # ---------- ПРАВАЯ КОЛОНКА: добавление позиции ----------
     with col_add:
         st.markdown("#### Добавить позицию")
@@ -2768,10 +2721,8 @@ def _render_position_tab():
             if not _all_series:
                 _all_series = st.session_state.get("series_list", [])
 
-            _series_labels = [
-                f"{expiry_marker(s['expiry'])} {s['expiry']} — {s['code']}"
-                for s in _all_series
-            ]
+            # 🔧 Единый формат «🟢 28.10.2026» без кода серии
+            _series_labels = [format_series_label(s["expiry"]) for s in _all_series]
             _series_by_label = {lab: s for lab, s in zip(_series_labels, _all_series)}
 
             _current_series_code = st.session_state.get("selected_series_code", "")
@@ -2802,6 +2753,7 @@ def _render_position_tab():
                 asset_now = st.session_state.get("selected_asset", "")
 
                 with st.form("add_position_form", clear_on_submit=False):
+                    # Строка 1: тип инструмента | дата исполнения
                     _f1c1, _f1c2 = st.columns(2)
                     with _f1c1:
                         _instr_options = ["Опцион"]
@@ -2817,7 +2769,7 @@ def _render_position_tab():
                     with _f1c2:
                         if instrument_type == "Опцион":
                             chosen_series_label = st.selectbox(
-                                "Опционная серия",
+                                "Дата исполнения",
                                 _series_labels,
                                 index=_default_series_idx,
                                 key="form_series")
@@ -2855,6 +2807,7 @@ def _render_position_tab():
                                                value="—", disabled=True,
                                                key="form_no_exp_disp")
 
+                    # Строка 2: страйк | опцион
                     _f2c1, _f2c2 = st.columns(2)
                     with _f2c1:
                         if instrument_type == "Опцион" and all_strikes:
@@ -2882,28 +2835,34 @@ def _render_position_tab():
                             st.text_input("Опцион", value="—", disabled=True,
                                            key="form_opt_type_disabled")
 
+                    # Строка 3: направление | количество
                     _f3c1, _f3c2 = st.columns(2)
                     with _f3c1:
-                        side = st.selectbox("Направление", ["Buy", "Sell"],
-                                             key="form_side")
+                        # 🔧 Buy/Sell → Покупка/Продажа
+                        side_ui = st.selectbox("Направление",
+                                                ["Покупка", "Продажа"],
+                                                key="form_side")
+                        side = _side_internal(side_ui)
                     with _f3c2:
                         qty_input = st.number_input("Кол-во", min_value=1, value=1,
                                                      step=1, key="form_qty")
 
+                    # Строка 4: цена | тикер (авто)
                     _f4c1, _f4c2 = st.columns(2)
                     with _f4c1:
                         ref_opt = (c_map.get(chosen_strike, {}) if opt_type == "Call"
                                    else p_map.get(chosen_strike, {})) \
                                   if chosen_strike is not None else {}
-                        _qs_last = st.session_state.get("quick_und_last_price", 0.0)
-                        default_price = (float(_qs_last)
-                                         if instrument_type != "Опцион" and _qs_last
-                                         else (float(ref_opt.get('theorprice') or 0)
-                                               or float(ref_opt.get('last') or 0) or 0.0))
-                        price_input = st.number_input("Цена, ₽", min_value=0.0,
-                                                       value=float(default_price),
-                                                       step=0.01, format="%.4f",
-                                                       key="form_price")
+                        # 🔧 Авто-цена из доски: Buy→offer, Sell→bid
+                        _auto_price = 0.0
+                        if instrument_type == "Опцион" and chosen_strike is not None:
+                            _auto_price = _get_board_price(chosen_strike, opt_type,
+                                                            side, c_map, p_map)
+                        price_input = st.number_input(
+                            "Цена, ₽", min_value=0.0,
+                            value=0.0, step=0.01, format="%.4f",
+                            key="form_price",
+                            help="0 = использовать авто-цену из доски")
                     with _f4c2:
                         if instrument_type == "Опцион" and chosen_strike is not None:
                             ticker_val = ref_opt.get('secid', '—')
@@ -2915,63 +2874,25 @@ def _render_position_tab():
                         st.text_input("Тикер (авто)", value=ticker_val,
                                        disabled=True, key="form_ticker_disp")
 
-                    _alert_lv = find_alert_levels(asset_now, category=asset_type_ui_now)
-                    _alerts_available = _alert_lv.get("found", False)
-
-                    use_alert_price = False
-                    if _alerts_available and instrument_type == "Опцион":
-                        _buy_lvl = _alert_lv["buy"]
-                        _sell_lvl = _alert_lv["sell"]
-
-                        def _nearest_strike(level, strikes_list):
-                            if level is None or not strikes_list:
-                                return None
-                            return min(strikes_list,
-                                        key=lambda s: abs(float(s) - float(level)))
-
-                        def _opt_price(K, opt_type_chk):
-                            if K is None:
-                                return None
-                            src = c_map if opt_type_chk == "Call" else p_map
-                            row = src.get(K, {})
-                            v = row.get('theorprice')
-                            if v is None or v <= 0:
-                                v = row.get('last')
-                            return float(v) if v and v > 0 else None
-
-                        _K_buy = _nearest_strike(_buy_lvl, all_strikes)
-                        _K_sell = _nearest_strike(_sell_lvl, all_strikes)
-                        _buy_c = _opt_price(_K_buy, "Call")
-                        _buy_p = _opt_price(_K_buy, "Put")
-                        _sell_c = _opt_price(_K_sell, "Call")
-                        _sell_p = _opt_price(_K_sell, "Put")
-
-                        def _fmt_price(v):
-                            return f"{v:.2f} ₽" if v is not None else "—"
-
-                        _K_buy_s = f"{int(_K_buy)}" if _K_buy is not None else "—"
-                        _K_sell_s = f"{int(_K_sell)}" if _K_sell is not None else "—"
-
-                        st.markdown(
-                            f"<div style='background:#eef6fb; border-radius:10px; "
-                            f"padding:8px 14px; font-size:.82rem; color:#1c5a7a; "
-                            f"margin:6px 0;'>"
-                            f"<b>Покупка {_buy_lvl:.2f} ₽</b> (K={_K_buy_s}): "
-                            f"<span style='color:#00a651;font-weight:700;'>"
-                            f"Call = {_fmt_price(_buy_c)}</span> · "
-                            f"<span style='color:#d32f2f;font-weight:700;'>"
-                            f"Put = {_fmt_price(_buy_p)}</span><br>"
-                            f"<b>Продажа {_sell_lvl:.2f} ₽</b> (K={_K_sell_s}): "
-                            f"<span style='color:#00a651;font-weight:700;'>"
-                            f"Call = {_fmt_price(_sell_c)}</span> · "
-                            f"<span style='color:#d32f2f;font-weight:700;'>"
-                            f"Put = {_fmt_price(_sell_p)}</span>"
-                            f"</div>",
-                            unsafe_allow_html=True)
-
-                        use_alert_price = st.checkbox(
-                            "🎯 Взять цену из оповещений",
-                            value=False, key="form_use_alert_price")
+                    # 🔧 Авто-цена из доски (вместо «из оповещений»)
+                    use_auto_price = True
+                    if instrument_type == "Опцион" and chosen_strike is not None:
+                        _src_lbl = "offer" if side == "Buy" else "bid"
+                        if _auto_price > 0:
+                            st.markdown(
+                                f"<div style='background:#eef6fb; border-radius:10px; "
+                                f"padding:8px 14px; font-size:.82rem; color:#1c5a7a; "
+                                f"margin:6px 0;'>"
+                                f"Авто-цена из доски ({_src_lbl}, K={chosen_strike}, "
+                                f"{opt_type}): <b>{_auto_price:.4f} ₽</b>"
+                                f"</div>",
+                                unsafe_allow_html=True)
+                            use_auto_price = st.checkbox(
+                                "🎯 Использовать авто-цену из доски",
+                                value=True, key="form_use_auto_price")
+                        else:
+                            st.caption(f"⚠ Авто-цена недоступна "
+                                       f"({_src_lbl} и theorprice пусты).")
 
                     submitted = st.form_submit_button("➕ Добавить позицию",
                                                       type="primary",
@@ -3047,6 +2968,7 @@ def _render_position_tab():
                             if chosen_strike is None:
                                 st.error("Укажите страйк.")
                             else:
+                                # Доска выбранной серии (может отличаться от основной)
                                 _sel_series_code = chosen_series_code or st.session_state.get(
                                     "selected_series_code", "")
                                 if _sel_series_code != st.session_state.get(
@@ -3076,23 +2998,24 @@ def _render_position_tab():
                                 final_pos_price = None
                                 _src_label = ""
 
-                                if use_alert_price:
-                                    _lvl = None
-                                    if opt_type == "Call":
-                                        _lvl = _buy_lvl if side == "Buy" else _sell_lvl
-                                    else:
-                                        _lvl = _sell_lvl if side == "Buy" else _buy_lvl
-                                    _K_alert = _nearest_strike(_lvl, all_strikes)
-                                    _auto_p = _opt_price(_K_alert, opt_type)
-                                    if _auto_p is not None:
-                                        final_pos_price = float(_auto_p)
-                                        _src_label = f" (K={int(_K_alert)}, из оповещений)"
+                                # 1. Приоритет: авто-цена из доски выбранной серии
+                                if use_auto_price:
+                                    _auto_p_sel = _get_board_price(
+                                        chosen_strike, opt_type, side,
+                                        _c_map_sel, _p_map_sel)
+                                    if _auto_p_sel > 0:
+                                        final_pos_price = float(_auto_p_sel)
+                                        _src_label = (" (Bid из доски)"
+                                                      if side == "Sell"
+                                                      else " (Offer из доски)")
 
-                                if final_pos_price is None:
+                                # 2. Fallback: ручная цена
+                                if final_pos_price is None and price_input > 0:
                                     final_pos_price = float(price_input)
+                                    _src_label = " (ручная)"
 
-                                if final_pos_price <= 0:
-                                    st.error("Укажите цену > 0.")
+                                if final_pos_price is None or final_pos_price <= 0:
+                                    st.error("Укажите цену > 0 или включите авто-цену.")
                                 else:
                                     signed_qty = int(qty_input) if side == "Buy" \
                                                  else -int(qty_input)
@@ -3119,8 +3042,12 @@ def _render_position_tab():
                                             "_calc_riskfree", 0.0) or 0.0),
                                         "_q": float(st.session_state.get(
                                             "_calc_dividend", 0.0) or 0.0),
+                                        # сохраняем привязку к серии/активу
+                                        "_series_code": _sel_series_code,
+                                        "_asset": asset_now,
+                                        "_atype": asset_type_ui_now,
                                     })
-                                    st.success(f"Добавлено: {side} {opt_type} "
+                                    st.success(f"Добавлено: {side_ui} {opt_type} "
                                                f"{chosen_strike} × {qty_input} "
                                                f"[{expiry_now_form}]"
                                                f"{_src_label} "
@@ -3137,7 +3064,7 @@ def _render_position_tab():
     else:
         COL_W = [0.28, 0.32, 0.85, 0.75, 0.85, 0.95, 0.65, 1.30,
                  1.05, 1.25, 1.15, 1.15, 0.95, 0.85, 0.85, 0.85, 0.75, 0.95]
-        HEADERS = ["", "", "Тип", "Опцион", "Страйк", "Эксп.", "До эксп.",
+        HEADERS = ["", "", "Тип", "Опцион", "Страйк", "Дата исп.", "До эксп.",
                    "Тикер", "Кол-во", "Цена", "Теор. цена", "P&L",
                    "Дельта", "Гамма", "Вега", "Тета", "Ро", "Комисс."]
 
@@ -3200,11 +3127,16 @@ def _render_position_tab():
 
             with row[5]:
                 _exp_disp = p.get("Эксп.", "—")
+                # 🔧 формат DD.MM.YYYY
+                try:
+                    _exp_disp_fmt = datetime.strptime(_exp_disp, "%Y-%m-%d").strftime("%d.%m.%Y")
+                except Exception:
+                    _exp_disp_fmt = _exp_disp
                 _main_exp = st.session_state.get("selected_expiry", "")
                 _exp_color = "#7c4dff" if _exp_disp not in ("—", _main_exp) else "#333"
                 st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem; "
                             f"color:{_exp_color}; font-weight:600;'>"
-                            f"{_exp_disp}</div>", unsafe_allow_html=True)
+                            f"{_exp_disp_fmt}</div>", unsafe_allow_html=True)
 
             with row[6]:
                 _dte = "—"
@@ -3241,9 +3173,7 @@ def _render_position_tab():
                               on_click=_cb_qty_inc, args=(kq,),
                               use_container_width=True,
                               help="Увеличить количество на 1")
-                if int(new_qty) != int(p.get("Кол-во", 0)):
-                    p["Кол-во"] = int(new_qty)
-                    p["Направление"] = _side_from_qty(int(new_qty))
+                # 🔧 Без автоприсвоения — ждём нажатия «Обновить позицию»
 
             with row[9]:
                 kp = f"price_{_id}"
@@ -3265,8 +3195,7 @@ def _render_position_tab():
                               on_click=_cb_price_inc, args=(kp,),
                               use_container_width=True,
                               help="+0.01 ₽")
-                if float(new_price) != float(p.get("Цена", 0)):
-                    p["Цена"] = float(new_price)
+                # 🔧 Без автоприсвоения — ждём нажатия «Обновить позицию»
 
             _theor = float(p.get("Теор.цена", 0))
             _instr = p.get("Тип инструмента", "Опцион")
@@ -3371,7 +3300,85 @@ def _render_position_tab():
                         f"{_tot_com:,.4f}</div>", unsafe_allow_html=True)
 
         # =========================================================
-        # Определение опционной конструкции
+        # 🔧 Кнопки «Обновить позицию» + «Экспорт CSV»
+        # =========================================================
+        _btn1, _btn2, _btn3 = st.columns([1, 1, 3])
+        with _btn1:
+            _refresh_clicked = st.button("🔄 Обновить позицию",
+                                          use_container_width=True,
+                                          type="primary",
+                                          key="positions_refresh_btn",
+                                          help="Пересчитать теор.цену и греки "
+                                               "из свежей доски, сохранив "
+                                               "ручные правки цены и количества")
+        with _btn2:
+            _export_rows = []
+            for i, p in enumerate(st.session_state.positions):
+                _q = int(p["Кол-во"]); _pr = float(p["Цена"]); _th = float(p["Теор.цена"])
+                _instr = p.get("Тип инструмента", "Опцион")
+                _isBA = (_instr == "БА" or p.get("Опцион") == "БА")
+                if _isBA:
+                    _c = 0.0; _pl = (_th - _pr) * _q
+                else:
+                    _c = _calc_comm(_pr, _instr); _pl = (_th - _pr - _c) * _q
+                _export_rows.append({
+                    "#": i + 1, "Тип": _instr, "Опцион": p["Опцион"],
+                    "Направление": _side_ui(p.get("Направление",
+                                                    _side_from_qty(_q))),
+                    "Страйк": p.get("Страйк", "—"), "Эксп.": p.get("Эксп.", "—"),
+                    "Тикер": p.get("Тикер", "—"), "Кол-во": _q, "Цена": _pr,
+                    "Комиссия": _c, "Эфф. цена": _pr + _c, "Теор.цена": _th,
+                    "P&L": _pl, "Дельта": p.get("Дельта"), "Гамма": p.get("Гамма"),
+                    "Вега": p.get("Вега"), "Тета": p.get("Тета"), "Ро": p.get("Ро"),
+                })
+            _df_export = pd.DataFrame(_export_rows)
+            st.download_button("📤 Экспорт CSV",
+                               data=_df_export.to_csv(index=False).encode("utf-8-sig"),
+                               file_name="portfolio.csv", mime="text/csv",
+                               use_container_width=True,
+                               key="positions_export_btn")
+
+        if _refresh_clicked:
+            # Обновляем данные из доски для каждой опционной позиции
+            for _pi, _p in enumerate(st.session_state.positions):
+                _instr_p = _p.get("Тип инструмента", "Опцион")
+                if _instr_p != "Опцион":
+                    continue
+                _asset_p = _p.get("_asset") or st.session_state.get("selected_asset", "")
+                _atype_p = _p.get("_atype") or st.session_state.get("selected_asset_type_ui", "")
+                _scode_p = _p.get("_series_code") or st.session_state.get("selected_series_code", "")
+                if not (_asset_p and _atype_p and _scode_p):
+                    continue
+                try:
+                    _board_p = fetch_optionboard(_asset_p, _atype_p, _scode_p)
+                except Exception:
+                    continue
+                _side_p = "Call" if _p.get("Опцион") == "Call" else "Put"
+                _src_p = _board_p.get("call") if _side_p == "Call" else _board_p.get("put")
+                _row_p = next((x for x in (_src_p or [])
+                                if x.get("strike") == _p.get("Страйк")), None)
+                if _row_p is None:
+                    continue
+                _p["Теор.цена"] = float(_row_p.get("theorprice") or 0)
+                _p["Дельта"] = _row_p.get("delta")
+                _p["Гамма"]  = _row_p.get("gamma")
+                _p["Вега"]   = _row_p.get("vega")
+                _p["Тета"]   = _row_p.get("theta")
+                _p["Ро"]     = _row_p.get("rho")
+                _p["_vol"]   = float(_row_p.get("volatility") or 20.0)
+                # применяем ручные правки из session_state
+                _kp_p = f"price_{_p.get('_id')}"
+                _kq_p = f"qty_{_p.get('_id')}"
+                if _kp_p in st.session_state:
+                    _p["Цена"] = float(st.session_state[_kp_p])
+                if _kq_p in st.session_state:
+                    _p["Кол-во"] = int(st.session_state[_kq_p])
+                    _p["Направление"] = _side_from_qty(int(_p["Кол-во"]))
+            st.success("✅ Позиции обновлены из доски.")
+            st.rerun()
+
+        # =========================================================
+        # Определение опционной конструкции (без изменений)
         # =========================================================
         try:
             _visible_positions = [p for p in st.session_state.positions
@@ -3410,7 +3417,7 @@ def _render_position_tab():
             pass
 
         # =========================================================
-        # Проверка риска + экспорт
+        # Проверка риска
         # =========================================================
         _max_loss_prem = 0.0
         for p in st.session_state.positions:
@@ -3422,203 +3429,13 @@ def _render_position_tab():
             _c = _calc_comm(_pr, _instr)
             _max_loss_prem += (_pr + _c) * _q
 
-        _col_r1, _col_r2 = st.columns([2, 1])
-        with _col_r1:
-            if _max_loss_prem > risk_amount:
-                st.error(f"⚠ Превышен риск: {_max_loss_prem:,.2f} ₽ > "
-                         f"{risk_amount:,.2f} ₽ допустимых")
-            else:
-                st.success(f"✓ Риск: {_max_loss_prem:,.2f} ₽ / "
-                           f"{risk_amount:,.2f} ₽ "
-                           f"({_max_loss_prem / risk_amount * 100:.1f}%)")
-        with _col_r2:
-            _export_rows = []
-            for i, p in enumerate(st.session_state.positions):
-                _q = int(p["Кол-во"]); _pr = float(p["Цена"]); _th = float(p["Теор.цена"])
-                _instr = p.get("Тип инструмента", "Опцион")
-                _isBA = (_instr == "БА" or p.get("Опцион") == "БА")
-                if _isBA:
-                    _c = 0.0; _pl = (_th - _pr) * _q
-                else:
-                    _c = _calc_comm(_pr, _instr); _pl = (_th - _pr - _c) * _q
-                _export_rows.append({
-                    "#": i + 1, "Тип": _instr, "Опцион": p["Опцион"],
-                    "Направление": p.get("Направление", _side_from_qty(_q)),
-                    "Страйк": p.get("Страйк", "—"), "Эксп.": p.get("Эксп.", "—"),
-                    "Тикер": p.get("Тикер", "—"), "Кол-во": _q, "Цена": _pr,
-                    "Комиссия": _c, "Эфф. цена": _pr + _c, "Теор.цена": _th,
-                    "P&L": _pl, "Дельта": p.get("Дельта"), "Гамма": p.get("Гамма"),
-                    "Вега": p.get("Вега"), "Тета": p.get("Тета"), "Ро": p.get("Ро"),
-                })
-            _df_export = pd.DataFrame(_export_rows)
-            st.download_button("📤 Экспорт CSV",
-                               data=_df_export.to_csv(index=False).encode("utf-8-sig"),
-                               file_name="portfolio.csv", mime="text/csv",
-                               use_container_width=True)
-
-    # ==================================================================
-    # СРАВНЕНИЕ СТРАЙКОВ РАЗНЫХ СЕРИЙ
-    # ==================================================================
-    if st.session_state.positions:
-        st.markdown("---")
-        st.markdown("### Сравнение страйков разных серий (по выгодности)")
-
-        _asset_cmp = st.session_state.get("selected_asset", "")
-        _atype_cmp = st.session_state.get("selected_asset_type_ui", "")
-
-        if not _asset_cmp or not _atype_cmp:
-            st.caption("Выберите актив на вкладке «Калькулятор».")
+        if _max_loss_prem > risk_amount:
+            st.error(f"⚠ Превышен риск: {_max_loss_prem:,.2f} ₽ > "
+                     f"{risk_amount:,.2f} ₽ допустимых")
         else:
-            _all_series_cmp = fetch_all_series_for_asset(_asset_cmp, _atype_cmp)
-            if len(_all_series_cmp) < 2:
-                st.info("Для сравнения нужно минимум 2 опционные серии.")
-            else:
-                _strikes_in_portfolio = sorted({
-                    float(p["Страйк"])
-                    for p in st.session_state.positions
-                    if p.get("Страйк") is not None
-                })
-
-                if not _strikes_in_portfolio:
-                    st.info("В портфеле нет опционов с указанным страйком.")
-                else:
-                    st.caption(
-                        f"Для каждого страйка показаны опционы одной стороны "
-                        f"(Call/Put) с разных серий — сравнение теоретических цен, "
-                        f"IV и греков.  \nСтрочка **⭐ = текущий выбор** "
-                        f"(серия открыта в портфеле).")
-
-                    # 🔧 Предзагрузка досок ВСЕХ серий один раз,
-                    # затем в циклах — только dict-lookup.
-                    _boards_by_series = {}
-                    for _s in _all_series_cmp:
-                        _scode = _s["code"]
-                        try:
-                            _boards_by_series[_scode] = fetch_optionboard(
-                                _asset_cmp, _atype_cmp, _scode)
-                        except Exception:
-                            continue
-
-                    _cmp_rows = []
-                    for _k in _strikes_in_portfolio:
-                        _leg = next((p for p in st.session_state.positions
-                                     if p.get("Страйк") == _k
-                                     and p.get("Опцион") in ("Call", "Put")), None)
-                        if _leg is None:
-                            continue
-                        _opt_side = _leg["Опцион"]
-
-                        for _s in _all_series_cmp:
-                            _scode = _s["code"]
-                            _sexp = _s["expiry"]
-                            _board_s = _boards_by_series.get(_scode)
-                            if not _board_s:
-                                continue
-                            _calls_s = _board_s.get("call") or []
-                            _puts_s = _board_s.get("put") or []
-                            _src_s = _calls_s if _opt_side == "Call" else _puts_s
-                            _opt_row = next(
-                                (x for x in _src_s
-                                 if x.get("strike") == _k), None)
-                            if _opt_row is None:
-                                continue
-                            _theor = float(_opt_row.get("theorprice") or 0)
-                            _last = float(_opt_row.get("last") or 0)
-                            _bid = float(_opt_row.get("bid") or 0)
-                            _ask = float(_opt_row.get("offer") or 0)
-                            _iv = float(_opt_row.get("volatility") or 0)
-                            _delta = _opt_row.get("delta")
-                            _vega = _opt_row.get("vega")
-                            _theta = _opt_row.get("theta")
-
-                            _is_current = (
-                                _scode == st.session_state.get(
-                                    "selected_series_code", "") or
-                                _sexp == _leg.get("Эксп.", "")
-                            )
-                            _mark = "⭐ " if _is_current else ""
-
-                            _cmp_rows.append({
-                                "Страйк": f"{_mark}{int(_k)}",
-                                "Опцион": _opt_side,
-                                "Серия": _scode,
-                                "Экспирация": _sexp,
-                                "Теор. ₽": _theor,
-                                "Посл. ₽": _last,
-                                "Bid": _bid,
-                                "Ask": _ask,
-                                "IV %": _iv,
-                                "Δ": _delta,
-                                "Vega": _vega,
-                                "Theta": _theta,
-                            })
-
-                    if not _cmp_rows:
-                        st.info("Не удалось собрать данные для сравнения.")
-                    else:
-                        _df_cmp = pd.DataFrame(_cmp_rows)
-                        _df_cmp = _df_cmp.sort_values(
-                            ["Страйк", "Экспирация"],
-                            key=lambda c: c.astype(str))
-
-                        def _style_cmp(_row):
-                            _styles = []
-                            _is_cur = str(_row["Страйк"]).startswith("⭐")
-                            for _col in _row.index:
-                                if _is_cur:
-                                    _styles.append(
-                                        "background-color:#fff8dc; "
-                                        "font-weight:600;")
-                                else:
-                                    _styles.append("")
-                            return _styles
-
-                        st.dataframe(
-                            _df_cmp.style.apply(_style_cmp, axis=1).format({
-                                "Теор. ₽":   "{:.4f}",
-                                "Посл. ₽":   "{:.4f}",
-                                "Bid":       "{:.4f}",
-                                "Ask":       "{:.4f}",
-                                "IV %":      "{:.2f}",
-                                "Δ":         "{:+.4f}",
-                                "Vega":      "{:+.4f}",
-                                "Theta":     "{:+.4f}",
-                            }, na_rep="—"),
-                            use_container_width=True,
-                            hide_index=True,
-                            height=min(60 + 35 * len(_df_cmp), 600))
-
-                        st.markdown("**Рекомендация (по теоретической цене):**")
-                        _best_buy = None
-                        _best_sell = None
-                        for _r in _cmp_rows:
-                            _th = _r.get("Теор. ₽") or 0
-                            if _th <= 0:
-                                continue
-                            if _best_buy is None or _th < _best_buy["Теор. ₽"]:
-                                _best_buy = _r
-                            if _best_sell is None or _th > _best_sell["Теор. ₽"]:
-                                _best_sell = _r
-
-                        _c1, _c2 = st.columns(2)
-                        with _c1:
-                            if _best_buy is not None:
-                                st.markdown(
-                                    f"🟢 **Купить дешевле:** "
-                                    f"{_best_buy['Опцион']} {_best_buy['Страйк'].replace('⭐ ','')} "
-                                    f"({_best_buy['Экспирация']}, серия "
-                                    f"`{_best_buy['Серия']}`) — "
-                                    f"теор. **{_best_buy['Теор. ₽']:.4f} ₽**, "
-                                    f"IV {_best_buy['IV %']:.2f} %")
-                        with _c2:
-                            if _best_sell is not None:
-                                st.markdown(
-                                    f"🔴 **Продать дороже:** "
-                                    f"{_best_sell['Опцион']} {_best_sell['Страйк'].replace('⭐ ','')} "
-                                    f"({_best_sell['Экспирация']}, серия "
-                                    f"`{_best_sell['Серия']}`) — "
-                                    f"теор. **{_best_sell['Теор. ₽']:.4f} ₽**, "
-                                    f"IV {_best_sell['IV %']:.2f} %")
+            st.success(f"✓ Риск: {_max_loss_prem:,.2f} ₽ / "
+                       f"{risk_amount:,.2f} ₽ "
+                       f"({_max_loss_prem / risk_amount * 100:.1f}%)")
 
     # ==================================================================
     # ГРАФИК ПРОФИЛЯ ПОЗИЦИИ
@@ -3656,23 +3473,9 @@ def _render_position_tab():
         if F_current is None:
             try:
                 _atype_f = st.session_state.get("selected_asset_type_ui", "")
-                if _atype_f in ("Фьючерс", "Валюта", "Товар"):
-                    _eng_f, _mkt_f = "futures", "forts"
-                elif _atype_f == "Индекс":
-                    _eng_f, _mkt_f = "stock", "index"
-                else:
-                    _eng_f, _mkt_f = "stock", "shares"
-
-                _ser_info_f = fetch_series_info(
-                    st.session_state.get("selected_asset", ""),
-                    _atype_f,
-                    st.session_state.get("selected_series_code", ""))
-                _fut_ticker_f = _ser_info_f.get("Тикер", "")
-                if _fut_ticker_f and _fut_ticker_f != "—":
-                    _secid_f = _fut_ticker_f
-                else:
-                    _secid_f = resolve_underlying_secid(
-                        st.session_state.get("selected_asset", ""), _atype_f)
+                _eng_f, _mkt_f = _get_engine_market(_atype_f)
+                _secid_f = resolve_underlying_secid(
+                    st.session_state.get("selected_asset", ""), _atype_f)
                 F_current = get_last_close_price(_secid_f, _eng_f, _mkt_f)
                 if F_current is not None:
                     st.session_state["_current_market_price"] = F_current
@@ -3854,7 +3657,73 @@ def _render_position_tab():
                 st.caption(f"Точки безубыточности: {be_str}")
             else:
                 st.caption("Точки безубыточности в диапазоне не найдены.")
-                # ==================================================================
+
+    # ==================================================================
+    # 🔧 БИРЖЕВЫЕ ГРАФИКИ D1 / H1 (перенесены с «Калькулятора»)
+    # ==================================================================
+    st.markdown("---")
+    st.markdown("### Биржевые графики")
+
+    if not st.session_state.get("board_loaded"):
+        st.info("Выберите серию и загрузите доску на вкладке «Калькулятор».")
+    else:
+        try:
+            _asset_ch = st.session_state.get("selected_asset", "")
+            _atype_ch = st.session_state.get("selected_asset_type_ui", "")
+            _series_ch = st.session_state.get("selected_series_code", "")
+
+            _eng, _mkt = _get_engine_market(_atype_ch)
+            _secid_ch = resolve_underlying_secid(_asset_ch, _atype_ch) or _asset_ch
+
+            _strikes_ch = []
+            try:
+                _board_ch = fetch_optionboard(_asset_ch, _atype_ch, _series_ch)
+                _calls_ch = _board_ch.get('call') or []
+                _puts_ch  = _board_ch.get('put')  or []
+                _strikes_ch = sorted({
+                    float(c['strike']) for c in _calls_ch
+                    if c.get('strike') is not None
+                } | {
+                    float(p['strike']) for p in _puts_ch
+                    if p.get('strike') is not None
+                })
+            except Exception:
+                pass
+
+            _d1_days = 180
+            _h1_days = 25
+
+            _df_d1 = fetch_bars(_secid_ch, interval=24, days=_d1_days,
+                                engine=_eng, market=_mkt)
+            _df_h1 = fetch_bars(_secid_ch, interval=60, days=_h1_days,
+                                engine=_eng, market=_mkt)
+
+            _buy_ch  = float(st.session_state.get("_calc_level_buy", 0) or 0)
+            _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
+
+            _current_price_ch = None
+            try:
+                _current_price_ch = get_last_close_price(_secid_ch, _eng, _mkt)
+            except Exception:
+                pass
+
+            _chart_label = _asset_ch
+
+            render_exchange_chart(
+                _df_d1, st.session_state.get("positions", []),
+                _buy_ch, _sell_ch, _strikes_ch,
+                f"D1 — {_chart_label}", "chart_d1_tab",
+                current_price=_current_price_ch,
+                comm_func=_calc_comm_ui)
+            render_exchange_chart(
+                _df_h1, st.session_state.get("positions", []),
+                _buy_ch, _sell_ch, _strikes_ch,
+                f"H1 — {_chart_label}", "chart_h1_tab",
+                current_price=_current_price_ch,
+                comm_func=_calc_comm_ui)
+        except Exception as e:
+            st.warning(f"Не удалось построить графики: {e}")
+            # ==================================================================
 # ============ ВКЛАДКА 3: ДОСКА ОПЦИОНОВ ===========================
 # ==================================================================
 @st.fragment
@@ -3862,7 +3731,7 @@ def _render_board_tab():
     if not st.session_state.get("series_list"):
         st.info("Сначала выберите опционную серию на вкладке «Калькулятор».")
     elif "selected_series_code" not in st.session_state:
-        st.info("Выберите конкретную дату экспирации на вкладке «Калькулятор».")
+        st.info("Выберите конкретную дату исполнения на вкладке «Калькулятор».")
     else:
         asset = st.session_state.get("selected_asset", "")
         asset_type_ui = st.session_state.get("selected_asset_type_ui", "")
@@ -3873,7 +3742,7 @@ def _render_board_tab():
         sell_level = float(st.session_state.get("_calc_level_sell", 0) or 0)
 
         st.markdown(f"### Доска опционов — **{asset}** "
-                    f"(серия `{series_code}`, экспирация {expiry_str})")
+                    f"(дата исполнения: {format_series_label(expiry_str)})")
 
         # ---- Информационная строка ----
         try:
@@ -3932,14 +3801,14 @@ def _render_board_tab():
         col_t1, col_t2 = st.columns([3, 2])
         with col_t1:
             highlight_on = st.toggle(
-                "Раскрасить ячейки по грекам и ликвидности", value=False)
+                "Раскрасить Bid/Offer (выгодные цены) и греки", value=True)
         with col_t2:
             if highlight_on:
                 st.markdown(
                     "<div style='font-size:.78rem; color:#4a6f8a; "
                     "padding-top:.4rem;'>"
-                    "Зелёный — норма · Жёлтый — пограничное · "
-                    "Красный — не по стратегии</div>",
+                    "🟪 Offer &lt; Theor → выгодно купить · "
+                    "🟪 Bid &gt; Theor → выгодно продать</div>",
                     unsafe_allow_html=True)
 
         try:
@@ -4029,19 +3898,26 @@ def _render_board_tab():
                     return "#fcff00"
                 return "#ff0000"
 
-            def _liquidity_color(bid, ask, theor):
-                if bid is None or ask is None or theor is None:
+            # 🔧 Новая логика для Bid/Offer:
+            #   Bid > theorprice  → выгодно ПРОДАТЬ → цвет уровня продаж (#fb92f0)
+            #   Offer < theorprice → выгодно КУПИТЬ  → цвет уровня покупок (#9c00ff)
+            def _bid_offer_color(price, theor, is_bid):
+                if price is None or theor is None:
                     return None
-                if not all(isinstance(x, (int, float)) for x in (bid, ask, theor)):
+                if not isinstance(price, (int, float)) or \
+                   not isinstance(theor, (int, float)):
                     return None
-                if bid <= 0 or ask <= 0 or theor <= 0:
+                if price <= 0 or theor <= 0:
                     return None
-                spread_pct = (ask - bid) / theor * 100
-                if spread_pct < 5:
-                    return "#00ff0c"
-                if spread_pct < 15:
-                    return "#fcff00"
-                return "#ff0000"
+                if is_bid:
+                    # предложение купить у нас — выгодно, если выше теор.
+                    if price > theor:
+                        return "#fb92f0"   # цвет уровня продаж
+                else:
+                    # оффер продажи нам — выгодно, если ниже теор.
+                    if price < theor:
+                        return "#9c00ff"   # цвет уровня покупок
+                return None
 
             def style_row(row):
                 strike = float(row["Strike"])
@@ -4071,8 +3947,27 @@ def _render_board_tab():
                             style = "background-color: #e3e7ec; font-weight: bold"
                     elif col == "IV_%" and is_central:
                         style = "background-color: #e3e7ec; font-weight: bold"
+
                     if highlight_on:
-                        if col in ("Call_Delta", "Put_Delta"):
+                        # Bid/Offer — новое правило
+                        if col in ("Call_Bid", "Put_Bid"):
+                            theor_col = ("Call_Theor" if col.startswith("Call_")
+                                         else "Put_Theor")
+                            c = _bid_offer_color(row[col], row.get(theor_col),
+                                                  is_bid=True)
+                            if c:
+                                style = (f"background-color: {c}; "
+                                         f"color: white; font-weight: 700")
+                        elif col in ("Call_Offer", "Put_Offer"):
+                            theor_col = ("Call_Theor" if col.startswith("Call_")
+                                         else "Put_Theor")
+                            c = _bid_offer_color(row[col], row.get(theor_col),
+                                                  is_bid=False)
+                            if c:
+                                style = (f"background-color: {c}; "
+                                         f"color: white; font-weight: 700")
+                        # Греки — старая логика
+                        elif col in ("Call_Delta", "Put_Delta"):
                             c = _delta_color(row[col])
                             if c:
                                 style = f"background-color: {c}; font-weight: 600"
@@ -4082,18 +3977,7 @@ def _render_board_tab():
                             c = _theta_color(row[col], row.get(vega_col))
                             if c:
                                 style = f"background-color: {c}; font-weight: 600"
-                        elif col in ("Call_Bid", "Call_Offer",
-                                     "Put_Bid", "Put_Offer"):
-                            theor_col = ("Call_Theor" if col.startswith("Call_")
-                                         else "Put_Theor")
-                            if col.endswith("_Bid"):
-                                pair_col = col.replace("_Bid", "_Offer")
-                            else:
-                                pair_col = col.replace("_Offer", "_Bid")
-                            c = _liquidity_color(row[col], row.get(pair_col),
-                                                 row.get(theor_col))
-                            if c:
-                                style = f"background-color: {c}"
+
                     styles.append(style)
                 return styles
 
@@ -4249,8 +4133,6 @@ def _render_alerts_tab():
         st.info("Нет данных для отображения. Загрузите Excel или проверьте "
                 "доступность Google Sheets.")
     else:
-        # 🔧 Вложенный fragment с run_every="30s" — тикает ТОЛЬКО live-блок,
-        # контролы (radio, popover, uploader) остаются стабильными.
         @st.fragment(run_every="30s")
         def _render_alerts_live():
             _df_alerts = st.session_state.get("alerts_df")
