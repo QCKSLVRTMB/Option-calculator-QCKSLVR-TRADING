@@ -23,22 +23,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-if "cache_cleared_v4" not in st.session_state:
+if "cache_cleared_v5" not in st.session_state:
     st.cache_data.clear()
-    st.session_state["cache_cleared_v4"] = True
+    st.session_state["cache_cleared_v5"] = True
 
-# 🔧 CSS: границы форм и строк таблицы позиций
 st.markdown("""
 <style>
 .block-container {padding-top: 1rem; padding-bottom: 2rem;}
-
-/* Границы вокруг форм */
 [data-testid="stForm"] {
     border: 1px solid #cfdfe9 !important;
     border-radius: 12px !important;
     padding: 14px 16px !important;
 }
-/* Границы строк таблицы «Текущие позиции» */
 .pos-row-wrap [data-testid="stHorizontalBlock"] {
     border-bottom: 1px solid #e6edf4;
     padding: 2px 0;
@@ -69,7 +65,6 @@ ALERTS_SHEET_URL = (
     "2PACX-1vRKISFld2M8tFEEE1o1Fo5nQgHP6qMmOFu57JDmi-t-Y4Xj67N5SQP9uQ02JW2Ixyd663zewMYY1hfx"
     "/pub?output=xlsx"
 )
-
 
 # ================= Справочник инструментов MOEX =================
 MOEX_INSTRUMENTS = {
@@ -343,369 +338,49 @@ def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
 
 # ================= Предустановленные стратегии =================
 PREDEFINED_STRATEGIES = {
-    "Long Call": {
-        "category": "Одиночные",
-        "description": "Покупка опциона Call — ставка на рост",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Buy Call)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Long Put": {
-        "category": "Одиночные",
-        "description": "Покупка опциона Put — ставка на падение",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Buy Put)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Short Call": {
-        "category": "Одиночные",
-        "description": "Продажа опциона Call",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Sell Call)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Short Put": {
-        "category": "Одиночные",
-        "description": "Продажа опциона Put",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Sell Put)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Bull Call Spread": {
-        "category": "Вертикальные спреды",
-        "description": "Buy Call (низ) + Sell Call (верх)",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Buy Call (низ)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K_low"},
-            {"label": "Sell Call (верх)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Bear Call Spread": {
-        "category": "Вертикальные спреды",
-        "description": "Sell Call (низ) + Buy Call (верх)",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Sell Call (низ)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K_low"},
-            {"label": "Buy Call (верх)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Bull Put Spread": {
-        "category": "Вертикальные спреды",
-        "description": "Sell Put (верх) + Buy Put (низ)",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Buy Put (низ)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K_low"},
-            {"label": "Sell Put (верх)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Bear Put Spread": {
-        "category": "Вертикальные спреды",
-        "description": "Buy Put (верх) + Sell Put (низ)",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Sell Put (низ)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K_low"},
-            {"label": "Buy Put (верх)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Long Butterfly (Call)": {
-        "category": "Бабочки",
-        "description": "Buy 1 Call + Sell 2 Call + Buy 1 Call. K1 < K2 < K3",
-        "strike_order": ["K1", "K2", "K3"],
-        "legs": [
-            {"label": "Buy Call (K1 — низ)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Call ×2 (K2)", "option": "Call",
-             "side": "Sell", "qty": 2, "strike_group": "K2"},
-            {"label": "Buy Call (K3 — верх)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K3"},
-        ],
-    },
-    "Short Butterfly (Call)": {
-        "category": "Бабочки",
-        "description": "Sell 1 Call + Buy 2 Call + Sell 1 Call",
-        "strike_order": ["K1", "K2", "K3"],
-        "legs": [
-            {"label": "Sell Call (K1)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K1"},
-            {"label": "Buy Call ×2 (K2)", "option": "Call",
-             "side": "Buy", "qty": 2, "strike_group": "K2"},
-            {"label": "Sell Call (K3)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K3"},
-        ],
-    },
-    "Long Butterfly (Put)": {
-        "category": "Бабочки",
-        "description": "Buy 1 Put + Sell 2 Put + Buy 1 Put",
-        "strike_order": ["K1", "K2", "K3"],
-        "legs": [
-            {"label": "Buy Put (K1)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Put ×2 (K2)", "option": "Put",
-             "side": "Sell", "qty": 2, "strike_group": "K2"},
-            {"label": "Buy Put (K3)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K3"},
-        ],
-    },
-    "Short Cat (Кошка)": {
-        "category": "Кошка",
-        "description": "Buy Put + Sell Put + Sell Call + Buy Call",
-        "strike_order": ["K1", "K2", "K3", "K4"],
-        "legs": [
-            {"label": "Buy Put (K1)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Put (K2)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K2"},
-            {"label": "Sell Call (K3)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K3"},
-            {"label": "Buy Call (K4)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K4"},
-        ],
-    },
-    "Iron Condor": {
-        "category": "Кондоры",
-        "description": "Buy Put + Sell Put + Sell Call + Buy Call",
-        "strike_order": ["K1", "K2", "K3", "K4"],
-        "legs": [
-            {"label": "Buy Put (K1)", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Put (K2)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K2"},
-            {"label": "Sell Call (K3)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K3"},
-            {"label": "Buy Call (K4)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K4"},
-        ],
-    },
-    "Long Straddle": {
-        "category": "Straddle / Strangle",
-        "description": "Buy Call + Buy Put на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Buy Call + Buy Put)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K"},
-            {"label": "тот же страйк", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Short Straddle": {
-        "category": "Straddle / Strangle",
-        "description": "Sell Call + Sell Put на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Sell Call + Sell Put)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K"},
-            {"label": "тот же страйк", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Long Strangle": {
-        "category": "Straddle / Strangle",
-        "description": "Buy OTM Put + Buy OTM Call",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Buy Put (нижний)",  "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K_low"},
-            {"label": "Buy Call (верхний)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Short Strangle": {
-        "category": "Straddle / Strangle",
-        "description": "Sell OTM Put + Sell OTM Call",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Sell Put (нижний)",  "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K_low"},
-            {"label": "Sell Call (верхний)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Call Ratio Spread": {
-        "category": "Ratio / Backspread",
-        "description": "Buy 1 Call + Sell 2 Call",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Buy Call (низ)",      "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K_low"},
-            {"label": "Sell Call ×2 (верх)", "option": "Call",
-             "side": "Sell", "qty": 2, "strike_group": "K_high"},
-        ],
-    },
-    "Put Ratio Spread": {
-        "category": "Ratio / Backspread",
-        "description": "Buy 1 Put + Sell 2 Put",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Sell Put ×2 (низ)",   "option": "Put",
-             "side": "Sell", "qty": 2, "strike_group": "K_low"},
-            {"label": "Buy Put (верх)",      "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K_high"},
-        ],
-    },
-    "Synthetic Long Futures": {
-        "category": "Синтетика",
-        "description": "Buy Call + Sell Put на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Buy Call + Sell Put)", "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K"},
-            {"label": "тот же страйк", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Synthetic Short Futures": {
-        "category": "Синтетика",
-        "description": "Sell Call + Buy Put на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Sell Call + Buy Put)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K"},
-            {"label": "тот же страйк", "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Strap": {
-        "category": "Strap / Strip",
-        "description": "Buy 2 Call + Buy 1 Put на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Buy 2 Call + Buy 1 Put)", "option": "Call",
-             "side": "Buy", "qty": 2, "strike_group": "K"},
-            {"label": "тот же страйк", "option": "Put",
-             "side": "Buy", "qty": 1, "strike_group": "K"},
-        ],
-    },
-    "Strip": {
-        "category": "Strap / Strip",
-        "description": "Buy 1 Call + Buy 2 Put на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Страйк (Buy 1 Call + Buy 2 Put)", "option": "Call",
-             "side": "Buy", "qty": 1, "strike_group": "K"},
-            {"label": "тот же страйк", "option": "Put",
-             "side": "Buy", "qty": 2, "strike_group": "K"},
-        ],
-    },
-    "Ladder Call": {
-        "category": "Ladder",
-        "description": "Buy 1 Call + Sell Call + Sell Call",
-        "strike_order": ["K1", "K2", "K3"],
-        "legs": [
-            {"label": "Buy Call (K1)",     "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Call (K2)",    "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K2"},
-            {"label": "Sell Call (K3)",    "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K3"},
-        ],
-    },
-    "Ladder Put": {
-        "category": "Ladder",
-        "description": "Buy 1 Put + Sell Put + Sell Put",
-        "strike_order": ["K1", "K2", "K3"],
-        "legs": [
-            {"label": "Buy Put (K1)",      "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K1"},
-            {"label": "Sell Put (K2)",     "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K2"},
-            {"label": "Sell Put (K3)",     "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K3"},
-        ],
-    },
-    "Calendar Call Spread": {
-        "category": "Календарные спреды",
-        "description": "Sell ближний Call + Buy дальний Call на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Sell Call (ближний)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K",
-             "leg_expiry": "near"},
-            {"label": "Buy Call (дальний)",  "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K",
-             "leg_expiry": "far"},
-        ],
-    },
-    "Calendar Put Spread": {
-        "category": "Календарные спреды",
-        "description": "Sell ближний Put + Buy дальний Put на одном страйке",
-        "strike_order": [],
-        "legs": [
-            {"label": "Sell Put (ближний)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K",
-             "leg_expiry": "near"},
-            {"label": "Buy Put (дальний)",  "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K",
-             "leg_expiry": "far"},
-        ],
-    },
-    "Reverse Calendar Call Spread": {
-        "category": "Календарные спреды",
-        "description": "Buy ближний Call + Sell дальний Call (обратный календарь)",
-        "strike_order": [],
-        "legs": [
-            {"label": "Buy Call (ближний)", "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K",
-             "leg_expiry": "near"},
-            {"label": "Sell Call (дальний)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K",
-             "leg_expiry": "far"},
-        ],
-    },
-    "Reverse Calendar Put Spread": {
-        "category": "Календарные спреды",
-        "description": "Buy ближний Put + Sell дальний Put (обратный календарь)",
-        "strike_order": [],
-        "legs": [
-            {"label": "Buy Put (ближний)", "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K",
-             "leg_expiry": "near"},
-            {"label": "Sell Put (дальний)", "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K",
-             "leg_expiry": "far"},
-        ],
-    },
-    "Diagonal Call Spread": {
-        "category": "Календарные спреды",
-        "description": "Sell ближний Call K_high + Buy дальний Call K_low",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Buy Call дальний (низ)",  "option": "Call",
-             "side": "Buy",  "qty": 1, "strike_group": "K_low",
-             "leg_expiry": "far"},
-            {"label": "Sell Call ближний (верх)", "option": "Call",
-             "side": "Sell", "qty": 1, "strike_group": "K_high",
-             "leg_expiry": "near"},
-        ],
-    },
-    "Diagonal Put Spread": {
-        "category": "Календарные спреды",
-        "description": "Sell ближний Put K_low + Buy дальний Put K_high",
-        "strike_order": ["K_low", "K_high"],
-        "legs": [
-            {"label": "Buy Put дальний (верх)",  "option": "Put",
-             "side": "Buy",  "qty": 1, "strike_group": "K_high",
-             "leg_expiry": "far"},
-            {"label": "Sell Put ближний (низ)",   "option": "Put",
-             "side": "Sell", "qty": 1, "strike_group": "K_low",
-             "leg_expiry": "near"},
-        ],
-    },
+    "Long Call": {"category": "Одиночные", "description": "Покупка опциона Call — ставка на рост",
+        "strike_order": [], "legs": [{"label": "Страйк (Buy Call)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K"}]},
+    "Long Put": {"category": "Одиночные", "description": "Покупка опциона Put — ставка на падение",
+        "strike_order": [], "legs": [{"label": "Страйк (Buy Put)", "option": "Put", "side": "Buy", "qty": 1, "strike_group": "K"}]},
+    "Short Call": {"category": "Одиночные", "description": "Продажа опциона Call",
+        "strike_order": [], "legs": [{"label": "Страйк (Sell Call)", "option": "Call", "side": "Sell", "qty": 1, "strike_group": "K"}]},
+    "Short Put": {"category": "Одиночные", "description": "Продажа опциона Put",
+        "strike_order": [], "legs": [{"label": "Страйк (Sell Put)", "option": "Put", "side": "Sell", "qty": 1, "strike_group": "K"}]},
+    "Bull Call Spread": {"category": "Вертикальные спреды", "description": "Buy Call (низ) + Sell Call (верх)",
+        "strike_order": ["K_low", "K_high"], "legs": [
+            {"label": "Buy Call (низ)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K_low"},
+            {"label": "Sell Call (верх)", "option": "Call", "side": "Sell", "qty": 1, "strike_group": "K_high"}]},
+    "Bear Call Spread": {"category": "Вертикальные спреды", "description": "Sell Call (низ) + Buy Call (верх)",
+        "strike_order": ["K_low", "K_high"], "legs": [
+            {"label": "Sell Call (низ)", "option": "Call", "side": "Sell", "qty": 1, "strike_group": "K_low"},
+            {"label": "Buy Call (верх)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K_high"}]},
+    "Bull Put Spread": {"category": "Вертикальные спреды", "description": "Sell Put (верх) + Buy Put (низ)",
+        "strike_order": ["K_low", "K_high"], "legs": [
+            {"label": "Buy Put (низ)", "option": "Put", "side": "Buy", "qty": 1, "strike_group": "K_low"},
+            {"label": "Sell Put (верх)", "option": "Put", "side": "Sell", "qty": 1, "strike_group": "K_high"}]},
+    "Bear Put Spread": {"category": "Вертикальные спреды", "description": "Buy Put (верх) + Sell Put (низ)",
+        "strike_order": ["K_low", "K_high"], "legs": [
+            {"label": "Sell Put (низ)", "option": "Put", "side": "Sell", "qty": 1, "strike_group": "K_low"},
+            {"label": "Buy Put (верх)", "option": "Put", "side": "Buy", "qty": 1, "strike_group": "K_high"}]},
+    "Long Butterfly (Call)": {"category": "Бабочки", "description": "Buy 1 Call + Sell 2 Call + Buy 1 Call",
+        "strike_order": ["K1", "K2", "K3"], "legs": [
+            {"label": "Buy Call (K1 — низ)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K1"},
+            {"label": "Sell Call ×2 (K2)", "option": "Call", "side": "Sell", "qty": 2, "strike_group": "K2"},
+            {"label": "Buy Call (K3 — верх)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K3"}]},
+    "Long Straddle": {"category": "Straddle / Strangle", "description": "Buy Call + Buy Put на одном страйке",
+        "strike_order": [], "legs": [
+            {"label": "Страйк (Buy Call + Buy Put)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K"},
+            {"label": "тот же страйк", "option": "Put", "side": "Buy", "qty": 1, "strike_group": "K"}]},
+    "Short Straddle": {"category": "Straddle / Strangle", "description": "Sell Call + Sell Put на одном страйке",
+        "strike_order": [], "legs": [
+            {"label": "Страйк (Sell Call + Sell Put)", "option": "Call", "side": "Sell", "qty": 1, "strike_group": "K"},
+            {"label": "тот же страйк", "option": "Put", "side": "Sell", "qty": 1, "strike_group": "K"}]},
+    "Iron Condor": {"category": "Кондоры", "description": "Buy Put + Sell Put + Sell Call + Buy Call",
+        "strike_order": ["K1", "K2", "K3", "K4"], "legs": [
+            {"label": "Buy Put (K1)", "option": "Put", "side": "Buy", "qty": 1, "strike_group": "K1"},
+            {"label": "Sell Put (K2)", "option": "Put", "side": "Sell", "qty": 1, "strike_group": "K2"},
+            {"label": "Sell Call (K3)", "option": "Call", "side": "Sell", "qty": 1, "strike_group": "K3"},
+            {"label": "Buy Call (K4)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K4"}]},
 }
 
 
@@ -762,13 +437,6 @@ def _mark_failed(key: str, cooldown_sec: int = 60):
     _FAILED_UNTIL[key] = time.time() + cooldown_sec
 
 
-# ================= Фьючерсы на индексы =================
-_INDEX_FUTURES_CODES = {
-    "RTS", "MIX", "RVI", "RGBI", "MOEXCNY",
-    "MMI", "FNI", "OGI", "MXI", "RTSM",
-}
-
-
 # ================= Канонизация тикера =================
 def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> str:
     if not user_input:
@@ -788,20 +456,6 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
             if code.upper() == s_upper:
                 return code
     return s_upper
-
-
-def suggest_futures_code_for_stock(stock_code: str) -> str:
-    if not stock_code:
-        return ""
-    s_upper = stock_code.strip().upper()
-    futures_items = MOEX_INSTRUMENTS.get("Фьючерсы", {})
-    for code in futures_items.keys():
-        if code.upper() == s_upper:
-            return code
-    for code, (_, name) in futures_items.items():
-        if s_upper in name.upper():
-            return code
-    return ""
 
 
 # ================= Комиссии =================
@@ -845,14 +499,11 @@ def fetch_dividends_smartlab() -> pd.DataFrame:
         r = requests.get(url, headers=headers, timeout=20)
         r.raise_for_status()
     except Exception:
-        return pd.DataFrame(columns=["ticker", "dividend_rub",
-                                     "record_date", "stock_price"])
-    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', r.text,
-                      flags=re.DOTALL | re.IGNORECASE)
+        return pd.DataFrame(columns=["ticker", "dividend_rub", "record_date", "stock_price"])
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', r.text, flags=re.DOTALL | re.IGNORECASE)
     records = []
     for row_html in rows:
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html,
-                           flags=re.DOTALL | re.IGNORECASE)
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, flags=re.DOTALL | re.IGNORECASE)
         if len(cells) < 10:
             continue
         clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
@@ -953,8 +604,7 @@ def g_curve_yield(t_years: float, p: dict):
     term4 = 0.0
     for i in range(9):
         if _GC_B[i] != 0:
-            term4 += g[i] * math.exp(-((t_years - _GC_A[i]) ** 2)
-                                     / (_GC_B[i] ** 2))
+            term4 += g[i] * math.exp(-((t_years - _GC_A[i]) ** 2) / (_GC_B[i] ** 2))
     raw = term1 + term2 + term3 + term4
     rate_pct = raw / 10000.0
     if rate_pct < 0.5 or rate_pct > 50:
@@ -978,7 +628,7 @@ def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
         return None
 
 
-# ================= LAST-цена БА с ISS (ttl=10) =================
+# ================= LAST-цена БА с ISS =================
 @st.cache_data(ttl=10, show_spinner=False)
 def fetch_last_price_from_iss(secid: str, asset_type_ui: str):
     if not secid:
@@ -991,9 +641,7 @@ def fetch_last_price_from_iss(secid: str, asset_type_ui: str):
         engine, market = "stock", "shares"
     url = (f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
            f"/securities/{secid}.json")
-    data = iss_get_json(url,
-                        params={"iss.meta": "off", "iss.only": "marketdata"},
-                        timeout=15)
+    data = iss_get_json(url, params={"iss.meta": "off", "iss.only": "marketdata"}, timeout=15)
     if data is None:
         return {"last": None, "secid": secid, "source": "ошибка запроса"}
     md = data.get("marketdata", {})
@@ -1010,7 +658,7 @@ def fetch_last_price_from_iss(secid: str, asset_type_ui: str):
     return {"last": None, "secid": secid, "source": "нет цены"}
 
 
-# ================= Загрузка Google Sheets (XLSX-экспорт) =================
+# ================= Загрузка Google Sheets =================
 @st.cache_data(ttl=30, show_spinner=False)
 def load_google_sheet_cached(sheet_url: str, cache_buster: int):
     try:
@@ -1038,17 +686,12 @@ def _normalize_alerts_df(_xls: pd.DataFrame):
         elif "продаж" in c_str or "ask" in c_str:
             _col_map[c] = "Уровень продаж"
     _xls = _xls.rename(columns=_col_map)
-
-    required = ["Тикер БА", "Категория БА",
-                "Уровень покупок", "Уровень продаж"]
+    required = ["Тикер БА", "Категория БА", "Уровень покупок", "Уровень продаж"]
     missing = [c for c in required if c not in _xls.columns]
     if missing:
         return pd.DataFrame(), f"В таблице нет колонок: {', '.join(missing)}"
-
-    _xls["Уровень покупок"] = pd.to_numeric(
-        _xls["Уровень покупок"], errors="coerce")
-    _xls["Уровень продаж"] = pd.to_numeric(
-        _xls["Уровень продаж"], errors="coerce")
+    _xls["Уровень покупок"] = pd.to_numeric(_xls["Уровень покупок"], errors="coerce")
+    _xls["Уровень продаж"] = pd.to_numeric(_xls["Уровень продаж"], errors="coerce")
     _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок", "Уровень продаж"])
     return _xls, None
 
@@ -1070,11 +713,8 @@ def resolve_underlying_secid(asset_code: str, asset_type_ui: str):
         idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
         return idx_map.get(asset_code.upper(), asset_code.upper())
     if asset_type_ui in ("Фьючерс", "Валюта", "Товар"):
-        url = ("https://iss.moex.com/iss/engines/futures/markets/forts/"
-               "securities.json")
-        data = iss_get_json(url,
-                            params={"iss.meta": "off", "iss.only": "securities"},
-                            timeout=20)
+        url = "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json"
+        data = iss_get_json(url, params={"iss.meta": "off", "iss.only": "securities"}, timeout=20)
         if data is None:
             return None
         try:
@@ -1103,8 +743,7 @@ def resolve_underlying_secid(asset_code: str, asset_type_ui: str):
 def fetch_futures_info_iss(secid: str):
     if not secid:
         return None
-    url = (f"https://iss.moex.com/iss/engines/futures/markets/forts"
-           f"/securities/{secid}.json")
+    url = f"https://iss.moex.com/iss/engines/futures/markets/forts/securities/{secid}.json"
     params = {"iss.meta": "off", "iss.only": "securities,marketdata"}
     data = iss_get_json(url, params=params, timeout=15)
     if data is None:
@@ -1136,8 +775,7 @@ def fetch_futures_info_iss(secid: str):
 def fetch_stock_info_iss(secid: str):
     if not secid:
         return None
-    url = (f"https://iss.moex.com/iss/engines/stock/markets/shares"
-           f"/securities/{secid}.json")
+    url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{secid}.json"
     params = {"iss.meta": "off", "iss.only": "securities,marketdata"}
     data = iss_get_json(url, params=params, timeout=15)
     if data is None:
@@ -1168,8 +806,7 @@ def fetch_stock_info_iss(secid: str):
 def fetch_index_info_iss(secid: str):
     if not secid:
         return None
-    url = (f"https://iss.moex.com/iss/engines/stock/markets/index"
-           f"/securities/{secid}.json")
+    url = f"https://iss.moex.com/iss/engines/stock/markets/index/securities/{secid}.json"
     params = {"iss.meta": "off", "iss.only": "securities,marketdata"}
     data = iss_get_json(url, params=params, timeout=15)
     if data is None:
@@ -1178,8 +815,7 @@ def fetch_index_info_iss(secid: str):
     md = data.get("marketdata", {})
     if md.get("data"):
         rd = dict(zip(md["columns"], md["data"][0]))
-        for key in ("CURRENTVALUE", "LASTVALUE", "LAST",
-                    "LCLOSEPRICE", "OPEN"):
+        for key in ("CURRENTVALUE", "LASTVALUE", "LAST", "LCLOSEPRICE", "OPEN"):
             v = rd.get(key)
             if v and v > 0:
                 result["last"] = float(v)
@@ -1201,11 +837,8 @@ def fetch_ba_iss_info(secid: str, asset_type_ui: str):
 def fetch_futures_contracts_list(asset_code: str):
     if not asset_code:
         return []
-    url = ("https://iss.moex.com/iss/engines/futures/markets/forts/"
-           "securities.json")
-    data = iss_get_json(url,
-                        params={"iss.meta": "off", "iss.only": "securities"},
-                        timeout=20)
+    url = "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json"
+    data = iss_get_json(url, params={"iss.meta": "off", "iss.only": "securities"}, timeout=20)
     if data is None:
         return []
     try:
@@ -1228,39 +861,10 @@ def fetch_futures_contracts_list(asset_code: str):
             ltd = str(row.get("LASTTRADEDATE", "")).strip()
             shortname = str(row.get("SHORTNAME", secid)).strip()
             if secid and ltd and ltd >= "2000-01-01":
-                result.append({"secid": secid, "expiration": ltd,
-                               "shortname": shortname})
+                result.append({"secid": secid, "expiration": ltd, "shortname": shortname})
         return result
     except Exception:
         return []
-
-
-def build_futures_code_from_expiry(asset_code: str, expiry_str: str) -> str:
-    if not asset_code or not expiry_str:
-        return ""
-    try:
-        dt = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-    except Exception:
-        return ""
-    month_codes = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
-                   7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
-    m_code = month_codes.get(dt.month, "?")
-    y_code = str(dt.year)[-1]
-    roots = {
-        "RTS": "RI", "MIX": "MX", "SBRF": "SR", "SBPR": "SP",
-        "GAZR": "GZ", "LKOH": "LK", "ROSN": "RN", "NOTK": "NK",
-        "TATN": "TT", "SNGR": "SN", "MTSS": "MT", "MGNT": "MG",
-        "GMKN": "GK", "NLMK": "NM", "CHMF": "CH", "ALRS": "AL",
-        "VTBR": "VB", "MOEX": "ME", "AFKS": "AK", "IRAO": "IR",
-        "HYDR": "HY", "RTKM": "RT", "PLZL": "PL", "MAGN": "MM",
-        "YDEX": "YD", "PHOR": "PH", "RUAL": "RL", "FEES": "FS",
-        "TRNF": "TN", "AFLT": "AF", "PIKK": "PI", "FLOT": "FL",
-        "KMAZ": "KM", "ASTR": "AS", "SVCB": "SC",
-        "BR": "BR", "GOLD": "GD", "SILV": "SV", "NG": "NG",
-        "Si": "Si", "Eu": "Eu", "CNY": "CR",
-    }
-    root = roots.get(asset_code.upper(), asset_code.upper()[:2])
-    return f"{root}{m_code}{y_code}"
 
 
 # ================= Паритет опционов =================
@@ -1276,7 +880,7 @@ def apply_parity_delta(position: dict) -> dict:
     return position
 
 
-# ================= Excel-оповещения =================
+# ================= Оповещения: search & cache =================
 def find_alert_levels(ticker: str, category: str = None):
     df = st.session_state.get("alerts_df")
     if df is None or df.empty:
@@ -1314,29 +918,26 @@ def find_alert_levels(ticker: str, category: str = None):
     return result
 
 
-def resolve_auto_price(ticker: str, option_type: str, side: str,
-                       category: str = None):
-    levels = find_alert_levels(ticker, category=category)
-    if not levels["found"]:
-        return None
-    buy_lvl = levels["buy"]
-    sell_lvl = levels["sell"]
-    if option_type == "Call":
-        return buy_lvl if side == "Buy" else sell_lvl
-    return sell_lvl if side == "Buy" else buy_lvl
-
-
-def autoload_series_for(asset: str, asset_type_ui: str):
-    if not asset:
-        return False
+def get_alert_assets_list():
+    """Список активов из листа оповещений для выпадающего списка."""
+    df = st.session_state.get("alerts_df")
+    if df is None or df.empty:
+        return []
     try:
-        series = fetch_optionseries(asset, asset_type_ui)
-        st.session_state.series_list = series or []
-        st.session_state.series_autoloaded_for = (asset, asset_type_ui)
-        return bool(series)
+        items = []
+        seen = set()
+        for _, row in df.iterrows():
+            tk = str(row["Тикер БА"]).strip().upper()
+            cat = str(row["Категория БА"]).strip()
+            key = f"{tk}|{cat}"
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({"ticker": tk, "category": cat})
+        items.sort(key=lambda x: (x["ticker"], x["category"]))
+        return items
     except Exception:
-        st.session_state.series_list = []
-        return False
+        return []
 
 
 # ================= MOEX API: опционы =================
@@ -1345,13 +946,11 @@ def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     code_to_fetch = asset_input
     s_upper = asset_input.strip().upper()
-
     if asset_type_ui == "Индекс":
         idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
         code_to_fetch = idx_map.get(s_upper, s_upper)
     elif asset_type_ui == "Акция":
         code_to_fetch = s_upper
-
     return code_to_fetch, moex_type
 
 
@@ -1381,63 +980,7 @@ def fetch_all_series_for_asset(asset: str, asset_type_ui: str):
     series = fetch_optionseries(asset, asset_type_ui)
     if not series:
         return []
-    series_sorted = sorted(series, key=lambda x: x.get("expiry", ""))
-    return series_sorted
-
-
-# 🔧 Сводная таблица по всем сериям (тип, экспирация, объём, ОИ, изменение)
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_series_overview(asset: str, asset_type_ui: str):
-    series_list = fetch_optionseries(asset, asset_type_ui)
-    if not series_list:
-        return pd.DataFrame()
-    rows = []
-    today = date.today()
-    for s in series_list:
-        info = fetch_series_info(asset, asset_type_ui, s["code"])
-        if not info:
-            continue
-        call_info = info.get("Опционы Call", {}) or {}
-        put_info  = info.get("Опционы Put",  {}) or {}
-        vol_rub   = (float(call_info.get("Объем (руб.)", 0) or 0)
-                     + float(put_info.get("Объем (руб.)", 0) or 0))
-        vol_contr = (float(call_info.get("Контрактов", 0) or 0)
-                     + float(put_info.get("Контрактов", 0) or 0))
-        oi        = (float(call_info.get("Открытых позиций", 0) or 0)
-                     + float(put_info.get("Открытых позиций", 0) or 0))
-        oi_change = (float(call_info.get("ОИ изменение", 0) or 0)
-                     + float(put_info.get("ОИ изменение", 0) or 0))
-
-        series_type = str(info.get("Тип серии", "—")).strip().upper()
-        _map_type = {
-            "WEEKLY": "W", "W": "W", "НЕДЕЛЬНАЯ": "W",
-            "MONTHLY": "M", "M": "M", "МЕСЯЧНАЯ": "M",
-            "QUARTERLY": "Q", "Q": "Q", "КВАРТАЛЬНАЯ": "Q",
-        }
-        series_type_short = _map_type.get(series_type, series_type[:1] or "—")
-
-        expiry = info.get("Дата исполнения", s.get("expiry", "—"))
-        try:
-            d = datetime.strptime(expiry, "%Y-%m-%d").date()
-            days_to = (d - today).days
-            expiry_disp = f"{d.strftime('%Y-%m-%d')} ({days_to})"
-        except Exception:
-            days_to = None
-            expiry_disp = expiry
-
-        rows.append({
-            "БА":            asset,
-            "Тип":           series_type_short,
-            "Экспирация":    expiry_disp,
-            "_expiry_raw":   expiry,
-            "_days_to":      days_to,
-            "Объём, ₽":      vol_rub,
-            "Об.контр.":     vol_contr,
-            "Откр.поз.":     oi,
-            "Изменение, ₽":  oi_change,
-            "_series_code":  s["code"],
-        })
-    return pd.DataFrame(rows)
+    return sorted(series, key=lambda x: x.get("expiry", ""))
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1477,8 +1020,7 @@ def fetch_series_info(asset: str, asset_type_ui: str, series_code: str):
 @st.cache_data(ttl=120, show_spinner=False)
 def _fetch_optionboard_raw(asset_code: str, series_code: str, asset_type: str):
     for at in [asset_type, 'share', 'futures', 'index', 'currency', 'commodity']:
-        url = (f"{API_BASE_URL}/assets/{asset_code}"
-               f"/optionseries/{series_code}/optionboard")
+        url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}/optionboard"
         data = iss_get_json(url, params={'asset_type': at}, timeout=15)
         if data is not None:
             return data
@@ -1526,24 +1068,20 @@ def fetch_central_strike(asset_code, series_code, asset_type):
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
     asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
-
     board_data, used_asset_type = None, None
     tried = []
     for at in [moex_type, 'share', 'futures', 'index', 'currency', 'commodity']:
         if at in tried:
             continue
         tried.append(at)
-        url = (f"{API_BASE_URL}/assets/{asset_code}"
-               f"/optionseries/{series_code}/optionboard")
+        url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}/optionboard"
         data = iss_get_json(url, params={'asset_type': at}, timeout=15)
         if data is not None:
             board_data = data
             used_asset_type = at
             break
-
     if not board_data:
         raise RuntimeError("Не удалось получить доску опционов")
-
     cs = None
     try:
         _s_info = fetch_series_info(asset, asset_type_ui, series_code)
@@ -1554,7 +1092,6 @@ def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
         cs = None
     if cs is None:
         cs = fetch_central_strike(asset_code, series_code, used_asset_type)
-
     board_data['central_strike'] = cs
     board_data['series_code'] = series_code
     return board_data
@@ -1563,10 +1100,61 @@ def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
     asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
-    url = (f"{API_BASE_URL}/assets/{asset_code}"
-           f"/optionseries/{series_code}/volatility_graph")
+    url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}/volatility_graph"
     data = iss_get_json(url, params={'asset_type': moex_type}, timeout=15)
     return data if data is not None else []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_series_overview(asset: str, asset_type_ui: str):
+    """Сводная таблица по всем сериям: тип, экспирация, объём, ОИ, изменение."""
+    series_list = fetch_optionseries(asset, asset_type_ui)
+    if not series_list:
+        return pd.DataFrame()
+    rows = []
+    today = date.today()
+    for s in series_list:
+        info = fetch_series_info(asset, asset_type_ui, s["code"])
+        if not info:
+            continue
+        call_info = info.get("Опционы Call", {}) or {}
+        put_info  = info.get("Опционы Put",  {}) or {}
+        vol_rub   = (float(call_info.get("Объем (руб.)", 0) or 0)
+                     + float(put_info.get("Объем (руб.)", 0) or 0))
+        vol_contr = (float(call_info.get("Контрактов", 0) or 0)
+                     + float(put_info.get("Контрактов", 0) or 0))
+        oi        = (float(call_info.get("Открытых позиций", 0) or 0)
+                     + float(put_info.get("Открытых позиций", 0) or 0))
+        oi_change = (float(call_info.get("ОИ изменение", 0) or 0)
+                     + float(put_info.get("ОИ изменение", 0) or 0))
+        series_type = str(info.get("Тип серии", "—")).strip().upper()
+        _map_type = {
+            "WEEKLY": "W", "W": "W", "НЕДЕЛЬНАЯ": "W",
+            "MONTHLY": "M", "M": "M", "МЕСЯЧНАЯ": "M",
+            "QUARTERLY": "Q", "Q": "Q", "КВАРТАЛЬНАЯ": "Q",
+        }
+        series_type_short = _map_type.get(series_type, series_type[:1] or "—")
+        expiry = info.get("Дата исполнения", s.get("expiry", "—"))
+        try:
+            d = datetime.strptime(expiry, "%Y-%m-%d").date()
+            days_to = (d - today).days
+            expiry_disp = f"{d.strftime('%Y-%m-%d')} ({days_to})"
+        except Exception:
+            days_to = None
+            expiry_disp = expiry
+        rows.append({
+            "БА":            asset,
+            "Тип":           series_type_short,
+            "Экспирация":    expiry_disp,
+            "_expiry_raw":   expiry,
+            "_days_to":      days_to,
+            "Объём, ₽":      vol_rub,
+            "Об.контр.":     vol_contr,
+            "Откр.поз.":     oi,
+            "Изменение, ₽":  oi_change,
+            "_series_code":  s["code"],
+        })
+    return pd.DataFrame(rows)
 
 
 # ================= Бары с MOEX =================
@@ -1576,8 +1164,7 @@ def fetch_bars(secid, interval=24, days=180, engine="futures", market="forts"):
         return pd.DataFrame()
     end = datetime.now()
     start = end - timedelta(days=days)
-    url = (f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
-           f"/securities/{secid}/candles.json")
+    url = f"https://iss.moex.com/iss/engines/{engine}/markets/{market}/securities/{secid}/candles.json"
     params = {"from": start.strftime("%Y-%m-%d"),
               "till": end.strftime("%Y-%m-%d"),
               "interval": interval, "iss.meta": "off"}
@@ -1589,31 +1176,24 @@ def fetch_bars(secid, interval=24, days=180, engine="futures", market="forts"):
     if not rows or not cols:
         return pd.DataFrame()
     df = pd.DataFrame(rows, columns=cols)
-
     df["begin"] = pd.to_datetime(df["begin"], errors="coerce")
     df = df.dropna(subset=["begin", "open", "high", "low", "close"])
     df = df[df["begin"] >= pd.Timestamp("2000-01-01")]
     df = df[(df["high"] > 0) & (df["low"] > 0) & (df["close"] > 0)]
-
     df = df.sort_values("begin").reset_index(drop=True)
     return df
 
 
-# ================= Текущая цена = CLOSE последнего дневного бара =================
 @st.cache_data(ttl=10, show_spinner=False)
 def get_last_close_price(secid: str, engine: str, market: str):
     if not secid:
         return None
     end = datetime.now()
     start = end - timedelta(days=7)
-    url = (f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
-           f"/securities/{secid}/candles.json")
-    params = {
-        "from": start.strftime("%Y-%m-%d"),
-        "till": end.strftime("%Y-%m-%d"),
-        "interval": 24,
-        "iss.meta": "off",
-    }
+    url = f"https://iss.moex.com/iss/engines/{engine}/markets/{market}/securities/{secid}/candles.json"
+    params = {"from": start.strftime("%Y-%m-%d"),
+              "till": end.strftime("%Y-%m-%d"),
+              "interval": 24, "iss.meta": "off"}
     data = iss_get_json(url, params=params, timeout=15)
     if data is None:
         return None
@@ -1658,15 +1238,11 @@ def _bs_price_np(S, K, T, r_pct, vol_pct, q_pct, opt_type):
         return max(0.0, S - K) if opt_type == "call" else max(0.0, K - S)
 
 
-def compute_payoff(positions, S_values, comm_func=None,
-                   anchor_expiry: str = None,
-                   pricing_date: str = None,
-                   vol_default: float = 20.0,
-                   r_default: float = 0.0,
-                   q_default: float = 0.0):
+def compute_payoff(positions, S_values, comm_func=None, anchor_expiry: str = None,
+                   pricing_date: str = None, vol_default: float = 20.0,
+                   r_default: float = 0.0, q_default: float = 0.0):
     S = np.asarray(S_values, dtype=float)
     pnl = np.zeros_like(S)
-
     all_expiries = []
     for p in positions:
         exp_str = p.get("Эксп.", "—")
@@ -1676,7 +1252,6 @@ def compute_payoff(positions, S_values, comm_func=None,
                 all_expiries.append(d)
             except Exception:
                 pass
-
     if anchor_expiry:
         try:
             anchor_date = datetime.strptime(anchor_expiry, "%Y-%m-%d").date()
@@ -1692,15 +1267,12 @@ def compute_payoff(positions, S_values, comm_func=None,
         entry = float(p.get("Цена", 0))
         _instr = p.get("Тип инструмента", "Опцион")
         com = comm_func(entry, _instr) if comm_func else 0.0
-
         if p.get("Тип инструмента") == "БА" or p.get("Опцион") == "БА":
             pnl += (S - entry) * qty
             continue
-
         K = float(p["Страйк"]) if p.get("Страйк") is not None else 0
         if K == 0:
             continue
-
         leg_expiry_str = p.get("Эксп.", "—")
         leg_expiry = None
         if leg_expiry_str and leg_expiry_str != "—":
@@ -1708,20 +1280,12 @@ def compute_payoff(positions, S_values, comm_func=None,
                 leg_expiry = datetime.strptime(leg_expiry_str, "%Y-%m-%d").date()
             except Exception:
                 leg_expiry = None
-
         if leg_expiry is None:
-            if p["Опцион"] == "Call":
-                intrinsic = np.maximum(0, S - K)
-            else:
-                intrinsic = np.maximum(0, K - S)
+            intrinsic = np.maximum(0, S - K) if p["Опцион"] == "Call" else np.maximum(0, K - S)
             pnl += (intrinsic - entry - com) * qty
             continue
-
         if leg_expiry <= anchor_date:
-            if p["Опцион"] == "Call":
-                intrinsic = np.maximum(0, S - K)
-            else:
-                intrinsic = np.maximum(0, K - S)
+            intrinsic = np.maximum(0, S - K) if p["Опцион"] == "Call" else np.maximum(0, K - S)
             pnl += (intrinsic - entry - com) * qty
         else:
             T_remaining = _months_between(anchor_date, leg_expiry)
@@ -1734,15 +1298,12 @@ def compute_payoff(positions, S_values, comm_func=None,
                 for Si in S
             ])
             pnl += (price_at_anchor - entry - com) * qty
-
     return pnl
 
 
-def find_breakevens(positions, price_min, price_max, n=500, comm_func=None,
-                    anchor_expiry=None):
+def find_breakevens(positions, price_min, price_max, n=500, comm_func=None, anchor_expiry=None):
     prices = np.linspace(price_min, price_max, n)
-    pnl = compute_payoff(positions, prices, comm_func=comm_func,
-                         anchor_expiry=anchor_expiry)
+    pnl = compute_payoff(positions, prices, comm_func=comm_func, anchor_expiry=anchor_expiry)
     be = []
     for i in range(1, len(prices)):
         if pnl[i-1] * pnl[i] < 0:
@@ -1754,40 +1315,26 @@ def find_breakevens(positions, price_min, price_max, n=500, comm_func=None,
 
 
 # ================= Биржевой график =================
-def render_exchange_chart(df, positions, buy_level, sell_level,
-                          strikes, title, key, current_price=None,
-                          comm_func=None, anchor_expiry=None):
+def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, key,
+                          current_price=None, comm_func=None, anchor_expiry=None):
     if df is None or df.empty:
         st.info(f"Нет данных для {title}")
         return
-
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        vertical_spacing=0.04, row_heights=[0.78, 0.22],
-        specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
-
-    fig.add_trace(
-        go.Ohlc(x=df["begin"], open=df["open"], high=df["high"],
-                low=df["low"], close=df["close"],
-                increasing_line_color="black",
-                decreasing_line_color="black",
-                name="Цена", showlegend=False),
-        row=1, col=1, secondary_y=False)
-
-    fig.add_trace(
-        go.Bar(x=df["begin"], y=df["volume"],
-               marker_color="black",
-               name="Объём", showlegend=False), row=2, col=1)
-
-    x_min = df["begin"].min()
-    x_max = df["begin"].max()
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.04, row_heights=[0.78, 0.22],
+                        specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
+    fig.add_trace(go.Ohlc(x=df["begin"], open=df["open"], high=df["high"],
+                          low=df["low"], close=df["close"],
+                          increasing_line_color="black", decreasing_line_color="black",
+                          name="Цена", showlegend=False),
+                  row=1, col=1, secondary_y=False)
+    fig.add_trace(go.Bar(x=df["begin"], y=df["volume"], marker_color="black",
+                         name="Объём", showlegend=False), row=2, col=1)
     price_min = float(df["low"].min()) * 0.97
     price_max = float(df["high"].max()) * 1.03
-
     if positions:
         be_points = find_breakevens(positions, price_min, price_max,
-                                     n=500, comm_func=comm_func,
-                                     anchor_expiry=anchor_expiry)
+                                     n=500, comm_func=comm_func, anchor_expiry=anchor_expiry)
         segments = [price_min] + sorted(be_points) + [price_max]
         for i in range(len(segments) - 1):
             seg_start = segments[i]
@@ -1795,30 +1342,19 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
             mid = (seg_start + seg_end) / 2
             mid_pnl = compute_payoff(positions, [mid], comm_func=comm_func,
                                      anchor_expiry=anchor_expiry)[0]
-            color = ("rgba(0,220,80,0.28)" if mid_pnl > 0
-                     else "rgba(255,40,40,0.22)")
-            fig.add_shape(
-                type="rect",
-                xref="x domain", x0=0, x1=1,
-                yref="y", y0=seg_start, y1=seg_end,
-                fillcolor=color, line_width=0,
-                layer="below",
-                row=1, col=1)
+            color = ("rgba(0,220,80,0.28)" if mid_pnl > 0 else "rgba(255,40,40,0.22)")
+            fig.add_shape(type="rect", xref="x domain", x0=0, x1=1,
+                          yref="y", y0=seg_start, y1=seg_end,
+                          fillcolor=color, line_width=0, layer="below", row=1, col=1)
     else:
         be_points = []
-
     visible_strikes = []
     if strikes:
-        visible_strikes = sorted(
-            float(s) for s in strikes
-            if price_min <= float(s) <= price_max)
+        visible_strikes = sorted(float(s) for s in strikes if price_min <= float(s) <= price_max)
         for K in visible_strikes:
-            fig.add_hline(y=K,
-                          line=dict(color="#9c00ff", width=1, dash="dot"),
+            fig.add_hline(y=K, line=dict(color="#9c00ff", width=1, dash="dot"),
                           opacity=0.45, row=1, col=1)
-
-    buy_markers = []
-    sell_markers = []
+    buy_markers, sell_markers = [], []
     for p in (positions or []):
         if not p.get("visible", True):
             continue
@@ -1842,115 +1378,75 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
                 exp_marker = f" [{exp_d.strftime('%m/%y')}]"
             except Exception:
                 pass
-        entry = {"text": f"{sign}{abs(qty)}{code} {Ks}{exp_marker}",
-                 "color": color}
+        entry = {"text": f"{sign}{abs(qty)}{code} {Ks}{exp_marker}", "color": color}
         if qty > 0:
             buy_markers.append(entry)
         else:
             sell_markers.append(entry)
 
     def _add_level(level, label_txt, line_color, markers):
-        fig.add_hline(y=level,
-                      line=dict(color=line_color, width=2.5),
-                      row=1, col=1)
-        fig.add_annotation(
-            x=0.5, y=level, xref="paper", yref="y",
-            text=label_txt, showarrow=False,
-            font=dict(size=10, color=line_color, family="Arial Black"),
-            bgcolor="rgba(255,255,255,0.85)",
-            yshift=11, row=1, col=1)
+        fig.add_hline(y=level, line=dict(color=line_color, width=2.5), row=1, col=1)
+        fig.add_annotation(x=0.5, y=level, xref="paper", yref="y",
+                           text=label_txt, showarrow=False,
+                           font=dict(size=10, color=line_color, family="Arial Black"),
+                           bgcolor="rgba(255,255,255,0.85)", yshift=11, row=1, col=1)
         for i, m in enumerate(markers[:6]):
-            fig.add_annotation(
-                x=0.5, y=level, xref="paper", yref="y",
-                text=m["text"], showarrow=False,
-                font=dict(size=10, color=m["color"],
-                          family="Consolas, monospace"),
-                bgcolor="rgba(255,255,255,0.88)",
-                xshift=80 + i * 72, yshift=11,
-                row=1, col=1)
+            fig.add_annotation(x=0.5, y=level, xref="paper", yref="y",
+                               text=m["text"], showarrow=False,
+                               font=dict(size=10, color=m["color"],
+                                         family="Consolas, monospace"),
+                               bgcolor="rgba(255,255,255,0.88)",
+                               xshift=80 + i * 72, yshift=11, row=1, col=1)
 
     if buy_level and buy_level > 0:
-        _add_level(buy_level, f"Покупка {buy_level:.2f}",
-                   "#9c00ff", buy_markers)
+        _add_level(buy_level, f"Покупка {buy_level:.2f}", "#9c00ff", buy_markers)
     if sell_level and sell_level > 0:
-        _add_level(sell_level, f"Продажа {sell_level:.2f}",
-                   "#fb92f0", sell_markers)
-
+        _add_level(sell_level, f"Продажа {sell_level:.2f}", "#fb92f0", sell_markers)
     if current_price is not None and current_price > 0:
-        fig.add_hline(
-            y=current_price,
-            line=dict(color="#1e88e5", width=2, dash="dash"),
-            row=1, col=1)
-        fig.add_annotation(
-            x=0.5, y=current_price, xref="paper", yref="y",
-            text=f"Текущая {current_price:.2f}", showarrow=False,
-            font=dict(size=10, color="#1e88e5", family="Arial Black"),
-            bgcolor="rgba(255,255,255,0.90)",
-            bordercolor="#1e88e5", borderwidth=1,
-            yshift=-11, row=1, col=1)
-
+        fig.add_hline(y=current_price, line=dict(color="#1e88e5", width=2, dash="dash"), row=1, col=1)
+        fig.add_annotation(x=0.5, y=current_price, xref="paper", yref="y",
+                           text=f"Текущая {current_price:.2f}", showarrow=False,
+                           font=dict(size=10, color="#1e88e5", family="Arial Black"),
+                           bgcolor="rgba(255,255,255,0.90)",
+                           bordercolor="#1e88e5", borderwidth=1, yshift=-11, row=1, col=1)
     for be in be_points:
-        fig.add_hline(y=be,
-                      line=dict(color="#00a651", width=1.5, dash="dot"),
-                      row=1, col=1)
-        fig.add_annotation(
-            x=0.5, y=be, xref="paper", yref="y",
-            text=f"БУ {be:.2f}", showarrow=False,
-            font=dict(size=10, color="#00a651", family="Arial Black"),
-            bgcolor="rgba(255,255,255,0.90)",
-            bordercolor="#00a651", borderwidth=1,
-            yshift=10, row=1, col=1)
-
-    fig.add_trace(
-        go.Scatter(
-            x=[df["begin"].iloc[0], df["begin"].iloc[-1]],
-            y=[price_min, price_max],
-            mode="lines",
-            line=dict(width=0),
-            opacity=0,
-            showlegend=False,
-            hoverinfo="skip",
-            name="_right_axis"),
-        row=1, col=1, secondary_y=True)
-
-    fig.update_layout(
-        title=title, height=520,
-        margin=dict(l=20, r=20, t=50, b=20),
-        plot_bgcolor="white", paper_bgcolor="white",
-        hovermode="x unified", showlegend=False)
-
+        fig.add_hline(y=be, line=dict(color="#00a651", width=1.5, dash="dot"), row=1, col=1)
+        fig.add_annotation(x=0.5, y=be, xref="paper", yref="y",
+                           text=f"БУ {be:.2f}", showarrow=False,
+                           font=dict(size=10, color="#00a651", family="Arial Black"),
+                           bgcolor="rgba(255,255,255,0.90)",
+                           bordercolor="#00a651", borderwidth=1, yshift=10, row=1, col=1)
+    fig.add_trace(go.Scatter(x=[df["begin"].iloc[0], df["begin"].iloc[-1]],
+                             y=[price_min, price_max], mode="lines",
+                             line=dict(width=0), opacity=0, showlegend=False,
+                             hoverinfo="skip", name="_right_axis"),
+                  row=1, col=1, secondary_y=True)
+    fig.update_layout(title=title, height=520,
+                      margin=dict(l=20, r=20, t=50, b=20),
+                      plot_bgcolor="white", paper_bgcolor="white",
+                      hovermode="x unified", showlegend=False)
     if visible_strikes:
         _strike_vals = [float(k) for k in visible_strikes]
-        _strike_text = [
-            f"{int(k)}" if float(k).is_integer() else f"{k:.2f}"
-            for k in _strike_vals
-        ]
+        _strike_text = [f"{int(k)}" if float(k).is_integer() else f"{k:.2f}" for k in _strike_vals]
     else:
         _strike_vals = None
         _strike_text = None
-
-    fig.update_yaxes(
-        showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-        side="left", row=1, col=1,
-        tickmode="array" if _strike_vals else "auto",
-        tickvals=_strike_vals if _strike_vals else None,
-        ticktext=_strike_text if _strike_text else None,
-        tickfont=dict(size=10, color="#9c00ff"),
-        showspikes=True, spikemode='across', spikesnap='cursor',
-        spikecolor='#888888', spikethickness=1, spikedash='dot')
-
-    fig.update_yaxes(
-        showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-        side="left", row=2, col=1,
-        showspikes=True, spikemode='across', spikesnap='cursor',
-        spikecolor='#888888', spikethickness=1, spikedash='dot')
-
-    fig.update_yaxes(
-        side="right", row=1, col=1, secondary_y=True,
-        showgrid=False, zeroline=False,
-        tickfont=dict(size=10, color="#1a3b4f"),
-        showspikes=False, title=None)
-
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     side="left", row=1, col=1,
+                     tickmode="array" if _strike_vals else "auto",
+                     tickvals=_strike_vals if _strike_vals else None,
+                     ticktext=_strike_text if _strike_text else None,
+                     tickfont=dict(size=10, color="#9c00ff"),
+                     showspikes=True, spikemode='across', snapsnap='cursor' if False else 'cursor',
+                     spikecolor='#888888', spikethickness=1, spikedash='dot')
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     side="left", row=2, col=1,
+                     showspikes=True, spikemode='across', spikesnap='cursor',
+                     spikecolor='#888888', spikethickness=1, spikedash='dot')
+    fig.update_yaxes(side="right", row=1, col=1, secondary_y=True,
+                     showgrid=False, zeroline=False,
+                     tickfont=dict(size=10, color="#1a3b4f"),
+                     showspikes=False, title=None)
     _x_min_val = df["begin"].min()
     _x_max_val = df["begin"].max()
     if pd.notna(_x_min_val) and pd.notna(_x_max_val):
@@ -1961,24 +1457,17 @@ def render_exchange_chart(df, positions, buy_level, sell_level,
             _step = pd.Timedelta(days=1)
         if pd.isna(_step) or _step <= pd.Timedelta(0):
             _step = pd.Timedelta(days=1)
-
         _x_max_extended = _x_max_val + _step * 15
-
-        fig.update_xaxes(
-            type='date',
-            range=[_x_min_val, _x_max_extended],
-            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-            rangeslider_visible=False, row=1, col=1,
-            showspikes=True, spikemode='across', spikesnap='cursor',
-            spikecolor='#888888', spikethickness=1, spikedash='dot')
-        fig.update_xaxes(
-            type='date',
-            range=[_x_min_val, _x_max_extended],
-            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-            row=2, col=1,
-            showspikes=True, spikemode='across', spikesnap='cursor',
-            spikecolor='#888888', spikethickness=1, spikedash='dot')
-
+        fig.update_xaxes(type='date', range=[_x_min_val, _x_max_extended],
+                         showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                         rangeslider_visible=False, row=1, col=1,
+                         showspikes=True, spikemode='across', spikesnap='cursor',
+                         spikecolor='#888888', spikethickness=1, spikedash='dot')
+        fig.update_xaxes(type='date', range=[_x_min_val, _x_max_extended],
+                         showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                         row=2, col=1,
+                         showspikes=True, spikemode='across', spikesnap='cursor',
+                         spikecolor='#888888', spikethickness=1, spikedash='dot')
     st.plotly_chart(fig, use_container_width=True, key=key)
 
 
@@ -1989,14 +1478,6 @@ def _color_call_put(option: str) -> str:
     if option == "Put":
         return f"<span style='color:#d32f2f; font-weight:700;'>{option}</span>"
     return option
-
-
-def _color_side(side: str) -> str:
-    if side == "Buy":
-        return f"<span style='color:#00a651; font-weight:700;'>Buy</span>"
-    if side == "Sell":
-        return f"<span style='color:#d32f2f; font-weight:700;'>Sell</span>"
-    return side
 
 
 def _side_from_qty(qty: int) -> str:
@@ -2043,201 +1524,111 @@ def format_series_label(expiry_str: str) -> str:
         return f"⚪ {expiry_str}"
 
 
-# ================= Матчинг стратегий =================
-def _leg_matches_position(leg, pos):
-    if not pos.get("visible", True):
-        return False
-    if pos.get("Опцион") != leg["option"]:
-        return False
-    pos_side = "Buy" if int(pos.get("Кол-во", 0)) >= 0 else "Sell"
-    return pos_side == leg["side"]
+# ================= Новые функции: alert_targets =================
+def _nearest_otm_strike(strikes, level):
+    """Ближайший страйк ≥ level (для Покупки Call / Продажи Put).
+       Если такого нет — берём максимальный."""
+    if not strikes or level is None:
+        return None
+    s_sorted = sorted(float(s) for s in strikes)
+    for k in s_sorted:
+        if k >= float(level):
+            return k
+    return s_sorted[-1]
 
 
-def match_strategy_with_positions(strategy_def, positions):
-    matched = {}
-    used_positions = set()
-    matched_strikes_by_group = {}
-    total_required = 0
-    total_covered = 0
-    for li, leg in enumerate(strategy_def["legs"]):
-        req_qty = leg["qty"]
-        total_required += req_qty
-        best_pi = None
-        best_cover = 0
-        for pi, p in enumerate(positions):
-            if pi in used_positions:
-                continue
-            if not _leg_matches_position(leg, p):
-                continue
-            have = abs(int(p.get("Кол-во", 0)))
-            cover = min(have, req_qty)
-            if cover > best_cover:
-                best_cover = cover
-                best_pi = pi
-        if best_pi is not None:
-            used_positions.add(best_pi)
-            matched[li] = {"pos_index": best_pi, "qty_covered": best_cover,
-                           "qty_required": req_qty,
-                           "full": best_cover >= req_qty}
-            total_covered += best_cover
-            grp = leg["strike_group"]
-            if grp not in matched_strikes_by_group:
-                matched_strikes_by_group[grp] = float(positions[best_pi]["Страйк"])
-    missing = [i for i in range(len(strategy_def["legs"])) if i not in matched]
-    weight = total_covered / total_required if total_required else 0.0
-    all_full = all(m["full"] for m in matched.values()) if matched else False
-    return {"matched": matched, "missing": missing,
-            "matched_strikes_by_group": matched_strikes_by_group,
-            "weight": weight, "is_full": all_full and not missing}
+def _nearest_itm_strike(strikes, level):
+    """Ближайший страйк ≤ level (для Продажи Call / Покупки Put).
+       Если такого нет — берём минимальный."""
+    if not strikes or level is None:
+        return None
+    s_sorted = sorted(float(s) for s in strikes, reverse=True)
+    for k in s_sorted:
+        if k <= float(level):
+            return k
+    return s_sorted[-1]
 
 
-def validate_strike_order(strategy_def, strike_values):
-    order = strategy_def.get("strike_order", [])
-    if len(order) < 2:
-        return True, ""
-    vals = []
-    for grp in order:
-        v = strike_values.get(grp)
-        if v is None:
-            return False, f"Не задан страйк для группы «{grp}»"
-        vals.append(float(v))
-    for i in range(1, len(vals)):
-        if vals[i] <= vals[i - 1]:
-            return False, f"Нарушен порядок страйков: требуется " + " < ".join(order)
-    return True, ""
+def _get_board_price_for(board_data, opt_type, strike, side):
+    """Цена опциона из доски. side: 'Buy' → offer, 'Sell' → bid.
+       Fallback: theorprice, last."""
+    if not board_data or strike is None:
+        return None
+    src = board_data.get('call' if opt_type == 'call' else 'put') or []
+    row = next((x for x in src if x.get('strike') == strike), None)
+    if row is None:
+        return None
+    v = row.get('offer') if side == 'Buy' else row.get('bid')
+    if v is None or v <= 0:
+        v = row.get('theorprice')
+    if v is None or v <= 0:
+        v = row.get('last')
+    try:
+        return float(v) if v and v > 0 else None
+    except Exception:
+        return None
 
 
-def suggest_strike_for_group(grp, strategy_def, matched_strikes,
-                              strike_order, all_strikes, central):
-    if grp in matched_strikes:
-        return matched_strikes[grp]
-    order = [g for g in strike_order] if strike_order else []
-    if grp not in order or not all_strikes:
-        return central
-    idx = order.index(grp)
-    left_grp = None
-    for j in range(idx - 1, -1, -1):
-        if order[j] in matched_strikes:
-            left_grp = order[j]
-            break
-    right_grp = None
-    for j in range(idx + 1, len(order)):
-        if order[j] in matched_strikes:
-            right_grp = order[j]
-            break
-    if left_grp is not None and right_grp is not None:
-        K_left = float(matched_strikes[left_grp])
-        K_right = float(matched_strikes[right_grp])
-        n_steps = (order.index(right_grp) - order.index(left_grp))
-        step = (K_right - K_left) / max(n_steps, 1)
-        target = K_left + step * (idx - order.index(left_grp))
-        return min(all_strikes, key=lambda k: abs(float(k) - target))
-    if left_grp is not None:
-        K_left = float(matched_strikes[left_grp])
-        return min(all_strikes, key=lambda k: abs(float(k) - K_left))
-    if right_grp is not None:
-        K_right = float(matched_strikes[right_grp])
-        return min(all_strikes, key=lambda k: abs(float(k) - K_right))
-    return central
+def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
+    """Структура alert_targets для iframe.
 
-
-def compute_strategy_debit_credit(strategy_def, strike_values, price_getter):
-    total = 0.0
-    for leg in strategy_def["legs"]:
-        grp = leg["strike_group"]
-        K = strike_values.get(grp)
-        if K is None:
-            return None
-        price = price_getter(leg["option"], K)
-        if price is None or price <= 0:
-            return None
-        sign = 1 if leg["side"] == "Buy" else -1
-        total += sign * leg["qty"] * price
-    return total
-
-
-def _card_style_full():
-    return "border:2px solid #00a651;"
-
-
-def _card_style_partial():
-    return "border:1px solid #e2edf4;"
-
-
-def _render_alert_card(r: dict) -> str:
-    _ticker = r["ticker"]
-    _category = r["category"]
-    _last = r["market_price"]
-    _lvl_buy = r["lvl_buy"]
-    _lvl_sell = r["lvl_sell"]
-    _buy_dev = r["buy_dev_pct"]
-    _sell_dev = r["sell_dev_pct"]
-    _buy_active = r["buy_active"]
-    _sell_active = r["sell_active"]
-
-    _price_str = f"{_last:,.2f} ₽" if _last else "— ₽"
-    _buy_dev_str = f"{_buy_dev:+.2f} %" if _buy_dev is not None else "—"
-    _sell_dev_str = f"{_sell_dev:+.2f} %" if _sell_dev is not None else "—"
-
-    _buy_bg = "#0a8f3c" if _buy_active else "#e6e9ec"
-    _buy_fg = "#ffffff" if _buy_active else "#5a6b78"
-    _sell_bg = "#0a8f3c" if _sell_active else "#e6e9ec"
-    _sell_fg = "#ffffff" if _sell_active else "#5a6b78"
-    _buy_mark = "✓" if _buy_active else "·"
-    _sell_mark = "✓" if _sell_active else "·"
-
-    return f"""
-    <div style="border:1px solid #cfd6dc; border-radius:8px; padding:10px 12px;
-                background:#ffffff; margin-bottom:8px;">
-      <div style="display:flex; justify-content:space-between; align-items:baseline;">
-        <div style="font-size:1.15rem; font-weight:700; color:#111; line-height:1.1;">
-          {_ticker}</div>
-        <div style="font-size:1.05rem; font-weight:700; color:#111;">
-          {_price_str}</div>
-      </div>
-      <div style="font-size:.68rem; color:#5a6b78; margin-top:2px;
-                  text-transform:uppercase; letter-spacing:.06em;">
-        {_category}</div>
-
-      <div style="display:flex; gap:6px; margin-top:10px;">
-        <div style="flex:1; background:#f2f4f6; border:1px solid #d8dee3;
-                    border-radius:6px; padding:7px 9px;">
-          <div style="font-size:.6rem; color:#333; font-weight:700;
-                      text-transform:uppercase; letter-spacing:.06em;">
-            Покупка</div>
-          <div style="font-size:1.02rem; font-weight:700; color:#111;
-                      line-height:1.2; margin-top:2px;">{_lvl_buy:.2f}</div>
-          <div style="font-size:.76rem; color:#333; margin-top:1px;">
-            {_buy_dev_str}</div>
-        </div>
-        <div style="flex:1; background:#f2f4f6; border:1px solid #d8dee3;
-                    border-radius:6px; padding:7px 9px;">
-          <div style="font-size:.6rem; color:#333; font-weight:700;
-                      text-transform:uppercase; letter-spacing:.06em;">
-            Продажа</div>
-          <div style="font-size:1.02rem; font-weight:700; color:#111;
-                      line-height:1.2; margin-top:2px;">{_lvl_sell:.2f}</div>
-          <div style="font-size:.76rem; color:#333; margin-top:1px;">
-            {_sell_dev_str}</div>
-        </div>
-      </div>
-
-      <div style="display:flex; gap:6px; margin-top:8px;">
-        <div style="flex:1; text-align:center; padding:6px;
-                    border-radius:6px; font-size:.82rem; font-weight:700;
-                    background:{_buy_bg}; color:{_buy_fg};
-                    letter-spacing:.05em;">
-          {_buy_mark} ПОКУПКА
-        </div>
-        <div style="flex:1; text-align:center; padding:6px;
-                    border-radius:6px; font-size:.82rem; font-weight:700;
-                    background:{_sell_bg}; color:{_sell_fg};
-                    letter-spacing:.05em;">
-          {_sell_mark} ПРОДАЖА
-        </div>
-      </div>
-    </div>
+    Правило OTM/ITM:
+      • Уровень покупок (Buy) — мы покупаем Call (OTM) / продаём Put (ITM).
+        → strikes_buy.call = ближайший OTM (≥ level)
+        → strikes_buy.put  = тот же страйк (для Put он ITM)
+      • Уровень продаж (Sell) — мы продаём Call (ITM) / покупаем Put (OTM).
+        → strikes_sell.call = ближайший ITM (≤ level)
+        → strikes_sell.put  = тот же страйк (для Put он OTM)
+      Цены:
+        • prices_buy.call / prices_buy.put  — по offer (мы покупаем)
+        • prices_sell.call / prices_sell.put — по bid  (мы продаём)
     """
+    if not board_data:
+        return None
+    calls = board_data.get('call') or []
+    puts = board_data.get('put') or []
+    all_strikes = sorted({float(c['strike']) for c in calls if c.get('strike') is not None}
+                         | {float(p['strike']) for p in puts if p.get('strike') is not None})
+    if not all_strikes:
+        return None
+
+    lvl_buy = levels.get("buy") if levels else None
+    lvl_sell = levels.get("sell") if levels else None
+
+    K_buy_call  = _nearest_otm_strike(all_strikes, lvl_buy) if lvl_buy else None
+    K_buy_put   = K_buy_call   # для Put тот же страйк (ITM)
+    K_sell_call = _nearest_itm_strike(all_strikes, lvl_sell) if lvl_sell else None
+    K_sell_put  = K_sell_call  # для Put тот же страйк (OTM)
+
+    def _price_map(strike, opt_type, side):
+        if strike is None:
+            return {}
+        p = _get_board_price_for(board_data, opt_type, strike, side)
+        return {str(strike): p} if p is not None else {}
+
+    return {
+        "asset": asset,
+        "atype": asset_type_ui,
+        "series_code": series_code,
+        "lvl_buy": lvl_buy,
+        "lvl_sell": lvl_sell,
+        "strikes_buy": {
+            "call": K_buy_call,
+            "put":  K_buy_put,
+        },
+        "strikes_sell": {
+            "call": K_sell_call,
+            "put":  K_sell_put,
+        },
+        "prices_buy": {
+            "call": _price_map(K_buy_call, 'call', 'Buy'),
+            "put":  _price_map(K_buy_put,  'put',  'Buy'),
+        },
+        "prices_sell": {
+            "call": _price_map(K_sell_call, 'call', 'Sell'),
+            "put":  _price_map(K_sell_put,  'put',  'Sell'),
+        },
+    }
 
 
 # ================= postMessage-мост =================
@@ -2264,30 +1655,11 @@ def _send_to_iframes(payload: dict, delays=(300, 1500)):
 
 
 def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
-    _send_to_iframes({"type": "setExpiry", "value": expiry_str,
-                      "series_code": series_code})
-
-
-def push_tv_ticker(ticker_label: str, tv_symbol: str):
-    _send_to_iframes({"type": "setTicker", "ticker": ticker_label,
-                      "symbol": tv_symbol})
+    _send_to_iframes({"type": "setExpiry", "value": expiry_str, "series_code": series_code})
 
 
 def push_strikes_to_calculator(strikes_iv: list, central_strike):
-    _send_to_iframes({"type": "setStrikes", "strikes": strikes_iv,
-                      "central": central_strike})
-
-
-def push_calc_params(rf_buy=None, rf_sell=None,
-                     div_buy=None, div_sell=None,
-                     vol_buy=None, vol_sell=None):
-    _send_to_iframes({"type": "setCalcParams",
-                      "rf_buy":  float(rf_buy)  if rf_buy  is not None else 0.0,
-                      "rf_sell": float(rf_sell) if rf_sell is not None else 0.0,
-                      "div_buy": float(div_buy) if div_buy is not None else 0.0,
-                      "div_sell":float(div_sell)if div_sell is not None else 0.0,
-                      "vol_buy": float(vol_buy) if vol_buy is not None else 30.0,
-                      "vol_sell":float(vol_sell)if vol_sell is not None else 30.0})
+    _send_to_iframes({"type": "setStrikes", "strikes": strikes_iv, "central": central_strike})
 
 
 def push_alert_levels(ticker: str, buy_lvl, sell_lvl):
@@ -2310,9 +1682,12 @@ st.session_state["_calc_riskfree"]   = _safe_float_qp("rf_buy", 0.0)
 st.session_state["_calc_volatility"] = _safe_float_qp("vol_buy", 0.0)
 st.session_state["_calc_dividend"]   = _safe_float_qp("div_buy", 0.0)
 
-tab_calc, tab_position, tab_board, tab_alerts = st.tabs([
-    "Калькулятор", "Позиция",
-    "Доска опционов и кривая волатильности", "Оповещения",
+# 🔧 Новая последовательность: Калькулятор → Доска → Позиция → Оповещения
+tab_calc, tab_board, tab_position, tab_alerts = st.tabs([
+    "Калькулятор",
+    "Доска опционов и кривая волатильности",
+    "Позиция",
+    "Оповещения",
 ])
 
 
@@ -2321,192 +1696,197 @@ tab_calc, tab_position, tab_board, tab_alerts = st.tabs([
 # ==================================================================
 @st.fragment
 def _render_calc_tab():
-    st.header("Калькулятор опционов")
+    st.header("Калькулятор опционов (Black-Scholes)")
 
-    if "asset_input" not in st.session_state:
-        st.session_state.asset_input = "RTS"
-    if "asset_type_ui" not in st.session_state:
-        st.session_state.asset_type_ui = "Фьючерс"
+    if "calc_asset_ticker" not in st.session_state:
+        st.session_state.calc_asset_ticker = "SBER"
+    if "calc_asset_category" not in st.session_state:
+        st.session_state.calc_asset_category = "Акция"
+    if "calc_series_list" not in st.session_state:
+        st.session_state.calc_series_list = []
+    if "calc_selected_series" not in st.session_state:
+        st.session_state.calc_selected_series = ""
+    if "calc_selected_expiry" not in st.session_state:
+        st.session_state.calc_selected_expiry = ""
+    if "calc_autoloaded_for" not in st.session_state:
+        st.session_state.calc_autoloaded_for = (None, None)
 
-    _need_expand = not st.session_state.get("board_loaded", False)
+    # ============================================================
+    # ВЫБОР АКТИВА ИЗ ОПОВЕЩЕНИЙ + РУЧНОЙ ВВОД
+    # ============================================================
+    _alert_assets = get_alert_assets_list()
 
     with st.expander(
-        "Параметры инструмента (Тикер · Категория БА · Дата исполнения)",
-        expanded=_need_expand,
+        "Актив и опционная серия",
+        expanded=True,
     ):
-        with st.expander("Справочник инструментов MOEX — кликните по тикеру",
-                         expanded=False):
-            if not MOEX_INSTRUMENTS:
-                st.warning("⚠ Справочник `MOEX_INSTRUMENTS` пуст.")
-            else:
-                filter_text = st.text_input(
-                    "Поиск по коду или названию",
-                    key="dict_filter",
-                    placeholder="GAZP, Сбер, золото…").strip().lower()
+        # --- Выбор актива из оповещений ---
+        if _alert_assets:
+            _opts = ["— выберите актив из оповещений —"] + [
+                f"{it['ticker']} · {it['category']}" for it in _alert_assets
+            ]
+            _sel_label = st.selectbox(
+                "Актив из оповещений",
+                _opts,
+                index=0,
+                key="calc_asset_select",
+                help="Список формируется автоматически из листа оповещений "
+                     "(вкладка «Оповещения»).",
+            )
+            if _sel_label and not _sel_label.startswith("—"):
+                _parts = _sel_label.split(" · ", 1)
+                if len(_parts) == 2:
+                    _tk_sel, _cat_sel = _parts
+                    if (st.session_state.calc_asset_ticker != _tk_sel
+                            or st.session_state.calc_asset_category != _cat_sel):
+                        st.session_state.calc_asset_ticker = _tk_sel
+                        st.session_state.calc_asset_category = _cat_sel
+                        st.session_state.calc_series_list = []
+                        st.session_state.calc_autoloaded_for = (None, None)
+        else:
+            st.caption("⚠ Лист оповещений не загружен. Перейдите на вкладку "
+                       "«Оповещения» или заполните тикер вручную ниже.")
 
-                dict_tabs = st.tabs(list(MOEX_INSTRUMENTS.keys()))
-                for tab, (category, items) in zip(dict_tabs, MOEX_INSTRUMENTS.items()):
-                    with tab:
-                        filtered = {
-                            code: (atype, name)
-                            for code, (atype, name) in items.items()
-                            if not filter_text
-                            or filter_text in code.lower()
-                            or filter_text in name.lower()
-                        }
-                        if not filtered:
-                            st.caption("Ничего не найдено.")
-                            continue
-                        n_cols = 4
-                        cols = st.columns(n_cols)
-                        for i, (code, (asset_type, name)) in enumerate(filtered.items()):
-                            with cols[i % n_cols]:
-                                if st.button(
-                                    code,
-                                    key=f"dict_{category}_{code}",
-                                    use_container_width=True,
-                                    help=f"{name} → категория «{asset_type}»",
-                                ):
-                                    st.session_state.asset_input = code
-                                    st.session_state.asset_type_ui = asset_type
-                                    st.session_state.board_loaded = False
-                                    st.session_state.series_list = []
-                                    st.session_state.series_autoloaded_for = (None, None)
-                                    st.rerun()
-                                st.caption(name)
+        # --- Ручной ввод (fallback) ---
+        _pc1, _pc2 = st.columns([3, 2])
+        with _pc1:
+            _raw_asset = st.text_input(
+                "Базовый актив (тикер)",
+                value=st.session_state.calc_asset_ticker,
+                key="calc_asset_input",
+                placeholder="SBER, GAZP, RTS…",
+            ).strip()
+        with _pc2:
+            _asset_type_ui = st.selectbox(
+                "Категория БА",
+                ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"],
+                index=["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"].index(
+                    st.session_state.calc_asset_category
+                    if st.session_state.calc_asset_category in
+                    ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
+                    else "Акция"
+                ),
+                key="calc_asset_type_select",
+            )
 
-        pc1, pc2 = st.columns([2, 2])
-        with pc1:
-            _raw_asset = st.text_input("Базовый актив", key="asset_input",
-                                        placeholder="RTS, Si, GAZP…").strip()
-        with pc2:
-            asset_type_ui = st.selectbox(
-                "Категория базового актива",
-                ["Фьючерс", "Акция", "Валюта", "Товар", "Индекс"],
-                key="asset_type_ui")
+        _asset_canon = resolve_canonical_asset_code(_raw_asset, _asset_type_ui)
 
-        asset = resolve_canonical_asset_code(_raw_asset, asset_type_ui)
+        # Обновляем session_state, если пользователь поменял вручную
+        if (_asset_canon != st.session_state.calc_asset_ticker
+                or _asset_type_ui != st.session_state.calc_asset_category):
+            st.session_state.calc_asset_ticker = _asset_canon
+            st.session_state.calc_asset_category = _asset_type_ui
+            st.session_state.calc_series_list = []
+            st.session_state.calc_autoloaded_for = (None, None)
 
-        # Автозагрузка серий убрана. Серии грузятся ТОЛЬКО по кнопке ниже.
-        _loaded_for = st.session_state.get("series_autoloaded_for", (None, None))
-        _series_ready = (bool(st.session_state.get("series_list"))
-                         and _loaded_for == (asset, asset_type_ui))
-
-        if st.button("Загрузить доску опционов",
-                     use_container_width=True,
-                     type="primary",
-                     key="calc_load_board_btn"):
-            with st.spinner("Загрузка серий…"):
+        # --- Автозагрузка серий при смене актива ---
+        _loaded_for = st.session_state.get("calc_autoloaded_for", (None, None))
+        if (_asset_canon
+                and (_asset_canon, _asset_type_ui) != _loaded_for):
+            with st.spinner("Загрузка опционных серий…"):
                 try:
-                    _series_loaded = fetch_optionseries(asset, asset_type_ui)
-                    st.session_state.series_list = _series_loaded
-                    st.session_state.series_autoloaded_for = (asset, asset_type_ui)
-                    _loaded_for = (asset, asset_type_ui)
-                    _series_ready = bool(_series_loaded)
+                    _series_loaded = fetch_optionseries(_asset_canon, _asset_type_ui)
+                    st.session_state.calc_series_list = _series_loaded or []
+                    st.session_state.calc_autoloaded_for = (_asset_canon, _asset_type_ui)
                     if not _series_loaded:
-                        _atype_hint = ASSET_TYPE_MAP.get(asset_type_ui, '—')
                         st.warning(
                             f"⚠ ISS не вернул ни одной серии для "
-                            f"**{asset}** ({asset_type_ui} / {_atype_hint})."
+                            f"**{_asset_canon}** ({_asset_type_ui})."
                         )
                 except Exception as e:
                     st.error(f"Ошибка загрузки серий: {e}")
-                    st.session_state.series_list = []
-                    _series_ready = False
+                    st.session_state.calc_series_list = []
 
-        if _series_ready:
-            sorted_series = sorted(st.session_state.series_list,
-                                    key=lambda x: x.get("expiry", ""))
-            # Единый формат «🟢 28.10.2026» без кода серии
-            option_labels = [format_series_label(s["expiry"]) for s in sorted_series]
-            chosen = st.selectbox("Дата исполнения",
-                                   option_labels, index=0, key="calc_series_select")
-            chosen_idx = option_labels.index(chosen)
-            selected = sorted_series[chosen_idx]
-            series_code = selected["code"]
-            expiry_str = selected["expiry"]
+        # --- Выбор серии ---
+        if st.session_state.calc_series_list:
+            _sorted_series = sorted(st.session_state.calc_series_list,
+                                     key=lambda x: x.get("expiry", ""))
+            _option_labels = [format_series_label(s["expiry"]) for s in _sorted_series]
+            _chosen = st.selectbox(
+                "Дата исполнения",
+                _option_labels,
+                index=0,
+                key="calc_series_select",
+            )
+            _chosen_idx = _option_labels.index(_chosen)
+            _selected = _sorted_series[_chosen_idx]
+            st.session_state.calc_selected_series = _selected["code"]
+            st.session_state.calc_selected_expiry = _selected["expiry"]
 
-            st.session_state.selected_asset = asset
-            st.session_state.selected_asset_type_ui = asset_type_ui
-            st.session_state.selected_series_code = series_code
-            st.session_state.selected_expiry = expiry_str
-            st.session_state.board_loaded = True
-
+            # Инфо о серии
             try:
-                info = fetch_series_info(asset, asset_type_ui, series_code)
+                _info = fetch_series_info(_asset_canon, _asset_type_ui,
+                                           _selected["code"])
                 with st.expander("Об опционной серии", expanded=False):
-                    st.json(info, expanded=True)
-            except Exception as e:
-                st.warning(f"Не удалось загрузить информацию о серии: {e}")
-
-    # ---- Краткая сводка ----
-    if st.session_state.get("board_loaded") and "selected_series_code" in st.session_state:
-        try:
-            asset = st.session_state.get("selected_asset", "")
-            asset_type_ui = st.session_state.get("selected_asset_type_ui", "")
-            series_code = st.session_state.get("selected_series_code", "")
-            expiry_str = st.session_state.get("selected_expiry", "")
-
-            st.success(f"Выбрана серия: **{asset}** ({asset_type_ui}) · "
-                       f"Дата исполнения **{expiry_str}** · код `{series_code}`")
-
-            _alert_levels = find_alert_levels(asset, category=asset_type_ui)
-            if _alert_levels["found"]:
-                st.info(f"Уровни из оповещений: "
-                        f"**покупка = {_alert_levels['buy']:.2f} ₽** · "
-                        f"**продажа = {_alert_levels['sell']:.2f} ₽**")
-                push_alert_levels(asset, _alert_levels["buy"], _alert_levels["sell"])
-            else:
-                push_alert_levels(asset, None, None)
-
-            if asset_type_ui == "Акция":
-                try:
-                    rfr = get_risk_free_rate_for_expiry(expiry_str)
-                    if rfr is not None:
-                        st.caption(f"Безрисковая ставка (G-кривая ОФЗ MOEX): "
-                                   f"**{rfr:.4f} %**")
-                except Exception:
-                    pass
-                try:
-                    q, stock_price, rec_date = get_dividend_yield_for_ticker(
-                        asset, expiry_str)
-                    if q is not None and stock_price is not None:
-                        st.caption(f"Дивидендная доходность (smart-lab.ru): "
-                                   f"q = **{q:.4f}** ({q*100:.2f} %)")
-                except Exception:
-                    pass
-        except Exception as _e:
-            st.warning(f"Не удалось загрузить сводку: {_e}")
-
-    st.markdown("---")
+                    st.json(_info, expanded=True)
+            except Exception as _e:
+                st.warning(f"Не удалось загрузить информацию о серии: {_e}")
 
     # ============================================================
-    # Инъекция данных в index.html
+    # УРОВНИ ИЗ ОПОВЕЩЕНИЙ + ФОРМИРОВАНИЕ alert_targets
+    # ============================================================
+    _levels = find_alert_levels(_asset_canon, category=_asset_type_ui)
+    if _levels["found"]:
+        st.info(
+            f"📊 Уровни из оповещений для **{_asset_canon}**: "
+            f"покупка = **{_levels['buy']:.2f} ₽** · "
+            f"продажа = **{_levels['sell']:.2f} ₽**"
+        )
+    else:
+        st.caption("ℹ Для этого актива уровни из оповещений не найдены. "
+                   "Введите уровни в форме калькулятора вручную.")
+
+    # --- Доска для формирования alert_targets ---
+    _board_calc = None
+    if st.session_state.calc_selected_series:
+        try:
+            _board_calc = fetch_optionboard(
+                _asset_canon,
+                _asset_type_ui,
+                st.session_state.calc_selected_series,
+            )
+        except Exception:
+            _board_calc = None
+
+    _alert_targets = None
+    if _board_calc is not None:
+        try:
+            _alert_targets = build_alert_targets(
+                _asset_canon,
+                _asset_type_ui,
+                st.session_state.calc_selected_series,
+                _board_calc,
+                _levels,
+            )
+        except Exception:
+            _alert_targets = None
+
+    # ============================================================
+    # ИНЪЕКЦИЯ В index.html
     # ============================================================
     _inject = {
-        "strikes": [], "central_strike": None,
-        "expiry": "", "series_code": "",
+        "strikes": [],
+        "central_strike": None,
+        "expiry": st.session_state.calc_selected_expiry or "",
+        "series_code": st.session_state.calc_selected_series or "",
         "rf_buy": None, "rf_sell": None,
         "div_buy": None, "div_sell": None,
         "vol_buy": 30.0, "vol_sell": 30.0,
-        "alerts": {"ticker": "", "buy": None, "sell": None},
+        "alerts": {
+            "ticker": _asset_canon,
+            "buy": _levels.get("buy") if _levels.get("found") else None,
+            "sell": _levels.get("sell") if _levels.get("found") else None,
+        },
+        "alert_targets": _alert_targets,  # 🔧 НОВОЕ
         "market_price": None,
     }
 
-    if st.session_state.get("board_loaded") and "selected_series_code" in st.session_state:
-        _asset_inj = st.session_state.get("selected_asset", "")
-        _atype_inj = st.session_state.get("selected_asset_type_ui", "")
-        _series_inj = st.session_state.get("selected_series_code", "")
-        _expiry_inj = st.session_state.get("selected_expiry", "")
-
-        _inject["expiry"] = _expiry_inj
-        _inject["series_code"] = _series_inj
-
+    # Заполняем страйки и central strike, если есть доска
+    if _board_calc is not None:
         try:
-            _board_inj = fetch_optionboard(_asset_inj, _atype_inj, _series_inj)
-            _calls_inj = _board_inj.get('call') or []
-            _puts_inj = _board_inj.get('put') or []
-            _central_inj = _board_inj.get('central_strike')
+            _calls_inj = _board_calc.get('call') or []
+            _puts_inj = _board_calc.get('put') or []
+            _central_inj = _board_calc.get('central_strike')
             if _central_inj is not None:
                 try:
                     _inject["central_strike"] = float(_central_inj)
@@ -2536,50 +1916,48 @@ def _render_calc_tab():
         except Exception:
             pass
 
-        if _atype_inj == "Акция":
-            try:
-                _rf_inj = get_risk_free_rate_for_expiry(_expiry_inj)
-                _inject["rf_buy"] = _rf_inj
-                _inject["rf_sell"] = _rf_inj
-            except Exception:
-                pass
-            try:
-                _q_inj, _sp_inj, _rd_inj = get_dividend_yield_for_ticker(_asset_inj,
-                                                                         _expiry_inj)
-                _inject["div_buy"] = _q_inj
-                _inject["div_sell"] = _q_inj
-            except Exception:
-                pass
-        else:
-            _inject["rf_buy"] = 0.0
-            _inject["rf_sell"] = 0.0
-            _inject["div_buy"] = 0.0
-            _inject["div_sell"] = 0.0
-
-        _alv = find_alert_levels(_asset_inj, category=_atype_inj)
-        if _alv["found"]:
-            _inject["alerts"]["ticker"] = _asset_inj
-            _inject["alerts"]["buy"] = _alv["buy"]
-            _inject["alerts"]["sell"] = _alv["sell"]
-
+    # Безрисковая ставка и дивиденды для акций
+    if _asset_type_ui == "Акция" and st.session_state.calc_selected_expiry:
         try:
-            if _atype_inj in ("Фьючерс", "Валюта", "Товар"):
-                _eng_mkt, _mkt_mkt = "futures", "forts"
-            elif _atype_inj == "Индекс":
-                _eng_mkt, _mkt_mkt = "stock", "index"
-            else:
-                _eng_mkt, _mkt_mkt = "stock", "shares"
+            _rf_inj = get_risk_free_rate_for_expiry(
+                st.session_state.calc_selected_expiry)
+            _inject["rf_buy"] = _rf_inj
+            _inject["rf_sell"] = _rf_inj
+        except Exception:
+            pass
+        try:
+            _q_inj, _sp_inj, _rd_inj = get_dividend_yield_for_ticker(
+                _asset_canon, st.session_state.calc_selected_expiry)
+            _inject["div_buy"] = _q_inj
+            _inject["div_sell"] = _q_inj
+        except Exception:
+            pass
+    else:
+        _inject["rf_buy"] = 0.0
+        _inject["rf_sell"] = 0.0
+        _inject["div_buy"] = 0.0
+        _inject["div_sell"] = 0.0
 
-            _mkt_secid = resolve_underlying_secid(_asset_inj, _atype_inj)
+    # Рыночная цена БА
+    try:
+        if _asset_type_ui in ("Фьючерс", "Валюта", "Товар"):
+            _eng_mkt, _mkt_mkt = "futures", "forts"
+        elif _asset_type_ui == "Индекс":
+            _eng_mkt, _mkt_mkt = "stock", "index"
+        else:
+            _eng_mkt, _mkt_mkt = "stock", "shares"
 
+        _mkt_secid = resolve_underlying_secid(_asset_canon, _asset_type_ui)
+        if _mkt_secid:
             _close_price = get_last_close_price(_mkt_secid, _eng_mkt, _mkt_mkt)
             if _close_price is not None:
                 _inject["market_price"] = _close_price
                 st.session_state["quick_und_last_price"] = _close_price
                 st.session_state["_current_market_price"] = _close_price
-        except Exception:
-            pass
+    except Exception:
+        pass
 
+    # Рендер калькулятора
     _calc_html_path = Path("index.html")
     calc_html = None
     if not _calc_html_path.exists():
@@ -2591,8 +1969,6 @@ def _render_calc_tab():
             st.error(f"Не удалось прочитать index.html: {e}")
             calc_html = None
 
-    # Кэш HTML калькулятора по хешу полезной нагрузки —
-    # при одинаковом _inject iframe не пересоздаётся.
     if calc_html is not None:
         if HTML_PLACEHOLDER not in calc_html:
             st.warning("⚠ В index.html не найден плейсхолдер "
@@ -2608,17 +1984,465 @@ def _render_calc_tab():
                     _inject_json.replace("</", "<\\/"))
             calc_html = st.session_state[_cache_key]
 
-    # Калькулятор на всю ширину — графики D1/H1 переехали на «Позицию»
     if calc_html is None:
         st.info("Калькулятор недоступен.")
     else:
         components.html(calc_html, height=1100, scrolling=True)
-
-    if st.session_state.get("board_loaded") and "selected_expiry" in st.session_state:
-        push_expiry_to_calculator(st.session_state.selected_expiry,
-                                  st.session_state.selected_series_code)
         # ==================================================================
-# ============ ВКЛАДКА 2: ПОЗИЦИЯ ==================================
+# ============ ВКЛАДКА 2: ДОСКА ОПЦИОНОВ (НЕЗАВИСИМАЯ) ============
+# ==================================================================
+@st.fragment
+def _render_board_tab():
+    st.header("Доска опционов и кривая волатильности")
+
+    # 🔧 Собственные ключи session_state — не пересекаются с «Калькулятором»
+    if "board_asset" not in st.session_state:
+        st.session_state.board_asset = "SBER"
+    if "board_category" not in st.session_state:
+        st.session_state.board_category = "Акция"
+    if "board_series_list" not in st.session_state:
+        st.session_state.board_series_list = []
+    if "board_series_code" not in st.session_state:
+        st.session_state.board_series_code = ""
+    if "board_expiry" not in st.session_state:
+        st.session_state.board_expiry = ""
+    if "board_autoloaded_for" not in st.session_state:
+        st.session_state.board_autoloaded_for = (None, None)
+
+    # ============================================================
+    # ВЫБОР АКТИВА (свой, независимый)
+    # ============================================================
+    _bc1, _bc2, _bc3 = st.columns([3, 2, 2])
+    with _bc1:
+        _board_raw_asset = st.text_input(
+            "Базовый актив",
+            value=st.session_state.board_asset,
+            key="board_asset_input",
+            placeholder="SBER, GAZP, RTS…",
+        ).strip()
+    with _bc2:
+        _cat_options = ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
+        _cat_idx = (_cat_options.index(st.session_state.board_category)
+                    if st.session_state.board_category in _cat_options else 0)
+        _board_cat = st.selectbox(
+            "Категория БА",
+            _cat_options,
+            index=_cat_idx,
+            key="board_category_select",
+        )
+    with _bc3:
+        st.markdown("<div style='height:1.5rem'></div>",
+                    unsafe_allow_html=True)
+        _btn_reload = st.button("🔄 Обновить серии",
+                                 use_container_width=True,
+                                 key="board_reload_btn")
+
+    _board_asset = resolve_canonical_asset_code(_board_raw_asset, _board_cat)
+
+    # Смена актива → сброс серий
+    if (_board_asset != st.session_state.board_asset
+            or _board_cat != st.session_state.board_category):
+        st.session_state.board_asset = _board_asset
+        st.session_state.board_category = _board_cat
+        st.session_state.board_series_list = []
+        st.session_state.board_series_code = ""
+        st.session_state.board_expiry = ""
+        st.session_state.board_autoloaded_for = (None, None)
+
+    # Автозагрузка серий: при смене актива ИЛИ по кнопке
+    _board_loaded_for = st.session_state.get("board_autoloaded_for", (None, None))
+    _need_reload = (_board_asset
+                    and (_board_asset, _board_cat) != _board_loaded_for) \
+                   or _btn_reload
+
+    if _need_reload and _board_asset:
+        with st.spinner(f"Загрузка серий для {_board_asset}…"):
+            try:
+                _new_series = fetch_optionseries(_board_asset, _board_cat)
+                st.session_state.board_series_list = _new_series or []
+                st.session_state.board_autoloaded_for = (_board_asset, _board_cat)
+                # Автовыбор первой серии, если ещё не выбрана
+                if _new_series and not st.session_state.board_series_code:
+                    _s_first = sorted(_new_series,
+                                       key=lambda x: x.get("expiry", ""))[0]
+                    st.session_state.board_series_code = _s_first["code"]
+                    st.session_state.board_expiry = _s_first["expiry"]
+                if not _new_series:
+                    st.warning(f"⚠ ISS не вернул ни одной серии "
+                               f"для **{_board_asset}** ({_board_cat}).")
+            except Exception as e:
+                st.error(f"Ошибка загрузки серий: {e}")
+                st.session_state.board_series_list = []
+
+    st.markdown("---")
+
+    # ============================================================
+    # СВОДНАЯ ТАБЛИЦА ВСЕХ СЕРИЙ — клик по строке меняет серию
+    # ============================================================
+    if not st.session_state.board_series_list:
+        st.info("Нет доступных серий. Проверьте тикер и категорию.")
+        st.stop()
+
+    st.markdown(f"### Все серии опционов **{_board_asset}** "
+                f"({_board_cat.lower()})")
+
+    try:
+        _df_overview = fetch_series_overview(_board_asset, _board_cat)
+    except Exception as _e:
+        _df_overview = pd.DataFrame()
+        st.warning(f"Не удалось загрузить сводку серий: {_e}")
+
+    if not _df_overview.empty:
+        _df_show = _df_overview.drop(columns=["_series_code",
+                                                "_expiry_raw",
+                                                "_days_to"])
+
+        _df_styler = _df_show.style.format({
+            "Объём, ₽":     "{:,.0f}",
+            "Об.контр.":    "{:,.0f}",
+            "Откр.поз.":    "{:,.0f}",
+            "Изменение, ₽": "{:+,.0f}",
+        }, na_rep="—").apply(
+            lambda row: [
+                ("color: #00a651; font-weight: 700;"
+                 if col == "Изменение, ₽" and isinstance(row[col], (int, float))
+                 and row[col] > 0
+                 else ("color: #d32f2f; font-weight: 700;"
+                       if col == "Изменение, ₽"
+                       and isinstance(row[col], (int, float))
+                       and row[col] < 0
+                       else ""))
+                for col in row.index
+            ], axis=1)
+
+        _sel_event = st.dataframe(
+            _df_styler,
+            use_container_width=True,
+            hide_index=True,
+            height=min(120 + 35 * len(_df_show), 420),
+            on_select="rerun",
+            selection_mode="single-row",
+            key="series_overview_table",
+        )
+
+        _sel_rows = []
+        try:
+            _sel_rows = list(getattr(_sel_event.selection, "rows", []) or [])
+        except Exception:
+            _sel_rows = []
+
+        if _sel_rows:
+            _row_idx = _sel_rows[0]
+            if 0 <= _row_idx < len(_df_overview):
+                _picked = _df_overview.iloc[_row_idx]
+                _new_code = _picked["_series_code"]
+                _new_expiry = _picked["_expiry_raw"]
+                # 🔧 Меняем ТОЛЬКО board_* ключи — калькулятор не трогаем
+                if _new_code != st.session_state.board_series_code:
+                    st.session_state.board_series_code = _new_code
+                    st.session_state.board_expiry = _new_expiry
+                    st.rerun()
+
+    st.markdown("---")
+
+    # ============================================================
+    # ДОСКА ОПЦИОНОВ ВЫБРАННОЙ СЕРИИ
+    # ============================================================
+    _active_series_code = st.session_state.board_series_code
+    _active_expiry = st.session_state.board_expiry
+
+    if not _active_series_code:
+        st.info("Выберите серию из таблицы выше.")
+        st.stop()
+
+    # 🔧 Заголовок читает ТЕКУЩЕЕ значение из session_state — обновляется корректно
+    st.markdown(
+        f"### Доска опционов — **{_board_asset}** "
+        f"(дата исполнения: {format_series_label(_active_expiry)})"
+    )
+
+    # Уровни из оповещений для выбранного актива
+    _board_levels = find_alert_levels(_board_asset, category=_board_cat)
+    _board_buy_level = float(_board_levels["buy"] or 0) if _board_levels["found"] else 0.0
+    _board_sell_level = float(_board_levels["sell"] or 0) if _board_levels["found"] else 0.0
+
+    # ---- Информационная строка ----
+    try:
+        _board_for_price = fetch_optionboard(_board_asset, _board_cat,
+                                              _active_series_code)
+        _calls_p = _board_for_price.get('call') or []
+        _puts_p  = _board_for_price.get('put') or []
+        _c_map_p = {c['strike']: c for c in _calls_p
+                    if c.get('theorprice') and c.get('strike') is not None}
+        _p_map_p = {p2['strike']: p2 for p2 in _puts_p
+                    if p2.get('theorprice') and p2.get('strike') is not None}
+        _common_p = sorted(set(_c_map_p.keys()) & set(_p_map_p.keys()))
+        _fs_est = []
+        for k in _common_p:
+            ct = _c_map_p[k]['theorprice']
+            pt = _p_map_p[k]['theorprice']
+            if ct and pt and ct > 0 and pt > 0:
+                _fs_est.append(ct - pt + float(k))
+        _f_current = None
+        if _fs_est:
+            _fs_est.sort()
+            _f_current = _fs_est[len(_fs_est) // 2]
+        _central_p = _board_for_price.get('central_strike')
+        _strikes_p = sorted({
+            c['strike'] for c in _calls_p if c.get('strike') is not None
+        } | {
+            p2['strike'] for p2 in _puts_p if p2.get('strike') is not None
+        })
+        _k_min = _strikes_p[0] if _strikes_p else None
+        _k_max = _strikes_p[-1] if _strikes_p else None
+
+        _info_parts = []
+        if _f_current is not None:
+            _info_parts.append(
+                f"<span style='color:#1c5a7a; font-weight:700;'>"
+                f"Текущая цена БА: {_f_current:,.2f} ₽</span>")
+        if _central_p is not None:
+            _info_parts.append(
+                f"<span style='color:#4a6f8a;'>"
+                f"Центральный страйк: <b>{int(_central_p)}</b></span>")
+        if _k_min is not None and _k_max is not None:
+            _info_parts.append(
+                f"<span style='color:#4a6f8a;'>"
+                f"Диапазон страйков: <b>{int(_k_min)} … {int(_k_max)}</b> "
+                f"({len(_strikes_p)} шт.)</span>")
+        if _info_parts:
+            st.markdown(
+                "<div style='background:#eef6fb; border-radius:12px; "
+                "padding:10px 16px; margin-bottom:12px; font-size:.9rem; "
+                "display:flex; gap:24px; flex-wrap:wrap; "
+                "align-items:center;'>"
+                + " · ".join(_info_parts) + "</div>",
+                unsafe_allow_html=True)
+    except Exception:
+        pass
+
+    highlight_on = st.toggle(
+        "Раскрасить Bid/Offer (выгодные цены) и греки", value=True)
+
+    try:
+        board = fetch_optionboard(_board_asset, _board_cat, _active_series_code)
+    except Exception as e:
+        st.error(f"Не удалось загрузить доску: {e}")
+        board = None
+
+    if board:
+        calls = board.get('call') or []
+        puts = board.get('put') or []
+        central = board.get('central_strike')
+        strikes = sorted({c['strike'] for c in calls} | {p['strike'] for p in puts})
+        c_map = {c['strike']: c for c in calls}
+        p_map = {p['strike']: p for p in puts}
+
+        def nearest_strike(level, strikes_list):
+            if level is None or level <= 0 or not strikes_list:
+                return None
+            return min(strikes_list, key=lambda s: abs(float(s) - float(level)))
+
+        buy_strike_match = nearest_strike(_board_buy_level, strikes)
+        sell_strike_match = nearest_strike(_board_sell_level, strikes)
+
+        strikes_iv = []
+        for k in strikes:
+            c = c_map.get(k, {})
+            p = p_map.get(k, {})
+            iv = c.get('volatility') or p.get('volatility')
+            strikes_iv.append({
+                "strike": int(k) if float(k).is_integer() else k,
+                "iv": float(iv) if iv is not None else None})
+        push_strikes_to_calculator(strikes_iv, central)
+
+        rows = []
+        for k in strikes:
+            c = c_map.get(k, {})
+            p = p_map.get(k, {})
+            iv = c.get('volatility') or p.get('volatility')
+            rows.append({
+                "Call_Ticker": c.get('secid', '—'),
+                "Call_Rho":   c.get('rho'),
+                "Call_Theta": c.get('theta'),
+                "Call_Vega":  c.get('vega'),
+                "Call_Gamma": c.get('gamma'),
+                "Call_Delta": c.get('delta'),
+                "Call_Theor": c.get('theorprice'),
+                "Call_Last":  c.get('last'),
+                "Call_Offer": c.get('offer'),
+                "Call_Bid":   c.get('bid'),
+                "Strike":     k,
+                "IV_%":       iv,
+                "Put_Bid":    p.get('bid'),
+                "Put_Offer":  p.get('offer'),
+                "Put_Last":   p.get('last'),
+                "Put_Theor":  p.get('theorprice'),
+                "Put_Delta":  p.get('delta'),
+                "Put_Gamma":  p.get('gamma'),
+                "Put_Vega":   p.get('vega'),
+                "Put_Theta":  p.get('theta'),
+                "Put_Rho":    p.get('rho'),
+                "Put_Ticker": p.get('secid', '—')})
+        df = pd.DataFrame(rows)
+
+        def _delta_color(delta):
+            if delta is None or not isinstance(delta, (int, float)):
+                return None
+            d = abs(delta)
+            if 0.25 <= d <= 0.45:
+                return "#00ff0c"
+            if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
+                return "#fcff00"
+            return "#ff0000"
+
+        def _theta_color(theta, vega):
+            if theta is None or vega is None:
+                return None
+            if not isinstance(theta, (int, float)) or \
+               not isinstance(vega, (int, float)):
+                return None
+            if abs(vega) < 1e-9:
+                return None
+            ratio = abs(theta) / abs(vega)
+            if ratio > 1.0:
+                return "#00ff0c"
+            if ratio > 0.5:
+                return "#fcff00"
+            return "#ff0000"
+
+        def _bid_offer_color(price, theor, is_bid):
+            if price is None or theor is None:
+                return None
+            if not isinstance(price, (int, float)) or \
+               not isinstance(theor, (int, float)):
+                return None
+            if price <= 0 or theor <= 0:
+                return None
+            if is_bid:
+                if price > theor:
+                    return "#fb92f0"
+            else:
+                if price < theor:
+                    return "#9c00ff"
+            return None
+
+        def style_row(row):
+            strike = float(row["Strike"])
+            is_central = central is not None and abs(strike - float(central)) < 0.01
+            is_buy_strike = (buy_strike_match is not None
+                             and abs(strike - float(buy_strike_match)) < 0.01)
+            is_sell_strike = (sell_strike_match is not None
+                              and abs(strike - float(sell_strike_match)) < 0.01)
+            call_bg = "#e1e3fb" if is_central else "#dbf3df"
+            put_bg  = "#fee5cd" if is_central else "#ffcdce"
+
+            styles = []
+            for col in row.index:
+                style = ""
+                if col.startswith("Call_"):
+                    style = f"background-color: {call_bg}"
+                elif col.startswith("Put_"):
+                    style = f"background-color: {put_bg}"
+                if col == "Strike":
+                    if is_sell_strike:
+                        style = ("background-color: #fb92f0; color: white; "
+                                 "font-weight: bold")
+                    elif is_buy_strike:
+                        style = ("background-color: #9c00ff; color: white; "
+                                 "font-weight: bold")
+                    elif is_central:
+                        style = "background-color: #e3e7ec; font-weight: bold"
+                elif col == "IV_%" and is_central:
+                    style = "background-color: #e3e7ec; font-weight: bold"
+
+                if highlight_on:
+                    if col in ("Call_Bid", "Put_Bid"):
+                        theor_col = ("Call_Theor" if col.startswith("Call_")
+                                     else "Put_Theor")
+                        c = _bid_offer_color(row[col], row.get(theor_col),
+                                              is_bid=True)
+                        if c:
+                            style = (f"background-color: {c}; "
+                                     f"color: white; font-weight: 700")
+                    elif col in ("Call_Offer", "Put_Offer"):
+                        theor_col = ("Call_Theor" if col.startswith("Call_")
+                                     else "Put_Theor")
+                        c = _bid_offer_color(row[col], row.get(theor_col),
+                                              is_bid=False)
+                        if c:
+                            style = (f"background-color: {c}; "
+                                     f"color: white; font-weight: 700")
+                    elif col in ("Call_Delta", "Put_Delta"):
+                        c = _delta_color(row[col])
+                        if c:
+                            style = f"background-color: {c}; font-weight: 600"
+                    elif col in ("Call_Theta", "Put_Theta"):
+                        vega_col = ("Call_Vega" if col.startswith("Call_")
+                                    else "Put_Vega")
+                        c = _theta_color(row[col], row.get(vega_col))
+                        if c:
+                            style = f"background-color: {c}; font-weight: 600"
+
+                styles.append(style)
+            return styles
+
+        column_display = {
+            "Call_Ticker": "Тикер", "Call_Rho": "Ро",
+            "Call_Theta": "Тета", "Call_Vega": "Вега",
+            "Call_Gamma": "Гамма", "Call_Delta": "Дельта",
+            "Call_Theor": "Теор.Ц", "Call_Last": "Посл.Ц",
+            "Call_Offer": "Offer", "Call_Bid": "Bid",
+            "Strike": "Страйк", "IV_%": "IV%",
+            "Put_Bid": "Bid", "Put_Offer": "Offer",
+            "Put_Last": "Посл.Ц", "Put_Theor": "Теор.Ц",
+            "Put_Delta": "Дельта", "Put_Gamma": "Гамма",
+            "Put_Vega": "Вега", "Put_Theta": "Тета",
+            "Put_Rho": "Ро", "Put_Ticker": "Тикер"}
+
+        caption_extra = ""
+        if buy_strike_match is not None:
+            caption_extra += (f" · страйк покупок ≈ **{buy_strike_match}**")
+        if sell_strike_match is not None:
+            caption_extra += (f" · страйк продаж ≈ **{sell_strike_match}**")
+        st.caption(f"Центральный страйк: "
+                   f"**{central if central is not None else 'не определён'}** · "
+                   f"всего страйков: {len(df)}{caption_extra}")
+
+        st.dataframe(
+            df.style.apply(style_row, axis=1).format(
+                {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
+                precision=4, na_rep="—"),
+            column_config=column_display,
+            use_container_width=True, height=600)
+
+        # ---- Улыбка волатильности ----
+        st.markdown("### Улыбка волатильности")
+        try:
+            points = fetch_volatility_graph(_board_asset, _active_series_code,
+                                             _board_cat)
+        except Exception:
+            points = []
+        if points:
+            strikes_g = [p['strike'] for p in points]
+            vols_g = [p['volatility'] for p in points]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=strikes_g, y=vols_g, mode='lines+markers',
+                line=dict(color='#2c7da0', width=2),
+                fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
+                name='IV, %'))
+            fig.update_layout(
+                title="Улыбка волатильности",
+                xaxis_title="Страйк", yaxis_title="IV, %",
+                height=380, margin=dict(l=20, r=20, t=50, b=20),
+                xaxis=dict(tickformat=".0f", hoverformat=".0f"),
+                yaxis=dict(tickformat=".2f", hoverformat=".2f"))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Данные для улыбки волатильности недоступны.")
+            # ==================================================================
+# ============ ВКЛАДКА 3: ПОЗИЦИЯ ==================================
 # ==================================================================
 @st.fragment
 def _render_position_tab():
@@ -2771,6 +2595,20 @@ def _render_position_tab():
         except Exception:
             return 0.0
 
+    def _fmt_board_label(_opt_type, _side_internal, _strike, _price):
+        """«+C270 16,7500» — как в index.html."""
+        if _price is None or _price <= 0 or _strike is None:
+            return "—"
+        _sign = "+" if _side_internal == "Buy" else "-"
+        _letter = "C" if _opt_type == "Call" else "P"
+        try:
+            _kf = float(_strike)
+            _k_str = str(int(_kf)) if _kf.is_integer() else f"{_kf:.2f}"
+        except Exception:
+            _k_str = str(_strike)
+        _p_str = f"{_price:.4f}".replace('.', ',')
+        return f"{_sign}{_letter}{_k_str} {_p_str}"
+
     # ---------- ПРАВАЯ КОЛОНКА: добавление позиции ----------
     with col_add:
         st.markdown("#### Добавить позицию")
@@ -2778,33 +2616,30 @@ def _render_position_tab():
         if "positions" not in st.session_state:
             st.session_state.positions = []
 
-        can_build = (st.session_state.get("series_list")
-                     and "selected_series_code" in st.session_state)
-        if not can_build:
-            st.warning("Сначала выберите серию на вкладке «Калькулятор».")
+        # 🔧 Источник данных — вкладка «Доска» (board_*)
+        _asset_now_all = st.session_state.get("board_asset", "")
+        _atype_now_all = st.session_state.get("board_category", "")
+        _series_now = st.session_state.get("board_series_code", "")
+        _expiry_now = st.session_state.get("board_expiry", "")
+
+        if not (_asset_now_all and _atype_now_all and _series_now):
+            st.warning("Сначала выберите актив и серию на вкладке «Доска».")
         else:
-            _asset_now_all = st.session_state.get("selected_asset", "")
-            _atype_now_all = st.session_state.get("selected_asset_type_ui", "")
             _all_series = fetch_all_series_for_asset(_asset_now_all, _atype_now_all)
             if not _all_series:
-                _all_series = st.session_state.get("series_list", [])
+                _all_series = st.session_state.get("board_series_list", [])
 
-            # Единый формат «🟢 28.10.2026» без кода серии
             _series_labels = [format_series_label(s["expiry"]) for s in _all_series]
             _series_by_label = {lab: s for lab, s in zip(_series_labels, _all_series)}
 
-            _current_series_code = st.session_state.get("selected_series_code", "")
             _default_series_idx = 0
             for i, s in enumerate(_all_series):
-                if s.get("code") == _current_series_code:
+                if s.get("code") == _series_now:
                     _default_series_idx = i
                     break
 
             try:
-                board = fetch_optionboard(
-                    st.session_state.get("selected_asset", ""),
-                    st.session_state.get("selected_asset_type_ui", ""),
-                    st.session_state.get("selected_series_code", ""))
+                board = fetch_optionboard(_asset_now_all, _atype_now_all, _series_now)
             except Exception as e:
                 st.error(f"Не удалось загрузить доску: {e}")
                 board = None
@@ -2816,11 +2651,9 @@ def _render_position_tab():
                 c_map = {c['strike']: c for c in calls if c.get('strike') is not None}
                 p_map = {p['strike']: p for p in puts if p.get('strike') is not None}
                 all_strikes = sorted(set(c_map.keys()) | set(p_map.keys()))
-                expiry_now = st.session_state.get("selected_expiry", "—")
-                asset_type_ui_now = st.session_state.get("selected_asset_type_ui", "Фьючерс")
-                asset_now = st.session_state.get("selected_asset", "")
+                asset_type_ui_now = _atype_now_all
+                asset_now = _asset_now_all
 
-                # Границы вокруг формы
                 with st.container(border=True), st.form(
                         "add_position_form", clear_on_submit=False):
                     # Строка 1: тип инструмента | дата исполнения
@@ -2864,10 +2697,10 @@ def _render_position_tab():
                                     expiry_now_form = _chosen_contract["expiration"]
                                     _futures_secid_form = _chosen_contract["secid"]
                                 else:
-                                    expiry_now_form = expiry_now
+                                    expiry_now_form = _expiry_now
                                     _futures_secid_form = asset_now
                                     st.text_input("Дата исполнения",
-                                                   value=expiry_now,
+                                                   value=_expiry_now,
                                                    disabled=True,
                                                    key="form_fut_exp_disp")
                             else:
@@ -2908,7 +2741,6 @@ def _render_position_tab():
                     # Строка 3: направление | количество
                     _f3c1, _f3c2 = st.columns(2)
                     with _f3c1:
-                        # Buy/Sell → Покупка/Продажа
                         side_ui = st.selectbox("Направление",
                                                 ["Покупка", "Продажа"],
                                                 key="form_side")
@@ -2928,11 +2760,12 @@ def _render_position_tab():
                         if instrument_type == "Опцион" and chosen_strike is not None:
                             _auto_price = _get_board_price(chosen_strike, opt_type,
                                                             side, c_map, p_map)
+                        # 🔧 Поле цены — только для ручного ввода,
+                        # по умолчанию пустое; авто-цена подставится ниже
                         price_input = st.number_input(
-                            "Цена, ₽", min_value=0.0,
+                            "Цена, ₽ (0 = взять из доски)", min_value=0.0,
                             value=0.0, step=0.01, format="%.4f",
-                            key="form_price",
-                            help="0 = использовать авто-цену из доски")
+                            key="form_price")
                     with _f4c2:
                         if instrument_type == "Опцион" and chosen_strike is not None:
                             ticker_val = ref_opt.get('secid', '—')
@@ -2944,25 +2777,27 @@ def _render_position_tab():
                         st.text_input("Тикер (авто)", value=ticker_val,
                                        disabled=True, key="form_ticker_disp")
 
-                    # Авто-цена из доски (вместо «из оповещений»)
+                    # 🔧 НОВЫЙ ФОРМАТ: «+C270 16,7500»
                     use_auto_price = True
                     if instrument_type == "Опцион" and chosen_strike is not None:
-                        _src_lbl = "Offer" if side == "Buy" else "Bid"
                         if _auto_price > 0:
+                            _label = _fmt_board_label(opt_type, side,
+                                                       chosen_strike, _auto_price)
                             st.markdown(
                                 f"<div style='background:#eef6fb; border-radius:10px; "
-                                f"padding:8px 14px; font-size:.82rem; color:#1c5a7a; "
+                                f"padding:8px 14px; font-size:.9rem; color:#1c5a7a; "
                                 f"margin:6px 0;'>"
-                                f"Авто-цена из доски ({_src_lbl}, K={chosen_strike}, "
-                                f"{opt_type}): <b>{_auto_price:.4f} ₽</b>"
+                                f"Цена из доски опционов: "
+                                f"<b style='font-family:Consolas,monospace; "
+                                f"font-size:1rem;'>{_label}</b>"
                                 f"</div>",
                                 unsafe_allow_html=True)
                             use_auto_price = st.checkbox(
                                 "🎯 Использовать авто-цену из доски",
                                 value=True, key="form_use_auto_price")
                         else:
-                            st.caption(f"⚠ Авто-цена недоступна "
-                                       f"({_src_lbl} и theorprice пусты).")
+                            st.caption("⚠ Авто-цена недоступна для выбранной "
+                                       "комбинации (нет bid/offer/theorprice).")
 
                     submitted = st.form_submit_button("➕ Добавить позицию",
                                                       type="primary",
@@ -3038,10 +2873,8 @@ def _render_position_tab():
                             if chosen_strike is None:
                                 st.error("Укажите страйк.")
                             else:
-                                _sel_series_code = chosen_series_code or st.session_state.get(
-                                    "selected_series_code", "")
-                                if _sel_series_code != st.session_state.get(
-                                        "selected_series_code", ""):
+                                _sel_series_code = chosen_series_code or _series_now
+                                if _sel_series_code != _series_now:
                                     try:
                                         _board_sel = fetch_optionboard(
                                             asset_now, asset_type_ui_now,
@@ -3067,18 +2900,14 @@ def _render_position_tab():
                                 final_pos_price = None
                                 _src_label = ""
 
-                                # 1. Приоритет: авто-цена из доски выбранной серии
                                 if use_auto_price:
                                     _auto_p_sel = _get_board_price(
                                         chosen_strike, opt_type, side,
                                         _c_map_sel, _p_map_sel)
                                     if _auto_p_sel > 0:
                                         final_pos_price = float(_auto_p_sel)
-                                        _src_label = (" (Bid из доски)"
-                                                      if side == "Sell"
-                                                      else " (Offer из доски)")
+                                        _src_label = " (из доски)"
 
-                                # 2. Fallback: ручная цена
                                 if final_pos_price is None and price_input > 0:
                                     final_pos_price = float(price_input)
                                     _src_label = " (ручная)"
@@ -3121,7 +2950,8 @@ def _render_position_tab():
                                                f"{_src_label} "
                                                f"по {final_pos_price:.4f} ₽")
                                     st.rerun()
-                                        # ==================================================================
+
+    # ==================================================================
     # ТЕКУЩИЕ ПОЗИЦИИ
     # ==================================================================
     st.markdown("---")
@@ -3203,10 +3033,7 @@ def _render_position_tab():
                             _exp_disp, "%Y-%m-%d").strftime("%d.%m.%Y")
                     except Exception:
                         _exp_disp_fmt = _exp_disp
-                    _main_exp = st.session_state.get("selected_expiry", "")
-                    _exp_color = "#7c4dff" if _exp_disp not in ("—", _main_exp) else "#333"
-                    st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem; "
-                                f"color:{_exp_color}; font-weight:600;'>"
+                    st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
                                 f"{_exp_disp_fmt}</div>", unsafe_allow_html=True)
 
                 with row[6]:
@@ -3233,18 +3060,15 @@ def _render_position_tab():
                     with qc[0]:
                         st.button("➖", key=f"qm_{_id}",
                                   on_click=_cb_qty_dec, args=(kq,),
-                                  use_container_width=True,
-                                  help="Уменьшить количество на 1")
+                                  use_container_width=True)
                     with qc[1]:
-                        new_qty = st.number_input(
+                        st.number_input(
                             "qty", min_value=-10000, max_value=10000, step=1,
                             key=kq, label_visibility="collapsed")
                     with qc[2]:
                         st.button("➕", key=f"qp_{_id}",
                                   on_click=_cb_qty_inc, args=(kq,),
-                                  use_container_width=True,
-                                  help="Увеличить количество на 1")
-                    # Без автоприсвоения — ждём «Обновить позицию»
+                                  use_container_width=True)
 
                 with row[9]:
                     kp = f"price_{_id}"
@@ -3254,19 +3078,16 @@ def _render_position_tab():
                     with pc[0]:
                         st.button("➖", key=f"pm_{_id}",
                                   on_click=_cb_price_dec, args=(kp,),
-                                  use_container_width=True,
-                                  help="−0.01 ₽")
+                                  use_container_width=True)
                     with pc[1]:
-                        new_price = st.number_input(
+                        st.number_input(
                             "price", min_value=0.0,
                             step=0.01, format="%.4f",
                             key=kp, label_visibility="collapsed")
                     with pc[2]:
                         st.button("➕", key=f"pp_{_id}",
                                   on_click=_cb_price_inc, args=(kp,),
-                                  use_container_width=True,
-                                  help="+0.01 ₽")
-                    # Без автоприсвоения — ждём «Обновить позицию»
+                                  use_container_width=True)
 
                 _theor = float(p.get("Теор.цена", 0))
                 _instr = p.get("Тип инструмента", "Опцион")
@@ -3380,10 +3201,7 @@ def _render_position_tab():
             _refresh_clicked = st.button("🔄 Обновить позицию",
                                           use_container_width=True,
                                           type="primary",
-                                          key="positions_refresh_btn",
-                                          help="Пересчитать теор.цену и греки "
-                                               "из свежей доски, сохранив "
-                                               "ручные правки цены и количества")
+                                          key="positions_refresh_btn")
         with _btn2:
             _export_rows = []
             for i, p in enumerate(st.session_state.positions):
@@ -3416,9 +3234,9 @@ def _render_position_tab():
                 _instr_p = _p.get("Тип инструмента", "Опцион")
                 if _instr_p != "Опцион":
                     continue
-                _asset_p = _p.get("_asset") or st.session_state.get("selected_asset", "")
-                _atype_p = _p.get("_atype") or st.session_state.get("selected_asset_type_ui", "")
-                _scode_p = _p.get("_series_code") or st.session_state.get("selected_series_code", "")
+                _asset_p = _p.get("_asset") or st.session_state.get("board_asset", "")
+                _atype_p = _p.get("_atype") or st.session_state.get("board_category", "")
+                _scode_p = _p.get("_series_code") or st.session_state.get("board_series_code", "")
                 if not (_asset_p and _atype_p and _scode_p):
                     continue
                 try:
@@ -3449,45 +3267,6 @@ def _render_position_tab():
             st.rerun()
 
         # =========================================================
-        # Определение опционной конструкции
-        # =========================================================
-        try:
-            _visible_positions = [p for p in st.session_state.positions
-                                   if p.get("visible", True)
-                                   and p.get("Опцион") in ("Call", "Put")]
-            if _visible_positions:
-                _best = None
-                for _sname, _sdef in PREDEFINED_STRATEGIES.items():
-                    _m = match_strategy_with_positions(_sdef, _visible_positions)
-                    if _m["is_full"] and _m["weight"] >= 1.0:
-                        if _best is None or _m["weight"] > _best["weight"]:
-                            _best = {"name": _sname, "weight": _m["weight"],
-                                     "def": _sdef}
-                if _best is not None:
-                    st.markdown(
-                        f"<div style='background:#d4f7d8; border-radius:12px; "
-                        f"padding:10px 16px; margin-top:8px; "
-                        f"font-size:1rem; color:#0a5d29;'>"
-                        f"<b>Опционная конструкция:</b> {_best['name']} "
-                        f"<span style='color:#4a6f8a; font-size:.82rem;'>"
-                        f"— {_best['def'].get('description','')}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True)
-                else:
-                    _partials = []
-                    for _sname, _sdef in PREDEFINED_STRATEGIES.items():
-                        _m = match_strategy_with_positions(_sdef, _visible_positions)
-                        if _m["weight"] >= 0.5:
-                            _partials.append({"name": _sname, "w": _m["weight"]})
-                    if _partials:
-                        _partials.sort(key=lambda x: -x["w"])
-                        _txt = ", ".join(f"{x['name']} ({int(x['w']*100)}%)"
-                                          for x in _partials[:3])
-                        st.caption(f"📐 Ближайшие конструкции: {_txt}")
-        except Exception:
-            pass
-
-        # =========================================================
         # Проверка риска
         # =========================================================
         _max_loss_prem = 0.0
@@ -3509,7 +3288,7 @@ def _render_position_tab():
                        f"({_max_loss_prem / risk_amount * 100:.1f}%)")
 
     # ==================================================================
-    # ГРАФИК ПРОФИЛЯ ПОЗИЦИИ
+    # ГРАФИК ПРОФИЛЯ + ГРАФИКИ D1/H1
     # ==================================================================
     st.markdown("---")
     st.markdown("### График профиля позиции")
@@ -3536,17 +3315,15 @@ def _render_position_tab():
         if _has_multiple_exp:
             st.info(
                 f"📅 В портфеле **разные даты исполнения**. "
-                f"Payoff построен на **{_anchor_str}** — все ноги с более "
-                f"ранней экспирацией рассчитаны как intrinsic, "
-                f"с более поздней — по Блэку-Шоулзу на эту дату.")
+                f"Payoff построен на **{_anchor_str}**.")
 
         F_current = st.session_state.get("_current_market_price", None)
         if F_current is None:
             try:
-                _atype_f = st.session_state.get("selected_asset_type_ui", "")
+                _atype_f = st.session_state.get("board_category", "")
                 _eng_f, _mkt_f = _get_engine_market(_atype_f)
                 _secid_f = resolve_underlying_secid(
-                    st.session_state.get("selected_asset", ""), _atype_f)
+                    st.session_state.get("board_asset", ""), _atype_f)
                 F_current = get_last_close_price(_secid_f, _eng_f, _mkt_f)
                 if F_current is not None:
                     st.session_state["_current_market_price"] = F_current
@@ -3573,10 +3350,9 @@ def _render_position_tab():
             S_arr = np.linspace(s_min, s_max, 500)
 
             def _payoff_at_expiry(S_vals, positions_subset):
-                return compute_payoff(
-                    positions_subset, S_vals,
-                    comm_func=_calc_comm,
-                    anchor_expiry=_anchor_str)
+                return compute_payoff(positions_subset, S_vals,
+                                       comm_func=_calc_comm,
+                                       anchor_expiry=_anchor_str)
 
             def _payoff_today(S_vals, positions_subset, T_years):
                 S_vals = np.asarray(S_vals, dtype=float)
@@ -3642,7 +3418,7 @@ def _render_position_tab():
                     x=S_arr, y=pnl_today, mode='lines',
                     line=dict(color='#1e88e5', width=2, dash='dash'),
                     name='P&L на текущую дату',
-                    hovertemplate='БА: %{x:.2f} ₽<br>P&L сегодня: %{y:.2f} ₽<extra></extra>'))
+                    hovertemplate='БА: %{x:.2f} ₽<br>P&L: %{y:.2f} ₽<extra></extra>'))
 
                 if F_current is not None:
                     _cur_pnl_today = float(
@@ -3657,27 +3433,16 @@ def _render_position_tab():
                                     symbol='circle',
                                     line=dict(color='white', width=2)),
                         name='Текущее состояние',
-                        hovertemplate=(
-                            'Текущая цена: %{x:.2f} ₽<br>'
-                            'P&L: %{y:+,.2f} ₽<extra></extra>')))
-                    fig_pf.add_annotation(
-                        x=F_current, y=_cur_pnl_today,
-                        text=f"  {_cur_pnl_today:+,.0f} ₽",
-                        showarrow=False,
-                        font=dict(size=11, color=_marker_color,
-                                  family="Arial Black"),
-                        bgcolor="rgba(255,255,255,0.92)",
-                        bordercolor=_marker_color, borderwidth=1,
-                        xanchor='left', yanchor='middle')
+                        hovertemplate='Текущая цена: %{x:.2f} ₽<br>'
+                                      'P&L: %{y:+,.2f} ₽<extra></extra>'))
             except Exception:
                 pass
 
-            fig_pf.add_hline(y=0, line_dash='dot',
-                             line_color='#7f9bb3', line_width=1)
+            fig_pf.add_hline(y=0, line_dash='dot', line_color='#7f9bb3', line_width=1)
             for k in all_pos_strikes:
-                fig_pf.add_vline(x=k, line_dash='dash',
-                                 line_color='#9c00ff', line_width=1,
-                                 opacity=0.5, annotation_text=f"{k:.0f}",
+                fig_pf.add_vline(x=k, line_dash='dash', line_color='#9c00ff',
+                                 line_width=1, opacity=0.5,
+                                 annotation_text=f"{k:.0f}",
                                  annotation_position="top",
                                  annotation_font_size=10)
             if F_current is not None:
@@ -3687,9 +3452,8 @@ def _render_position_tab():
                                  annotation_position="bottom right",
                                  annotation_font_size=11)
             for be in be_points:
-                fig_pf.add_vline(x=be, line_dash='dot',
-                                 line_color='#00a651', line_width=1.5,
-                                 opacity=0.8)
+                fig_pf.add_vline(x=be, line_dash='dot', line_color='#00a651',
+                                 line_width=1.5, opacity=0.8)
 
             fig_pf.update_layout(
                 title=f"Профиль позиции (anchor: {_anchor_str or '—'})",
@@ -3702,32 +3466,29 @@ def _render_position_tab():
                             y=1.02, xanchor="left", x=0),
                 hovermode='x unified')
 
-            fig_pf.update_xaxes(
-                showspikes=True, spikemode='across', spikesnap='cursor',
-                spikecolor='#888888', spikethickness=1, spikedash='dot')
-            fig_pf.update_yaxes(
-                showspikes=True, spikemode='across', spikesnap='cursor',
-                spikecolor='#888888', spikethickness=1, spikedash='dot')
+            fig_pf.update_xaxes(showspikes=True, spikemode='across',
+                                spikesnap='cursor', spikecolor='#888888',
+                                spikethickness=1, spikedash='dot')
+            fig_pf.update_yaxes(showspikes=True, spikemode='across',
+                                spikesnap='cursor', spikecolor='#888888',
+                                spikethickness=1, spikedash='dot')
 
             st.plotly_chart(fig_pf, use_container_width=True)
 
             pm1, pm2, pm3 = st.columns(3)
             with pm1:
-                st.metric("Макс. прибыль (в диапазоне)", f"{max_profit:+,.2f} ₽")
+                st.metric("Макс. прибыль", f"{max_profit:+,.2f} ₽")
             with pm2:
-                st.metric("Макс. убыток (в диапазоне)", f"{max_loss_pf:+,.2f} ₽")
+                st.metric("Макс. убыток", f"{max_loss_pf:+,.2f} ₽")
             with pm3:
                 if _cur_pnl_today is not None:
-                    st.metric("Текущий P&L (при тек. цене)",
-                              f"{_cur_pnl_today:+,.2f} ₽")
+                    st.metric("Текущий P&L", f"{_cur_pnl_today:+,.2f} ₽")
                 else:
-                    st.metric("Текущий P&L (при тек. цене)", "—")
+                    st.metric("Текущий P&L", "—")
 
             if be_points:
                 be_str = " · ".join(f"**{be:,.2f} ₽**" for be in be_points)
                 st.caption(f"Точки безубыточности: {be_str}")
-            else:
-                st.caption("Точки безубыточности в диапазоне не найдены.")
 
     # ==================================================================
     # БИРЖЕВЫЕ ГРАФИКИ D1 / H1
@@ -3735,14 +3496,14 @@ def _render_position_tab():
     st.markdown("---")
     st.markdown("### Биржевые графики")
 
-    if not st.session_state.get("board_loaded"):
-        st.info("Выберите серию и загрузите доску на вкладке «Калькулятор».")
+    _asset_ch = st.session_state.get("board_asset", "")
+    _atype_ch = st.session_state.get("board_category", "")
+    _series_ch = st.session_state.get("board_series_code", "")
+
+    if not (_asset_ch and _series_ch):
+        st.info("Выберите актив и серию на вкладке «Доска».")
     else:
         try:
-            _asset_ch = st.session_state.get("selected_asset", "")
-            _atype_ch = st.session_state.get("selected_asset_type_ui", "")
-            _series_ch = st.session_state.get("selected_series_code", "")
-
             _eng, _mkt = _get_engine_market(_atype_ch)
             _secid_ch = resolve_underlying_secid(_asset_ch, _atype_ch) or _asset_ch
 
@@ -3761,16 +3522,14 @@ def _render_position_tab():
             except Exception:
                 pass
 
-            _d1_days = 180
-            _h1_days = 25
-
-            _df_d1 = fetch_bars(_secid_ch, interval=24, days=_d1_days,
+            _df_d1 = fetch_bars(_secid_ch, interval=24, days=180,
                                 engine=_eng, market=_mkt)
-            _df_h1 = fetch_bars(_secid_ch, interval=60, days=_h1_days,
+            _df_h1 = fetch_bars(_secid_ch, interval=60, days=25,
                                 engine=_eng, market=_mkt)
 
-            _buy_ch  = float(st.session_state.get("_calc_level_buy", 0) or 0)
-            _sell_ch = float(st.session_state.get("_calc_level_sell", 0) or 0)
+            _levels_ch = find_alert_levels(_asset_ch, category=_atype_ch)
+            _buy_ch = float(_levels_ch["buy"] or 0) if _levels_ch["found"] else 0.0
+            _sell_ch = float(_levels_ch["sell"] or 0) if _levels_ch["found"] else 0.0
 
             _current_price_ch = None
             try:
@@ -3778,392 +3537,19 @@ def _render_position_tab():
             except Exception:
                 pass
 
-            _chart_label = _asset_ch
-
-            render_exchange_chart(
-                _df_d1, st.session_state.get("positions", []),
-                _buy_ch, _sell_ch, _strikes_ch,
-                f"D1 — {_chart_label}", "chart_d1_tab",
-                current_price=_current_price_ch,
-                comm_func=_calc_comm_ui)
-            render_exchange_chart(
-                _df_h1, st.session_state.get("positions", []),
-                _buy_ch, _sell_ch, _strikes_ch,
-                f"H1 — {_chart_label}", "chart_h1_tab",
-                current_price=_current_price_ch,
-                comm_func=_calc_comm_ui)
+            render_exchange_chart(_df_d1, st.session_state.get("positions", []),
+                                  _buy_ch, _sell_ch, _strikes_ch,
+                                  f"D1 — {_asset_ch}", "chart_d1_tab",
+                                  current_price=_current_price_ch,
+                                  comm_func=_calc_comm_ui)
+            render_exchange_chart(_df_h1, st.session_state.get("positions", []),
+                                  _buy_ch, _sell_ch, _strikes_ch,
+                                  f"H1 — {_asset_ch}", "chart_h1_tab",
+                                  current_price=_current_price_ch,
+                                  comm_func=_calc_comm_ui)
         except Exception as e:
             st.warning(f"Не удалось построить графики: {e}")
             # ==================================================================
-# ============ ВКЛАДКА 3: ДОСКА ОПЦИОНОВ ===========================
-# ==================================================================
-@st.fragment
-def _render_board_tab():
-    if not st.session_state.get("series_list"):
-        st.info("Сначала выберите опционную серию на вкладке «Калькулятор».")
-    elif "selected_series_code" not in st.session_state:
-        st.info("Выберите конкретную дату исполнения на вкладке «Калькулятор».")
-    else:
-        asset = st.session_state.get("selected_asset", "")
-        asset_type_ui = st.session_state.get("selected_asset_type_ui", "")
-        series_code = st.session_state.get("selected_series_code", "")
-        expiry_str = st.session_state.get("selected_expiry", "")
-
-        # ============================================================
-        # СВОДНАЯ ТАБЛИЦА ВСЕХ СЕРИЙ — клик по строке меняет серию
-        # ============================================================
-        st.markdown(f"### Все серии опционов {asset} "
-                    f"({asset_type_ui.lower()})")
-        try:
-            _df_overview = fetch_series_overview(asset, asset_type_ui)
-        except Exception as _e:
-            _df_overview = pd.DataFrame()
-            st.warning(f"Не удалось загрузить сводку серий: {_e}")
-
-        if not _df_overview.empty:
-            _df_show = _df_overview.drop(columns=["_series_code",
-                                                    "_expiry_raw",
-                                                    "_days_to"])
-
-            _df_styler = _df_show.style.format({
-                "Объём, ₽":     "{:,.0f}",
-                "Об.контр.":    "{:,.0f}",
-                "Откр.поз.":    "{:,.0f}",
-                "Изменение, ₽": "{:+,.0f}",
-            }, na_rep="—").apply(
-                lambda row: [
-                    ("color: #00a651; font-weight: 700;"
-                     if col == "Изменение, ₽" and isinstance(row[col], (int, float))
-                     and row[col] > 0
-                     else ("color: #d32f2f; font-weight: 700;"
-                           if col == "Изменение, ₽"
-                           and isinstance(row[col], (int, float))
-                           and row[col] < 0
-                           else ""))
-                    for col in row.index
-                ], axis=1)
-
-            _sel_event = st.dataframe(
-                _df_styler,
-                use_container_width=True,
-                hide_index=True,
-                height=min(120 + 35 * len(_df_show), 420),
-                on_select="rerun",
-                selection_mode="single-row",
-                key="series_overview_table",
-            )
-
-            _sel_rows = []
-            try:
-                _sel_rows = list(getattr(_sel_event.selection, "rows", []) or [])
-            except Exception:
-                _sel_rows = []
-
-            if _sel_rows:
-                _row_idx = _sel_rows[0]
-                if 0 <= _row_idx < len(_df_overview):
-                    _picked = _df_overview.iloc[_row_idx]
-                    _new_code = _picked["_series_code"]
-                    _new_expiry = _picked["_expiry_raw"]
-                    if _new_code != series_code:
-                        st.session_state.selected_asset = asset
-                        st.session_state.selected_asset_type_ui = asset_type_ui
-                        st.session_state.selected_series_code = _new_code
-                        st.session_state.selected_expiry = _new_expiry
-                        st.session_state.board_loaded = True
-                        st.rerun()
-
-        st.markdown("---")
-
-        # ============================================================
-        # ДОСКА ОПЦИОНОВ ВЫБРАННОЙ СЕРИИ
-        # ============================================================
-        buy_level = float(st.session_state.get("_calc_level_buy", 0) or 0)
-        sell_level = float(st.session_state.get("_calc_level_sell", 0) or 0)
-
-        st.markdown(f"### Доска опционов — **{asset}** "
-                    f"(дата исполнения: {format_series_label(expiry_str)})")
-
-        # ---- Информационная строка ----
-        try:
-            _board_for_price = fetch_optionboard(asset, asset_type_ui, series_code)
-            _calls_p = _board_for_price.get('call') or []
-            _puts_p  = _board_for_price.get('put') or []
-            _c_map_p = {c['strike']: c for c in _calls_p
-                        if c.get('theorprice') and c.get('strike') is not None}
-            _p_map_p = {p2['strike']: p2 for p2 in _puts_p
-                        if p2.get('theorprice') and p2.get('strike') is not None}
-            _common_p = sorted(set(_c_map_p.keys()) & set(_p_map_p.keys()))
-            _fs_est = []
-            for k in _common_p:
-                ct = _c_map_p[k]['theorprice']
-                pt = _p_map_p[k]['theorprice']
-                if ct and pt and ct > 0 and pt > 0:
-                    _fs_est.append(ct - pt + float(k))
-            _f_current = None
-            if _fs_est:
-                _fs_est.sort()
-                _f_current = _fs_est[len(_fs_est) // 2]
-            _central_p = _board_for_price.get('central_strike')
-            _strikes_p = sorted({
-                c['strike'] for c in _calls_p if c.get('strike') is not None
-            } | {
-                p2['strike'] for p2 in _puts_p if p2.get('strike') is not None
-            })
-            _k_min = _strikes_p[0] if _strikes_p else None
-            _k_max = _strikes_p[-1] if _strikes_p else None
-
-            _info_parts = []
-            if _f_current is not None:
-                _info_parts.append(
-                    f"<span style='color:#1c5a7a; font-weight:700;'>"
-                    f"Текущая цена БА: {_f_current:,.2f} ₽</span>")
-            if _central_p is not None:
-                _info_parts.append(
-                    f"<span style='color:#4a6f8a;'>"
-                    f"Центральный страйк: <b>{int(_central_p)}</b></span>")
-            if _k_min is not None and _k_max is not None:
-                _info_parts.append(
-                    f"<span style='color:#4a6f8a;'>"
-                    f"Диапазон страйков: <b>{int(_k_min)} … {int(_k_max)}</b> "
-                    f"({len(_strikes_p)} шт.)</span>")
-            if _info_parts:
-                st.markdown(
-                    "<div style='background:#eef6fb; border-radius:12px; "
-                    "padding:10px 16px; margin-bottom:12px; font-size:.9rem; "
-                    "display:flex; gap:24px; flex-wrap:wrap; "
-                    "align-items:center;'>"
-                    + " · ".join(_info_parts) + "</div>",
-                    unsafe_allow_html=True)
-        except Exception:
-            pass
-
-        # Toggle без подсказки
-        highlight_on = st.toggle(
-            "Раскрасить Bid/Offer (выгодные цены) и греки", value=True)
-
-        try:
-            board = fetch_optionboard(asset, asset_type_ui, series_code)
-        except Exception as e:
-            st.error(f"Не удалось загрузить доску: {e}")
-            board = None
-
-        if board:
-            calls = board.get('call') or []
-            puts = board.get('put') or []
-            central = board.get('central_strike')
-            strikes = sorted({c['strike'] for c in calls} | {p['strike'] for p in puts})
-            c_map = {c['strike']: c for c in calls}
-            p_map = {p['strike']: p for p in puts}
-
-            def nearest_strike(level, strikes_list):
-                if level is None or level <= 0 or not strikes_list:
-                    return None
-                return min(strikes_list, key=lambda s: abs(float(s) - float(level)))
-
-            buy_strike_match = nearest_strike(buy_level, strikes)
-            sell_strike_match = nearest_strike(sell_level, strikes)
-
-            strikes_iv = []
-            for k in strikes:
-                c = c_map.get(k, {})
-                p = p_map.get(k, {})
-                iv = c.get('volatility') or p.get('volatility')
-                strikes_iv.append({
-                    "strike": int(k) if float(k).is_integer() else k,
-                    "iv": float(iv) if iv is not None else None})
-            push_strikes_to_calculator(strikes_iv, central)
-
-            rows = []
-            for k in strikes:
-                c = c_map.get(k, {})
-                p = p_map.get(k, {})
-                iv = c.get('volatility') or p.get('volatility')
-                rows.append({
-                    "Call_Ticker": c.get('secid', '—'),
-                    "Call_Rho":   c.get('rho'),
-                    "Call_Theta": c.get('theta'),
-                    "Call_Vega":  c.get('vega'),
-                    "Call_Gamma": c.get('gamma'),
-                    "Call_Delta": c.get('delta'),
-                    "Call_Theor": c.get('theorprice'),
-                    "Call_Last":  c.get('last'),
-                    "Call_Offer": c.get('offer'),
-                    "Call_Bid":   c.get('bid'),
-                    "Strike":     k,
-                    "IV_%":       iv,
-                    "Put_Bid":    p.get('bid'),
-                    "Put_Offer":  p.get('offer'),
-                    "Put_Last":   p.get('last'),
-                    "Put_Theor":  p.get('theorprice'),
-                    "Put_Delta":  p.get('delta'),
-                    "Put_Gamma":  p.get('gamma'),
-                    "Put_Vega":   p.get('vega'),
-                    "Put_Theta":  p.get('theta'),
-                    "Put_Rho":    p.get('rho'),
-                    "Put_Ticker": p.get('secid', '—')})
-            df = pd.DataFrame(rows)
-
-            def _delta_color(delta):
-                if delta is None or not isinstance(delta, (int, float)):
-                    return None
-                d = abs(delta)
-                if 0.25 <= d <= 0.45:
-                    return "#00ff0c"
-                if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
-                    return "#fcff00"
-                return "#ff0000"
-
-            def _theta_color(theta, vega):
-                if theta is None or vega is None:
-                    return None
-                if not isinstance(theta, (int, float)) or \
-                   not isinstance(vega, (int, float)):
-                    return None
-                if abs(vega) < 1e-9:
-                    return None
-                ratio = abs(theta) / abs(vega)
-                if ratio > 1.0:
-                    return "#00ff0c"
-                if ratio > 0.5:
-                    return "#fcff00"
-                return "#ff0000"
-
-            # Новая логика для Bid/Offer:
-            #   Bid > theorprice  → выгодно ПРОДАТЬ → цвет уровня продаж (#fb92f0)
-            #   Offer < theorprice → выгодно КУПИТЬ  → цвет уровня покупок (#9c00ff)
-            def _bid_offer_color(price, theor, is_bid):
-                if price is None or theor is None:
-                    return None
-                if not isinstance(price, (int, float)) or \
-                   not isinstance(theor, (int, float)):
-                    return None
-                if price <= 0 or theor <= 0:
-                    return None
-                if is_bid:
-                    if price > theor:
-                        return "#fb92f0"
-                else:
-                    if price < theor:
-                        return "#9c00ff"
-                return None
-
-            def style_row(row):
-                strike = float(row["Strike"])
-                is_central = central is not None and abs(strike - float(central)) < 0.01
-                is_buy_strike = (buy_strike_match is not None
-                                 and abs(strike - float(buy_strike_match)) < 0.01)
-                is_sell_strike = (sell_strike_match is not None
-                                  and abs(strike - float(sell_strike_match)) < 0.01)
-                call_bg = "#e1e3fb" if is_central else "#dbf3df"
-                put_bg  = "#fee5cd" if is_central else "#ffcdce"
-
-                styles = []
-                for col in row.index:
-                    style = ""
-                    if col.startswith("Call_"):
-                        style = f"background-color: {call_bg}"
-                    elif col.startswith("Put_"):
-                        style = f"background-color: {put_bg}"
-                    if col == "Strike":
-                        if is_sell_strike:
-                            style = ("background-color: #fb92f0; color: white; "
-                                     "font-weight: bold")
-                        elif is_buy_strike:
-                            style = ("background-color: #9c00ff; color: white; "
-                                     "font-weight: bold")
-                        elif is_central:
-                            style = "background-color: #e3e7ec; font-weight: bold"
-                    elif col == "IV_%" and is_central:
-                        style = "background-color: #e3e7ec; font-weight: bold"
-
-                    if highlight_on:
-                        if col in ("Call_Bid", "Put_Bid"):
-                            theor_col = ("Call_Theor" if col.startswith("Call_")
-                                         else "Put_Theor")
-                            c = _bid_offer_color(row[col], row.get(theor_col),
-                                                  is_bid=True)
-                            if c:
-                                style = (f"background-color: {c}; "
-                                         f"color: white; font-weight: 700")
-                        elif col in ("Call_Offer", "Put_Offer"):
-                            theor_col = ("Call_Theor" if col.startswith("Call_")
-                                         else "Put_Theor")
-                            c = _bid_offer_color(row[col], row.get(theor_col),
-                                                  is_bid=False)
-                            if c:
-                                style = (f"background-color: {c}; "
-                                         f"color: white; font-weight: 700")
-                        elif col in ("Call_Delta", "Put_Delta"):
-                            c = _delta_color(row[col])
-                            if c:
-                                style = f"background-color: {c}; font-weight: 600"
-                        elif col in ("Call_Theta", "Put_Theta"):
-                            vega_col = ("Call_Vega" if col.startswith("Call_")
-                                        else "Put_Vega")
-                            c = _theta_color(row[col], row.get(vega_col))
-                            if c:
-                                style = f"background-color: {c}; font-weight: 600"
-
-                    styles.append(style)
-                return styles
-
-            column_display = {
-                "Call_Ticker": "Тикер", "Call_Rho": "Ро",
-                "Call_Theta": "Тета", "Call_Vega": "Вега",
-                "Call_Gamma": "Гамма", "Call_Delta": "Дельта",
-                "Call_Theor": "Теор.Ц", "Call_Last": "Посл.Ц",
-                "Call_Offer": "Offer", "Call_Bid": "Bid",
-                "Strike": "Страйк", "IV_%": "IV%",
-                "Put_Bid": "Bid", "Put_Offer": "Offer",
-                "Put_Last": "Посл.Ц", "Put_Theor": "Теор.Ц",
-                "Put_Delta": "Дельта", "Put_Gamma": "Гамма",
-                "Put_Vega": "Вега", "Put_Theta": "Тета",
-                "Put_Rho": "Ро", "Put_Ticker": "Тикер"}
-
-            caption_extra = ""
-            if buy_strike_match is not None:
-                caption_extra += (f" · страйк покупок ≈ **{buy_strike_match}**")
-            if sell_strike_match is not None:
-                caption_extra += (f" · страйк продаж ≈ **{sell_strike_match}**")
-            st.caption(f"Центральный страйк: "
-                       f"**{central if central is not None else 'не определён'}** · "
-                       f"всего страйков: {len(df)}{caption_extra}")
-
-            st.dataframe(
-                df.style.apply(style_row, axis=1).format(
-                    {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
-                    precision=4, na_rep="—"),
-                column_config=column_display,
-                use_container_width=True, height=600)
-
-            # ---- Улыбка волатильности ----
-            st.markdown("### Улыбка волатильности")
-            try:
-                points = fetch_volatility_graph(asset, series_code, asset_type_ui)
-            except Exception:
-                points = []
-            if points:
-                strikes_g = [p['strike'] for p in points]
-                vols_g = [p['volatility'] for p in points]
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=strikes_g, y=vols_g, mode='lines+markers',
-                    line=dict(color='#2c7da0', width=2),
-                    fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
-                    name='IV, %'))
-                fig.update_layout(
-                    title="Улыбка волатильности",
-                    xaxis_title="Страйк", yaxis_title="IV, %",
-                    height=380, margin=dict(l=20, r=20, t=50, b=20),
-                    xaxis=dict(tickformat=".0f", hoverformat=".0f"),
-                    yaxis=dict(tickformat=".2f", hoverformat=".2f"))
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Данные для улыбки волатильности недоступны.")
-
-
-# ==================================================================
 # ============ ВКЛАДКА 4: ОПОВЕЩЕНИЯ ===============================
 # ==================================================================
 @st.fragment
@@ -4419,14 +3805,15 @@ def _render_alerts_tab():
 # ==================================================================
 # ============ ВЫЗОВ РЕНДЕР-ФУНКЦИЙ ВНУТРИ st.tabs =================
 # ==================================================================
+# 🔧 Порядок: Калькулятор → Доска → Позиция → Оповещения
 with tab_calc:
     _render_calc_tab()
 
-with tab_position:
-    _render_position_tab()
-
 with tab_board:
     _render_board_tab()
+
+with tab_position:
+    _render_position_tab()
 
 with tab_alerts:
     _render_alerts_tab()
