@@ -1318,13 +1318,27 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.04, row_heights=[0.78, 0.22],
                         specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
-    fig.add_trace(go.Ohlc(x=df["begin"], open=df["open"], high=df["high"],
-                          low=df["low"], close=df["close"],
-                          increasing_line_color="black", decreasing_line_color="black",
-                          name="Цена", showlegend=False),
-                  row=1, col=1, secondary_y=False)
-    fig.add_trace(go.Bar(x=df["begin"], y=df["volume"], marker_color="black",
-                         name="Объём", showlegend=False), row=2, col=1)
+    fig.add_trace(go.Ohlc(
+        x=df["begin"], open=df["open"], high=df["high"],
+        low=df["low"], close=df["close"],
+        increasing_line_color="black", decreasing_line_color="black",
+        name="", showlegend=False,
+        hovertemplate=(
+            "<b>%{x|%d.%m.%Y}</b><br>"
+            "O: %{open:.2f}<br>"
+            "H: %{high:.2f}<br>"
+            "L: %{low:.2f}<br>"
+            "C: %{close:.2f}<extra></extra>"
+        )),
+        row=1, col=1, secondary_y=False)
+    fig.add_trace(go.Bar(
+        x=df["begin"], y=df["volume"], marker_color="black",
+        name="", showlegend=False,
+        hovertemplate=(
+            "<b>%{x|%d.%m.%Y}</b><br>"
+            "V: %{y:,.0f}<extra></extra>"
+        )),
+        row=2, col=1)
     price_min = float(df["low"].min()) * 0.97
     price_max = float(df["high"].max()) * 1.03
     if positions:
@@ -1398,12 +1412,51 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     if sell_level and sell_level > 0:
         _add_level(sell_level, f"Продажа {sell_level:.2f}", "#fb92f0", sell_markers)
     if current_price is not None and current_price > 0:
-        fig.add_hline(y=current_price, line=dict(color="#1e88e5", width=2, dash="dash"), row=1, col=1)
-        fig.add_annotation(x=0.5, y=current_price, xref="paper", yref="y",
-                           text=f"Текущая {current_price:.2f}", showarrow=False,
-                           font=dict(size=10, color="#1e88e5", family="Arial Black"),
-                           bgcolor="rgba(255,255,255,0.90)",
-                           bordercolor="#1e88e5", borderwidth=1, yshift=-11, row=1, col=1)
+        # горизонтальная линия текущей цены
+        fig.add_hline(
+            y=current_price,
+            line=dict(color="#1e88e5", width=2, dash="dash"),
+            row=1, col=1)
+
+        # подпись НАПРОТИВ закрытия последнего бара (справа)
+        _last_bar_date = df["begin"].iloc[-1]
+        _last_bar_close = float(df["close"].iloc[-1])
+
+        # 1) синяя плашка «текущая цена» у правого края графика
+        fig.add_annotation(
+            x=1.0, y=current_price,
+            xref="paper", yref="y",
+            text=f" {current_price:.2f} ",
+            showarrow=False,
+            xanchor="left",
+            yanchor="middle",
+            font=dict(size=11, color="#ffffff",
+                      family="Arial Black"),
+            bgcolor="#1e88e5",
+            bordercolor="#1e88e5",
+            borderwidth=1,
+            borderpad=3,
+            row=1, col=1)
+
+        # 2) маленькая метка у последнего бара с его close
+        fig.add_annotation(
+            x=_last_bar_date, y=_last_bar_close,
+            xref="x", yref="y",
+            text=f"{_last_bar_close:.2f}",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1.5,
+            arrowcolor="#1e88e5",
+            ax=38, ay=0,
+            xanchor="left",
+            font=dict(size=10, color="#1e88e5",
+                      family="Arial Black"),
+            bgcolor="rgba(255,255,255,0.90)",
+            bordercolor="#1e88e5",
+            borderwidth=1,
+            borderpad=2,
+            row=1, col=1)
     for be in be_points:
         fig.add_hline(y=be, line=dict(color="#00a651", width=1.5, dash="dot"), row=1, col=1)
         fig.add_annotation(x=0.5, y=be, xref="paper", yref="y",
@@ -1419,7 +1472,7 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     fig.update_layout(title=title, height=520,
                       margin=dict(l=20, r=20, t=50, b=20),
                       plot_bgcolor="white", paper_bgcolor="white",
-                      hovermode="x unified", showlegend=False)
+                      hovermode="closest", showlegend=False)
     if visible_strikes:
         _strike_vals = [float(k) for k in visible_strikes]
         _strike_text = [f"{int(k)}" if float(k).is_integer() else f"{k:.2f}" for k in _strike_vals]
@@ -1441,7 +1494,11 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     fig.update_yaxes(side="right", row=1, col=1, secondary_y=True,
                      showgrid=False, zeroline=False,
                      tickfont=dict(size=10, color="#1a3b4f"),
-                     showspikes=False, title=None)
+                     showspikes=True, spikemode='across',
+                     spikesnap='cursor',
+                     spikecolor='#1e88e5', spikethickness=1,
+                     spikedash='dot',
+                     title=None)
     _x_min_val = df["begin"].min()
     _x_max_val = df["begin"].max()
     if pd.notna(_x_min_val) and pd.notna(_x_max_val):
@@ -3455,23 +3512,160 @@ def _render_position_tab():
             st.success("✅ Позиции обновлены из доски.")
             st.rerun()
 
-        _max_loss_prem = 0.0
+        # =========================================================
+        # Анализ позиции: тип (дебет/кредит) и реальный риск
+        # =========================================================
+        _net_cash_flow = 0.0
         for p in st.session_state.positions:
             if p.get("Опцион") == "БА":
                 continue
-            _instr = p.get("Тип инструмента", "Опцион")
-            _q = abs(int(p.get("Кол-во", 0)))
+            _q = int(p.get("Кол-во", 0))
             _pr = float(p.get("Цена", 0))
+            _instr = p.get("Тип инструмента", "Опцион")
             _c = _calc_comm(_pr, _instr)
-            _max_loss_prem += (_pr + _c) * _q
+            if _q > 0:
+                # Buy: платим премию + комиссию
+                _net_cash_flow -= (_pr * _q + _c * abs(_q))
+            else:
+                # Sell: получаем премию, платим комиссию
+                _net_cash_flow += (_pr * abs(_q) - _c * abs(_q))
 
-        if _max_loss_prem > risk_amount:
-            st.error(f"⚠ Превышен риск: {_max_loss_prem:,.2f} ₽ > "
-                     f"{risk_amount:,.2f} ₽ допустимых")
+        # Тип позиции и цвета
+        if _net_cash_flow < -0.01:
+            _position_type = "ДЕБЕТОВАЯ"
+            _position_bg = "rgba(0,166,81,0.10)"
+            _position_border = "#00a651"
+            _position_fg = "#0a6b32"
+        elif _net_cash_flow > 0.01:
+            _position_type = "КРЕДИТОВАЯ"
+            _position_bg = "rgba(211,47,47,0.10)"
+            _position_border = "#d32f2f"
+            _position_fg = "#8b1e1e"
         else:
-            st.success(f"✓ Риск: {_max_loss_prem:,.2f} ₽ / "
-                       f"{risk_amount:,.2f} ₽ "
-                       f"({_max_loss_prem / risk_amount * 100:.1f}%)")
+            _position_type = "НУЛЕВАЯ"
+            _position_bg = "rgba(122,122,122,0.10)"
+            _position_border = "#7a7a7a"
+            _position_fg = "#4a4a4a"
+
+        # ---------- Проверка непокрытых коротких опционов ----------
+        _short_calls_list = []
+        _long_calls_list = []
+        _short_puts_list = []
+        _long_puts_list = []
+        _ba_long_qty = 0
+        _ba_short_qty = 0
+
+        for p in st.session_state.positions:
+            _opt = p.get("Опцион", "—")
+            _q = int(p.get("Кол-во", 0))
+            if _q == 0:
+                continue
+            if _opt in ("Call", "Put"):
+                _k = float(p.get("Страйк", 0) or 0)
+                if _opt == "Call":
+                    if _q < 0:
+                        _short_calls_list.append((_k, abs(_q)))
+                    else:
+                        _long_calls_list.append((_k, abs(_q)))
+                else:
+                    if _q < 0:
+                        _short_puts_list.append((_k, abs(_q)))
+                    else:
+                        _long_puts_list.append((_k, abs(_q)))
+            elif _opt == "БА" or p.get("Тип инструмента") == "БА":
+                if _q > 0:
+                    _ba_long_qty += _q
+                else:
+                    _ba_short_qty += abs(_q)
+
+        # Short Call покрыт long Call с меньшим/равным страйком + БА в лонг
+        _short_calls_uncovered = 0
+        for _k_s, _q_s in _short_calls_list:
+            _covered = _ba_long_qty
+            for _k_l, _q_l in _long_calls_list:
+                if _k_l <= _k_s:
+                    _covered += _q_l
+            _short_calls_uncovered += max(0, _q_s - _covered)
+
+        # Short Put покрыт long Put с большим/равным страйком + БА в шорт
+        _short_puts_uncovered = 0
+        for _k_s, _q_s in _short_puts_list:
+            _covered = _ba_short_qty
+            for _k_l, _q_l in _long_puts_list:
+                if _k_l >= _k_s:
+                    _covered += _q_l
+            _short_puts_uncovered += max(0, _q_s - _covered)
+
+        _risk_is_unlimited = (_short_calls_uncovered > 0
+                              or _short_puts_uncovered > 0)
+
+        # ---------- Численная оценка риска через payoff ----------
+        _risk_value = 0.0
+        try:
+            _strikes_all_r = [float(p["Страйк"]) for p in st.session_state.positions
+                              if p.get("Страйк") is not None]
+            _ba_prices_r = [float(p["Цена"]) for p in st.session_state.positions
+                            if p.get("Опцион") == "БА"
+                            or p.get("Тип инструмента") == "БА"]
+            _all_ref_r = _strikes_all_r + _ba_prices_r
+
+            if _all_ref_r:
+                _s_low_r = max(0.01, min(_all_ref_r) * 0.5)
+                _s_high_r = max(_all_ref_r) * 1.5
+                _S_eval_r = np.linspace(_s_low_r, _s_high_r, 800)
+                _pnl_eval_r = compute_payoff(
+                    st.session_state.positions, _S_eval_r,
+                    comm_func=_calc_comm)
+                _min_pnl_r = float(np.min(_pnl_eval_r))
+                _risk_value = max(0.0, -_min_pnl_r)
+        except Exception:
+            _risk_value = abs(_net_cash_flow) if _net_cash_flow < 0 else 0.0
+
+        # ---------- Форматирование отображения ----------
+        if _risk_is_unlimited:
+            _risk_display = "∞"
+            _uncovered_details = []
+            if _short_calls_uncovered > 0:
+                _uncovered_details.append(f"{_short_calls_uncovered} Call")
+            if _short_puts_uncovered > 0:
+                _uncovered_details.append(f"{_short_puts_uncovered} Put")
+            _risk_extra = f"(непокрытых: {', '.join(_uncovered_details)})"
+        else:
+            _risk_display = f"{_risk_value:,.2f} ₽"
+            _risk_extra = ""
+
+        _pct_risk = (_risk_value / risk_amount * 100) if risk_amount > 0 else 0
+        _net_label = "кредит" if _net_cash_flow > 0 else "дебет"
+        _net_value = abs(_net_cash_flow)
+
+        # Статус-иконка
+        if _risk_is_unlimited:
+            _status_icon = "⚠"
+        elif _risk_value > risk_amount:
+            _status_icon = "⚠"
+        else:
+            _status_icon = "✓"
+
+        st.markdown(
+            f"""<div style='padding:12px 16px; border-radius:10px;
+            background:{_position_bg}; border-left:6px solid {_position_border};
+            margin-bottom:10px;'>
+            <div style='font-size:1.02rem; font-weight:800; color:{_position_fg};'>
+            {_status_icon} Позиция <b>{_position_type}</b></div>
+            <div style='font-size:.92rem; color:#333; margin-top:6px;'>
+            Риск: <b>{_risk_display}</b> {_risk_extra} / {risk_amount:,.2f} ₽
+            ({_pct_risk:.1f}%) &nbsp;·&nbsp;
+            Net {_net_label}: <b>{_net_value:,.2f} ₽</b>
+            </div></div>""",
+            unsafe_allow_html=True)
+
+        if _risk_is_unlimited:
+            st.error(f"⚠ Позиция содержит непокрытые короткие опционы. "
+                     f"Теоретический риск **не ограничен**. "
+                     f"Допустимый риск: {risk_amount:,.2f} ₽")
+        elif _risk_value > risk_amount:
+            st.error(f"⚠ Превышен допустимый риск: "
+                     f"{_risk_value:,.2f} ₽ > {risk_amount:,.2f} ₽")
 
     # ==================================================================
     # ГРАФИК ПРОФИЛЯ ПОЗИЦИИ
