@@ -3991,27 +3991,232 @@ def _render_whatif_tab():
 
     st.markdown("---")
 
-    st.markdown("### Параметры сценария")
-    _sc1, _sc2, _sc3 = st.columns(3)
+    # ============================================================
+    # Параметры сценария — точные поля + слайдеры + календарь
+    # ============================================================
 
-    with _sc1:
-        price_shift_pct = st.slider(
-            "Изменение цены БА, %",
-            min_value=-50.0, max_value=50.0, value=0.0, step=0.5,
-            key="whatif_price_shift")
-    with _sc2:
-        iv_shift_pp = st.slider(
+    # --- 1. Диапазон допустимых дат сценария ---
+    _wt_exp_dates = []
+    for _p in positions:
+        _e = _p.get("Эксп.", "—")
+        if _e and _e != "—":
+            try:
+                _wt_exp_dates.append(datetime.strptime(_e, "%Y-%m-%d").date())
+            except Exception:
+                pass
+    _wt_min_date = date.today()
+    _wt_max_exp = (max(_wt_exp_dates)
+                   if _wt_exp_dates else (_wt_min_date + timedelta(days=180)))
+    _wt_max_date = _wt_max_exp + timedelta(days=30)
+
+    # --- 2. Сброс параметров при смене актива ---
+    _wt_asset_key = f"{_asset}|{_atype}"
+    if st.session_state.get("_wt_last_asset") != _wt_asset_key:
+        st.session_state.wt_price_abs = float(current_price)
+        st.session_state.wt_price_pct_slider = 0.0
+        st.session_state.wt_iv_abs = float(base_iv)
+        st.session_state.wt_iv_pp_slider = 0.0
+        st.session_state.wt_scenario_date = _wt_min_date
+        for _k in ("wt_price_abs_inp", "wt_iv_abs_inp"):
+            if _k in st.session_state:
+                del st.session_state[_k]
+        st.session_state["_wt_last_asset"] = _wt_asset_key
+
+    # --- 3. Инициализация session_state ---
+    if "wt_price_abs" not in st.session_state:
+        st.session_state.wt_price_abs = float(current_price)
+    if "wt_price_pct_slider" not in st.session_state:
+        st.session_state.wt_price_pct_slider = 0.0
+    if "wt_iv_abs" not in st.session_state:
+        st.session_state.wt_iv_abs = float(base_iv)
+    if "wt_iv_pp_slider" not in st.session_state:
+        st.session_state.wt_iv_pp_slider = 0.0
+    if "wt_scenario_date" not in st.session_state:
+        st.session_state.wt_scenario_date = _wt_min_date
+
+    # Клэмпы на всякий случай
+    _sd = st.session_state.wt_scenario_date
+    if _sd < _wt_min_date:
+        st.session_state.wt_scenario_date = _wt_min_date
+    elif _sd > _wt_max_date:
+        st.session_state.wt_scenario_date = _wt_max_date
+
+    # --- 4. Callbacks ---
+    def _wt_price_slider_changed():
+        _pct = float(st.session_state.wt_price_pct_slider)
+        st.session_state.wt_price_abs = current_price * (1 + _pct / 100.0)
+        if "wt_price_abs_inp" in st.session_state:
+            del st.session_state["wt_price_abs_inp"]
+
+    def _wt_price_abs_changed():
+        _abs = float(st.session_state.wt_price_abs_inp)
+        _pct = (_abs / current_price - 1) * 100.0 if current_price > 0 else 0.0
+        st.session_state.wt_price_pct_slider = max(-50.0, min(50.0, _pct))
+        st.session_state.wt_price_abs = _abs
+
+    def _wt_price_reset():
+        st.session_state.wt_price_pct_slider = 0.0
+        st.session_state.wt_price_abs = float(current_price)
+        if "wt_price_abs_inp" in st.session_state:
+            del st.session_state["wt_price_abs_inp"]
+
+    def _wt_iv_slider_changed():
+        _pp = float(st.session_state.wt_iv_pp_slider)
+        st.session_state.wt_iv_abs = max(0.1, base_iv + _pp)
+        if "wt_iv_abs_inp" in st.session_state:
+            del st.session_state["wt_iv_abs_inp"]
+
+    def _wt_iv_abs_changed():
+        _abs = float(st.session_state.wt_iv_abs_inp)
+        _abs = max(0.1, _abs)
+        _pp = _abs - base_iv
+        st.session_state.wt_iv_pp_slider = max(-30.0, min(30.0, _pp))
+        st.session_state.wt_iv_abs = _abs
+
+    def _wt_iv_reset():
+        st.session_state.wt_iv_pp_slider = 0.0
+        st.session_state.wt_iv_abs = float(base_iv)
+        if "wt_iv_abs_inp" in st.session_state:
+            del st.session_state["wt_iv_abs_inp"]
+
+    def _wt_date_reset():
+        st.session_state.wt_scenario_date = _wt_min_date
+
+    def _wt_reset_all():
+        st.session_state.wt_price_pct_slider = 0.0
+        st.session_state.wt_price_abs = float(current_price)
+        st.session_state.wt_iv_pp_slider = 0.0
+        st.session_state.wt_iv_abs = float(base_iv)
+        st.session_state.wt_scenario_date = _wt_min_date
+        for _k in ("wt_price_abs_inp", "wt_iv_abs_inp"):
+            if _k in st.session_state:
+                del st.session_state[_k]
+
+    # --- 5. Header + Reset-all ---
+    _hdr1, _hdr2 = st.columns([5, 1])
+    with _hdr1:
+        st.markdown("### Параметры сценария")
+    with _hdr2:
+        st.button("🔄 Сбросить всё", key="wt_reset_all_btn",
+                  on_click=_wt_reset_all,
+                  use_container_width=True,
+                  help="Сбросить цену, IV и дату")
+
+    # --- 6. Цена БА ---
+    st.markdown(
+        "<div style='font-size:.75rem; color:#2c506d; "
+        "font-weight:700; text-transform:uppercase; "
+        "letter-spacing:.03em; margin-bottom:2px;'>Цена БА</div>",
+        unsafe_allow_html=True)
+    _pc1, _pc2, _pc3 = st.columns([1.6, 3.5, 0.6])
+    with _pc1:
+        st.number_input(
+            "Цена, ₽",
+            min_value=0.01, max_value=1e9,
+            value=float(st.session_state.wt_price_abs),
+            step=0.5, format="%.4f",
+            key="wt_price_abs_inp",
+            on_change=_wt_price_abs_changed,
+            label_visibility="collapsed")
+    with _pc2:
+        st.slider(
+            "Изменение цены, %",
+            min_value=-50.0, max_value=50.0, step=0.5,
+            key="wt_price_pct_slider",
+            on_change=_wt_price_slider_changed,
+            label_visibility="collapsed")
+    with _pc3:
+        st.button("🔄", key="wt_price_reset_btn",
+                  on_click=_wt_price_reset,
+                  use_container_width=True,
+                  help="Сбросить цену")
+
+    # --- 7. IV ---
+    st.markdown(
+        "<div style='font-size:.75rem; color:#2c506d; "
+        "font-weight:700; text-transform:uppercase; "
+        "letter-spacing:.03em; margin-top:6px; margin-bottom:2px;'>"
+        "Волатильность (IV)</div>",
+        unsafe_allow_html=True)
+    _ic1, _ic2, _ic3 = st.columns([1.6, 3.5, 0.6])
+    with _ic1:
+        st.number_input(
+            "IV, %",
+            min_value=0.1, max_value=500.0,
+            value=float(st.session_state.wt_iv_abs),
+            step=0.5, format="%.2f",
+            key="wt_iv_abs_inp",
+            on_change=_wt_iv_abs_changed,
+            label_visibility="collapsed")
+    with _ic2:
+        st.slider(
             "Изменение IV, п.п.",
-            min_value=-30.0, max_value=30.0, value=0.0, step=0.5,
-            key="whatif_iv_shift")
-    with _sc3:
-        days_shift = st.slider(
-            "Время вперёд, дней",
-            min_value=0, max_value=180, value=0, step=1,
-            key="whatif_days_forward")
+            min_value=-30.0, max_value=30.0, step=0.5,
+            key="wt_iv_pp_slider",
+            on_change=_wt_iv_slider_changed,
+            label_visibility="collapsed")
+    with _ic3:
+        st.button("🔄", key="wt_iv_reset_btn",
+                  on_click=_wt_iv_reset,
+                  use_container_width=True,
+                  help="Сбросить IV")
 
-    new_price = current_price * (1.0 + price_shift_pct / 100.0)
-    new_iv = max(0.1, base_iv + iv_shift_pp)
+    # --- 8. Дата сценария ---
+    st.markdown(
+        "<div style='font-size:.75rem; color:#2c506d; "
+        "font-weight:700; text-transform:uppercase; "
+        "letter-spacing:.03em; margin-top:6px; margin-bottom:2px;'>"
+        "Дата сценария</div>",
+        unsafe_allow_html=True)
+    _dc1, _dc2, _dc3 = st.columns([1.6, 3.5, 0.6])
+    with _dc1:
+        st.date_input(
+            "Дата",
+            min_value=_wt_min_date,
+            max_value=_wt_max_date,
+            key="wt_scenario_date",
+            label_visibility="collapsed")
+    with _dc2:
+        _days_delta = (st.session_state.wt_scenario_date - _wt_min_date).days
+        if _wt_exp_dates:
+            _alive_cnt = sum(1 for _d in _wt_exp_dates
+                             if _d > st.session_state.wt_scenario_date)
+            _expired_cnt = len(_wt_exp_dates) - _alive_cnt
+            st.markdown(
+                f"<div style='padding:6px 12px; background:#eef6fb; "
+                f"border-radius:8px; font-size:.85rem; color:#1c5a7a; "
+                f"border:1px solid #cfdfe9;'>"
+                f"📅 <b>{st.session_state.wt_scenario_date.strftime('%d.%m.%Y')}</b> "
+                f"(+{_days_delta} дн.) &nbsp;·&nbsp; "
+                f"живых опционов: <b style='color:#00a651;'>{_alive_cnt}</b> "
+                f"/ истекших: <b style='color:#d32f2f;'>{_expired_cnt}</b>"
+                f"</div>",
+                unsafe_allow_html=True)
+        else:
+            st.markdown(
+                f"<div style='padding:6px 12px; background:#eef6fb; "
+                f"border-radius:8px; font-size:.85rem; color:#1c5a7a; "
+                f"border:1px solid #cfdfe9;'>"
+                f"📅 <b>{st.session_state.wt_scenario_date.strftime('%d.%m.%Y')}</b> "
+                f"(+{_days_delta} дн.)"
+                f"</div>",
+                unsafe_allow_html=True)
+    with _dc3:
+        st.button("🔄", key="wt_date_reset_btn",
+                  on_click=_wt_date_reset,
+                  use_container_width=True,
+                  help="Сбросить дату на сегодня")
+
+    # --- 9. Итоговые значения для расчётов ---
+    new_price = float(st.session_state.wt_price_abs)
+    new_iv = float(st.session_state.wt_iv_abs)
+    days_shift = (st.session_state.wt_scenario_date - date.today()).days
+    price_shift_pct = ((new_price / current_price - 1) * 100
+                       if current_price > 0 else 0.0)
+    iv_shift_pp = new_iv - base_iv
+
+    st.caption("💡 Поле ввода = точное значение, слайдер = быстрая подстройка. "
+               "Кнопка 🔄 сбрасывает конкретный параметр.")
 
     comm_func = _calc_comm_ui
 
