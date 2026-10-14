@@ -1523,6 +1523,35 @@ def format_series_label(expiry_str: str) -> str:
         return f"⚪ {expiry_str}"
 
 
+# 🔧 Хелперы для раскраски греков (правила — как на доске опционов)
+def _greek_delta_bg(delta) -> str:
+    """Фон для ячейки Delta — те же правила, что на доске опционов."""
+    if delta is None or not isinstance(delta, (int, float)):
+        return ""
+    d = abs(delta)
+    if 0.25 <= d <= 0.45:
+        return "background-color:#00ff0c; border-radius:4px;"
+    if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
+        return "background-color:#fcff00; border-radius:4px;"
+    return "background-color:#ff0000; border-radius:4px;"
+
+
+def _greek_theta_bg(theta, vega) -> str:
+    """Фон для ячейки Theta (соотношение |θ|/|ν|) — как на доске."""
+    if theta is None or vega is None:
+        return ""
+    if not isinstance(theta, (int, float)) or not isinstance(vega, (int, float)):
+        return ""
+    if abs(vega) < 1e-9:
+        return ""
+    ratio = abs(theta) / abs(vega)
+    if ratio > 1.0:
+        return "background-color:#00ff0c; border-radius:4px;"
+    if ratio > 0.5:
+        return "background-color:#fcff00; border-radius:4px;"
+    return "background-color:#ff0000; border-radius:4px;"
+
+
 def _card_style_full() -> str:
     return "border:2px solid #00a651;"
 
@@ -1768,7 +1797,7 @@ st.session_state["_calc_riskfree"]   = _safe_float_qp("rf_buy", 0.0)
 st.session_state["_calc_volatility"] = _safe_float_qp("vol_buy", 0.0)
 st.session_state["_calc_dividend"]   = _safe_float_qp("div_buy", 0.0)
 
-# 🔧 Новый порядок вкладок: Калькулятор → Доска → Позиция → Оповещения
+# 🔧 Порядок вкладок: Калькулятор → Доска → Позиция → Оповещения
 tab_calc, tab_board, tab_position, tab_alerts = st.tabs([
     "Калькулятор",
     "Доска опционов и кривая волатильности",
@@ -2762,14 +2791,13 @@ def _render_position_tab():
         if "positions" not in st.session_state:
             st.session_state.positions = []
 
-        # Источник данных — свой селектор на «Позиции» (pos_*)
         _asset_now_all = st.session_state.get("pos_asset", "")
         _atype_now_all = st.session_state.get("pos_category", "")
         _series_now = st.session_state.get("pos_series_code", "")
         _expiry_now = st.session_state.get("pos_expiry", "")
 
         if not (_asset_now_all and _atype_now_all and _series_now):
-            st.warning("Сначала выберите актив и серию на вкладке «Доска».")
+            st.warning("Сначала выберите актив и серию в блоке выше.")
         else:
             _all_series = fetch_all_series_for_asset(_asset_now_all, _atype_now_all)
             if not _all_series:
@@ -3106,10 +3134,11 @@ def _render_position_tab():
         _pos_container = st.container(border=True)
         with _pos_container:
             st.markdown("<div class='pos-row-wrap'>", unsafe_allow_html=True)
+            # 🔧 19 колонок — добавлена «Ср. цена»
             COL_W = [0.28, 0.32, 0.85, 0.75, 0.85, 0.95, 0.65, 1.30,
-                     1.05, 1.25, 1.15, 1.15, 0.95, 0.85, 0.85, 0.85, 0.75, 0.95]
+                     1.05, 1.20, 1.15, 1.15, 1.15, 0.95, 0.85, 0.85, 0.85, 0.75, 0.95]
             HEADERS = ["", "", "Тип", "Опцион", "Страйк", "Дата исп.", "До эксп.",
-                       "Тикер", "Кол-во", "Цена", "Теор. цена", "P&L",
+                       "Тикер", "Кол-во", "Цена", "Ср. цена", "Теор. цена", "P&L",
                        "Дельта", "Гамма", "Вега", "Тета", "Ро", "Комисс."]
 
             _hdr = st.columns(COL_W)
@@ -3242,26 +3271,44 @@ def _render_position_tab():
                 _pnl = ((_theor - _price) * _qty if _isBA
                         else (_theor - _eff_price) * _qty)
 
+                # 🔧 Новая колонка: средняя цена с учётом комиссии
                 with row[10]:
+                    st.markdown(
+                        f"<div style='padding-top:6px; {gray}; font-size:.82rem; "
+                        f"font-weight:600; color:#7c4dff;'>"
+                        f"{_eff_price:.4f}</div>",
+                        unsafe_allow_html=True)
+
+                with row[11]:
                     st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.82rem;'>"
                                 f"{_theor:.4f}</div>", unsafe_allow_html=True)
 
-                with row[11]:
+                with row[12]:
                     _color = "#00a651" if _pnl > 0 else ("#d32f2f" if _pnl < 0 else "#333")
                     st.markdown(f"<div style='padding-top:6px; {gray}; font-weight:700; "
                                 f"color:{_color};'>{_pnl:+,.2f} ₽</div>",
                                 unsafe_allow_html=True)
 
-                for ri, gr in zip([12, 13, 14, 15, 16],
+                # 🔧 Раскраска греков по правилам доски опционов
+                for ri, gr in zip([13, 14, 15, 16, 17],
                                   ["Дельта", "Гамма", "Вега", "Тета", "Ро"]):
                     val = p.get(gr)
                     txt = f"{val:+.4f}" if isinstance(val, (int, float)) else "—"
+                    _greek_bg = ""
+                    if gr == "Дельта":
+                        _greek_bg = _greek_delta_bg(val)
+                    elif gr == "Тета":
+                        _greek_bg = _greek_theta_bg(val, p.get("Вега"))
+                    _txt_color = "color:#111; " if _greek_bg else ""
+                    _bg_style = f"{_greek_bg} " if _greek_bg else ""
                     with row[ri]:
-                        st.markdown(f"<div style='padding-top:6px; {gray}; "
-                                    f"font-size:.78rem;'>{txt}</div>",
-                                    unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div style='padding-top:6px; padding-left:4px; "
+                            f"padding-right:4px; {gray}; {_bg_style}{_txt_color}"
+                            f"font-size:.78rem;'>{txt}</div>",
+                            unsafe_allow_html=True)
 
-                with row[17]:
+                with row[18]:
                     st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
                                 f"{_com:.4f}</div>", unsafe_allow_html=True)
 
@@ -3311,26 +3358,27 @@ def _render_position_tab():
                             unsafe_allow_html=True)
 
             _color_pnl_tot = "#00a651" if _tot_pnl > 0 else ("#d32f2f" if _tot_pnl < 0 else "#333")
-            with tot_row[11]:
+            # 🔧 Сдвиг индексов на +1 после колонки «Ср. цена»
+            with tot_row[12]:
                 st.markdown(f"<div style='padding-top:6px; font-weight:800; "
                             f"color:{_color_pnl_tot};'>{_tot_pnl:+,.2f} ₽</div>",
                             unsafe_allow_html=True)
-            with tot_row[12]:
-                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                            f"{_tot_delta:+.3f}</div>", unsafe_allow_html=True)
             with tot_row[13]:
                 st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                            f"{_tot_gamma:+.4f}</div>", unsafe_allow_html=True)
+                            f"{_tot_delta:+.3f}</div>", unsafe_allow_html=True)
             with tot_row[14]:
                 st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                            f"{_tot_vega:+.3f}</div>", unsafe_allow_html=True)
+                            f"{_tot_gamma:+.4f}</div>", unsafe_allow_html=True)
             with tot_row[15]:
                 st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                            f"{_tot_theta:+.3f}</div>", unsafe_allow_html=True)
+                            f"{_tot_vega:+.3f}</div>", unsafe_allow_html=True)
             with tot_row[16]:
                 st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
-                            f"{_tot_rho:+.3f}</div>", unsafe_allow_html=True)
+                            f"{_tot_theta:+.3f}</div>", unsafe_allow_html=True)
             with tot_row[17]:
+                st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
+                            f"{_tot_rho:+.3f}</div>", unsafe_allow_html=True)
+            with tot_row[18]:
                 st.markdown(f"<div style='padding-top:6px; font-weight:700;'>"
                             f"{_tot_com:,.4f}</div>", unsafe_allow_html=True)
 
