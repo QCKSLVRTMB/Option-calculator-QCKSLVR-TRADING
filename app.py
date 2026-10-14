@@ -1472,7 +1472,7 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
         title=title, height=520,
         margin=dict(l=20, r=70, t=50, b=20),
         plot_bgcolor="white", paper_bgcolor="white",
-        hovermode="x unified",
+        hovermode="closest",
         showlegend=False,
         hoverlabel=dict(
             bgcolor="rgba(255,255,255,0.95)",
