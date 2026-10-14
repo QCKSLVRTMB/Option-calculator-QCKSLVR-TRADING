@@ -935,6 +935,8 @@ def get_alert_assets_list():
         return items
     except Exception:
         return []
+
+
 # ================= MOEX API: опционы =================
 @st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
@@ -1319,9 +1321,6 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.04, row_heights=[0.78, 0.22],
                         specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
-    # Определяем формат даты для подсказки:
-    #   D1 (interval=24)  → %d.%m.%Y
-    #   H1 (interval=60)  → %d.%m %H:%M
     _hover_dt_fmt = "%d.%m.%Y %H:%M" if interval == 60 else "%d.%m.%Y"
 
     fig.add_trace(go.Ohlc(
@@ -1418,16 +1417,11 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     if sell_level and sell_level > 0:
         _add_level(sell_level, f"Продажа {sell_level:.2f}", "#fb92f0", sell_markers)
     if current_price is not None and current_price > 0:
-        # Горизонтальная линия текущей цены
         fig.add_hline(
             y=current_price,
             line=dict(color="#1e88e5", width=1.5, dash="dash"),
             row=1, col=1)
 
-        # ---------- Плашка текущей цены (справа, прижата к оси) ----------
-        # x=1.0 — правый край plot area, xshift=2 — сдвигаем прямо
-        # к правой оси (в зону tick labels). Размеры минимальные,
-        # как в TradingView.
         fig.add_annotation(
             x=1.0, y=current_price,
             xref="paper", yref="y",
@@ -1441,7 +1435,6 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
             borderpad=2,
             row=1, col=1)
 
-        # ---------- Метка последнего бара: маленькая стрелка + close ----------
         _last_bar_date = df["begin"].iloc[-1]
         _last_bar_close = float(df["close"].iloc[-1])
 
@@ -1507,8 +1500,6 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
                      showspikes=True, spikemode='across', spikesnap='cursor',
                      spikecolor='#888888', spikethickness=1, spikedash='dot')
 
-    # ПРАВАЯ ШКАЛА — спайки включены, тонкий пунктир, чтобы читалась
-    # цена на уровне курсора
     fig.update_yaxes(
         side="right", row=1, col=1, secondary_y=True,
         showgrid=False, zeroline=False,
@@ -1529,7 +1520,6 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
         if pd.isna(_step) or _step <= pd.Timedelta(0):
             _step = pd.Timedelta(days=1)
         _x_max_extended = _x_max_val + _step * 15
-        # Формат оси X
         _x_tickfmt = "%d.%m %H:%M" if interval == 60 else "%d.%m"
 
         fig.update_xaxes(
@@ -1838,9 +1828,8 @@ def push_alert_levels(ticker: str, buy_lvl, sell_lvl):
                       "sell": float(sell_lvl) if sell_lvl is not None else None})
 
 
-# ================= НОВЫЕ ХЕЛПЕРЫ для аналитических вкладок =================
+# ================= ХЕЛПЕРЫ для аналитических вкладок =================
 def _weighted_avg_iv(board, central_strike=None):
-    """Взвешенная средняя IV: ближние к центральному страйку весят больше."""
     if not board:
         return None
     calls = board.get("call") or []
@@ -1872,7 +1861,6 @@ def _weighted_avg_iv(board, central_strike=None):
 
 
 def _store_iv_snapshot(asset, atype, series, iv_value):
-    """Сохраняет одну точку IV за текущий день для IV Rank / децилей."""
     if iv_value is None:
         return
     today_str = date.today().isoformat()
@@ -1891,7 +1879,6 @@ def _store_iv_snapshot(asset, atype, series, iv_value):
 
 
 def _portfolio_value(positions, S_vals, days_forward, iv_pct, comm_func=None):
-    """P&L портфеля при сдвинутом времени и IV."""
     S = np.asarray(S_vals, dtype=float)
     total = np.zeros_like(S)
     if days_forward is None:
@@ -1970,7 +1957,7 @@ def _get_board_for_analytics(asset, atype, series):
         return fetch_optionboard(asset, atype, series)
     except Exception:
         return None
-# ================= UI =================
+        # ================= UI =================
 st.title("MOEX Options & Black-Scholes")
 
 
@@ -2651,7 +2638,7 @@ def _render_board_tab():
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Данные для улыбки волатильности недоступны.")
-# ==================================================================
+            # ==================================================================
 # ============ ВКЛАДКА 3: ПОЗИЦИЯ ==================================
 # ==================================================================
 @st.fragment
@@ -3550,13 +3537,10 @@ def _render_position_tab():
             _instr = p.get("Тип инструмента", "Опцион")
             _c = _calc_comm(_pr, _instr)
             if _q > 0:
-                # Buy: платим премию + комиссию
                 _net_cash_flow -= (_pr * _q + _c * abs(_q))
             else:
-                # Sell: получаем премию, платим комиссию
                 _net_cash_flow += (_pr * abs(_q) - _c * abs(_q))
 
-        # Тип позиции и цвета
         if _net_cash_flow < -0.01:
             _position_type = "ДЕБЕТОВАЯ"
             _position_bg = "rgba(0,166,81,0.10)"
@@ -3573,7 +3557,6 @@ def _render_position_tab():
             _position_border = "#7a7a7a"
             _position_fg = "#4a4a4a"
 
-        # ---------- Проверка непокрытых коротких опционов ----------
         _short_calls_list = []
         _long_calls_list = []
         _short_puts_list = []
@@ -3604,7 +3587,6 @@ def _render_position_tab():
                 else:
                     _ba_short_qty += abs(_q)
 
-        # Short Call покрыт long Call с меньшим/равным страйком + БА в лонг
         _short_calls_uncovered = 0
         for _k_s, _q_s in _short_calls_list:
             _covered = _ba_long_qty
@@ -3613,7 +3595,6 @@ def _render_position_tab():
                     _covered += _q_l
             _short_calls_uncovered += max(0, _q_s - _covered)
 
-        # Short Put покрыт long Put с большим/равным страйком + БА в шорт
         _short_puts_uncovered = 0
         for _k_s, _q_s in _short_puts_list:
             _covered = _ba_short_qty
@@ -3625,7 +3606,6 @@ def _render_position_tab():
         _risk_is_unlimited = (_short_calls_uncovered > 0
                               or _short_puts_uncovered > 0)
 
-        # ---------- Численная оценка риска через payoff ----------
         _risk_value = 0.0
         try:
             _strikes_all_r = [float(p["Страйк"]) for p in st.session_state.positions
@@ -3647,7 +3627,6 @@ def _render_position_tab():
         except Exception:
             _risk_value = abs(_net_cash_flow) if _net_cash_flow < 0 else 0.0
 
-        # ---------- Форматирование отображения ----------
         if _risk_is_unlimited:
             _risk_display = "∞"
             _uncovered_details = []
@@ -3664,7 +3643,6 @@ def _render_position_tab():
         _net_label = "кредит" if _net_cash_flow > 0 else "дебет"
         _net_value = abs(_net_cash_flow)
 
-        # Статус-иконка
         if _risk_is_unlimited:
             _status_icon = "⚠"
         elif _risk_value > risk_amount:
@@ -3960,7 +3938,7 @@ def _render_position_tab():
                                   interval=60)
         except Exception as e:
             st.warning(f"Не удалось построить графики: {e}")
-# ==================================================================
+            # ==================================================================
 # ============ ВКЛАДКА 4: WHAT-IF СИМУЛЯТОР =======================
 # ==================================================================
 @st.fragment
@@ -4640,7 +4618,7 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
         st.caption(f"Итоговая экспозиция при {_n_sim} сделках: "
                    f"**{(1 - _capital) * 100:.2f}%** "
                    f"= **{(1 - _capital) * _deposit:,.2f} ₽**")
-# ==================================================================
+                         # ==================================================================
 # ============ ВКЛАДКА 7: HEATMAP IV ==============================
 # ==================================================================
 @st.fragment
@@ -4651,7 +4629,6 @@ def _render_heatmap_tab():
                "Помогает увидеть структуру срочной волатильности "
                "(term structure) и улыбку.")
 
-    # ---------- Выбор актива ----------
     _hm1, _hm2, _hm3 = st.columns([3, 2, 2])
     with _hm1:
         _hm_asset_raw = st.text_input(
@@ -4695,10 +4672,9 @@ def _render_heatmap_tab():
                 st.warning(f"⚠ ISS не вернул серий для **{_hm_asset}**.")
                 return
 
-            # Ограничим максимум 12 ближайших серий, чтобы не грузить ISS
             _series_sorted = sorted(_series_all, key=lambda x: x.get("expiry", ""))[:12]
 
-            _hm_rows = []  # (expiry, strike, iv, days_to)
+            _hm_rows = []
             _progress = st.progress(0.0, text="Загрузка досок…")
             _n = len(_series_sorted)
             _today = date.today()
@@ -4727,7 +4703,6 @@ def _render_heatmap_tab():
                                 continue
                             if not (0 < _ivf < 500):
                                 continue
-                            # среднее Call/Put по страйку
                             if _kf in _seen_strikes:
                                 _seen_strikes[_kf] = (_seen_strikes[_kf] + _ivf) / 2.0
                             else:
@@ -4755,10 +4730,8 @@ def _render_heatmap_tab():
 
     _df_hm = pd.DataFrame(_hm_rows)
 
-    # ---------- Текущая цена БА ----------
     _current_price_hm = _get_current_market_price_for_asset(_hm_asset, _hm_cat)
 
-    # ---------- Опции отображения ----------
     st.markdown("---")
     _oc1, _oc2, _oc3 = st.columns(3)
     with _oc1:
@@ -4776,7 +4749,6 @@ def _render_heatmap_tab():
             ["RdYlGn_r", "Viridis", "Cividis", "Turbo", "Plasma"],
             index=0, key="hm_colorscale")
 
-    # ---------- Фильтрация страйков ----------
     if _limit_strikes_around > 0 and _current_price_hm is not None:
         _all_strikes_hm = sorted(_df_hm["strike"].unique())
         _nearest_idx = min(
@@ -4792,7 +4764,6 @@ def _render_heatmap_tab():
         st.warning("После фильтрации не осталось данных.")
         return
 
-    # ---------- Построение матрицы ----------
     _expiries_sorted = sorted(_df_hm["expiry"].unique())
     _strikes_sorted = sorted(_df_hm["strike"].unique())
 
@@ -4804,7 +4775,6 @@ def _render_heatmap_tab():
             if not _v.empty:
                 _Z[_i, _j] = float(_v.iloc[0])
 
-    # Подписи по оси Y: дата + (дней)
     _exp_labels = []
     _today = date.today()
     for _e in _expiries_sorted:
@@ -4815,7 +4785,6 @@ def _render_heatmap_tab():
         except Exception:
             _exp_labels.append(str(_e))
 
-    # Подписи по оси X
     _strike_labels = [f"{int(k)}" if float(k).is_integer() else f"{k:.0f}"
                        for k in _strikes_sorted]
 
@@ -4858,7 +4827,6 @@ def _render_heatmap_tab():
                     font=dict(size=10, color="#111")))
         fig_hm.update_layout(annotations=_annotations)
 
-    # Подсветка текущей цены БА (категориальная ось → используем add_shape)
     if _current_price_hm is not None:
         try:
             _nearest_strike_label = min(
@@ -4894,7 +4862,6 @@ def _render_heatmap_tab():
         margin=dict(l=20, r=20, t=60, b=20))
     st.plotly_chart(fig_hm, use_container_width=True)
 
-    # ---------- Дополнительные метрики ----------
     st.markdown("---")
     st.markdown("### Сводные метрики по сериям")
 
@@ -4905,9 +4872,6 @@ def _render_heatmap_tab():
         _iv_max = _sub["iv"].max() if not _sub.empty else np.nan
         _iv_mean = _sub["iv"].mean() if not _sub.empty else np.nan
         _iv_std = _sub["iv"].std() if len(_sub) > 1 else 0.0
-        # Skew = IV(OTM put) - IV(OTM call) условно, здесь — просто разброс
-        _skew_sign = ("Прямой" if _iv_max > _iv_min else "—") \
-            if not np.isnan(_iv_min) else "—"
         try:
             _d = datetime.strptime(_exp, "%Y-%m-%d").date()
             _dd = (_d - _today).days
@@ -4943,7 +4907,6 @@ def _render_ivrank_tab():
                "её исторического диапазона. "
                "Методика по Гл. 6.5.1 МакМиллана.")
 
-    # ---------- Выбор актива / серии ----------
     _iv1, _iv2 = st.columns([3, 2])
     with _iv1:
         _iv_asset_raw = st.text_input(
@@ -4964,7 +4927,6 @@ def _render_ivrank_tab():
         st.info("Укажите тикер базового актива.")
         return
 
-    # ---------- Получение серий ----------
     _series_for_iv = []
     try:
         _series_for_iv = fetch_optionseries(_iv_asset, _iv_cat) or []
@@ -4988,7 +4950,6 @@ def _render_ivrank_tab():
 
     st.markdown("---")
 
-    # ---------- Текущая IV и IV по страйкам ----------
     with st.spinner("Загрузка доски опционов…"):
         _board_iv = _get_board_for_analytics(_iv_asset, _iv_cat, _iv_chosen_code)
 
@@ -5004,12 +4965,8 @@ def _render_ivrank_tab():
 
     _store_iv_snapshot(_iv_asset, _iv_cat, _iv_chosen_code, _current_iv)
 
-    # ============================================================
-    # Блок 1. Текущая IV и историческая волатильность
-    # ============================================================
     st.markdown("### 1) Текущая IV vs. историческая волатильность")
 
-    # Историческая волатильность из баров
     _hist_vol_map = {}
     try:
         _iv_eng, _iv_mkt = _get_engine_market(_iv_cat)
@@ -5039,7 +4996,6 @@ def _render_ivrank_tab():
     _m5.metric("HV 100д", f"{_hist_vol_map.get('hv100', float('nan')):.2f}%"
                if "hv100" in _hist_vol_map else "—")
 
-    # Дифференциал IV/HV
     _hv_avg = np.mean(list(_hist_vol_map.values())) if _hist_vol_map else None
     if _hv_avg is not None:
         _iv_hv_spread = _current_iv - _hv_avg
@@ -5058,9 +5014,6 @@ def _render_ivrank_tab():
 
     st.markdown("---")
 
-    # ============================================================
-    # Блок 2. IV Rank и IV Percentile по истории сессии
-    # ============================================================
     st.markdown("### 2) IV Rank / IV Percentile")
 
     _hist_key = f"{_iv_asset}|{_iv_cat}|{_iv_chosen_code}"
@@ -5073,7 +5026,6 @@ def _render_ivrank_tab():
             f"Данные накапливаются автоматически при каждом открытии "
             f"этой вкладки. Для полноценного IV Rank нужно ≥ 20 точек. "
             f"Пока используется только сравнение с HV.")
-        # Fallback: IV Rank на основе диапазона HV
         if _hist_vol_map:
             _hv_min = min(_hist_vol_map.values())
             _hv_max = max(_hist_vol_map.values())
@@ -5081,7 +5033,6 @@ def _render_ivrank_tab():
                 _iv_rank_fb = (_current_iv - _hv_min) / (_hv_max - _hv_min) * 100
                 st.info(f"📊 Ориентировочный IV Rank (по диапазону HV): "
                          f"**{_iv_rank_fb:.1f}%**")
-        # Отрисовка рекомендаций только по HV-спреду
         _render_iv_recommendations(
             iv_rank=None, iv_pct=None, iv_current=_current_iv,
             hv_avg=_hv_avg, hist_available=False)
@@ -5094,7 +5045,6 @@ def _render_ivrank_tab():
         if _iv_max > _iv_min else 50.0
     _iv_pct = float(np.mean(_iv_values <= _current_iv) * 100)
 
-    # Децили
     try:
         _deciles = np.percentile(_iv_values, np.arange(0, 101, 10))
         _decile_of_iv = int(np.searchsorted(_deciles, _current_iv, side="right") - 1)
@@ -5109,7 +5059,6 @@ def _render_ivrank_tab():
     _r3.metric("Мин IV (истор.)", f"{_iv_min:.2f}%")
     _r4.metric("Макс IV (истор.)", f"{_iv_max:.2f}%")
 
-    # ---------- Визуализация децилей ----------
     if _deciles is not None:
         st.markdown("#### Положение текущей IV в децилях")
         _fig_dec = go.Figure()
@@ -5144,9 +5093,6 @@ def _render_ivrank_tab():
 
     st.markdown("---")
 
-    # ============================================================
-    # Блок 3. Рекомендации
-    # ============================================================
     _render_iv_recommendations(
         iv_rank=_iv_rank, iv_pct=_iv_pct, iv_current=_current_iv,
         hv_avg=_hv_avg, hist_available=True,
@@ -5160,7 +5106,6 @@ def _render_iv_recommendations(iv_rank, iv_pct, iv_current, hv_avg,
 
     st.markdown("### 3) Рекомендации")
 
-    # Определение зоны
     _zone = None
     _zone_color = "#333"
     _zone_label = "—"
@@ -5187,7 +5132,6 @@ def _render_iv_recommendations(iv_rank, iv_pct, iv_current, hv_avg,
             _zone_label = "🔴 ВЫСОКАЯ IV (IV Rank > 80%)"
             _zone_color = "#d32f2f"
 
-    # Fallback: по HV-спреду, если истории нет
     if _zone is None and hv_avg is not None:
         _spread = iv_current - hv_avg
         if _spread <= -3:
@@ -5211,7 +5155,6 @@ def _render_iv_recommendations(iv_rank, iv_pct, iv_current, hv_avg,
         f"{_zone_label}</div></div>",
         unsafe_allow_html=True)
 
-    # Собственно рекомендации
     if _zone == "low":
         st.markdown("#### 🟢 Стратегии: покупка волатильности")
         st.markdown("""
@@ -5313,7 +5256,7 @@ IV выше среднего — опционы относительно дор�
         "опционов... Наоборот, если подразумеваемая волатильность в "
         "текущий момент в 9-ом или 10-м дециле — следует рассматривать "
         "стратегии продажи опционов». — МакМиллан об опционах")
-# ==================================================================
+                                    # ==================================================================
 # ============ ВКЛАДКА 9: ДЕТЕКТОР SKEW ===========================
 # ==================================================================
 @st.fragment
@@ -5322,7 +5265,6 @@ def _render_skew_tab():
     st.caption("Анализ наклона волатильности (volatility skew). "
                "Методика по Гл. 6.8 МакМиллана: σ/μ ≥ 15% — есть skew.")
 
-    # ---------- Выбор актива ----------
     _sk1, _sk2 = st.columns([3, 2])
     with _sk1:
         _sk_asset_raw = st.text_input(
@@ -5343,7 +5285,6 @@ def _render_skew_tab():
         st.info("Укажите тикер базового актива.")
         return
 
-    # ---------- Серии ----------
     try:
         _sk_series_all = fetch_optionseries(_sk_asset, _sk_cat) or []
     except Exception as e:
@@ -5365,7 +5306,6 @@ def _render_skew_tab():
 
     st.markdown("---")
 
-    # ---------- Доска ----------
     with st.spinner("Загрузка доски опционов…"):
         _board_sk = _get_board_for_analytics(_sk_asset, _sk_cat, _sk_chosen_code)
 
@@ -5373,7 +5313,6 @@ def _render_skew_tab():
         st.warning("Не удалось загрузить доску опционов.")
         return
 
-    # ---------- Извлечение IV по страйкам ----------
     _sk_rows = []
     _calls_sk = _board_sk.get("call") or []
     _puts_sk = _board_sk.get("put") or []
@@ -5409,9 +5348,6 @@ def _render_skew_tab():
     _central_sk = _board_sk.get("central_strike")
     _current_price_sk = _get_current_market_price_for_asset(_sk_asset, _sk_cat)
 
-    # ============================================================
-    # Метрики наклона
-    # ============================================================
     _iv_vals = _df_sk["iv_avg"].values
     _iv_mean = float(np.mean(_iv_vals))
     _iv_std = float(np.std(_iv_vals, ddof=1)) if len(_iv_vals) > 1 else 0.0
@@ -5433,9 +5369,6 @@ def _render_skew_tab():
                     f"**обнаружен наклон волатильности**. "
                     f"Есть статистический эдж.")
 
-    # ============================================================
-    # Определение типа наклона
-    # ============================================================
     _slope = 0.0
     _skew_type = "—"
     _skew_type_label = "—"
@@ -5449,8 +5382,6 @@ def _render_skew_tab():
         except Exception:
             _slope = 0.0
 
-        # Определяем тип
-        # Отдельно смотрим левое и правое крыло относительно центра
         _central_ref = float(_central_sk) if _central_sk is not None \
             else float(_current_price_sk) if _current_price_sk is not None \
             else float(np.median(_x))
@@ -5474,7 +5405,6 @@ def _render_skew_tab():
                 _skew_type_label = "🟠 ПРЯМОЙ (Forward) — Call-skew"
                 _skew_color = "#e6a500"
             else:
-                # Проверяем двойной наклон
                 if (not np.isnan(_iv_left_avg) and not np.isnan(_iv_right_avg)
                         and _iv_left_avg > _iv_mean + 1
                         and _iv_right_avg > _iv_mean + 1):
@@ -5498,13 +5428,9 @@ def _render_skew_tab():
         f"<b>{_slope:+.4f} %/пункт</b></div></div>",
         unsafe_allow_html=True)
 
-    # ============================================================
-    # График: улыбка + линейная регрессия + Call/Put отдельно
-    # ============================================================
     st.markdown("### 3) Улыбка волатильности и линия регрессии")
     _fig_sk = go.Figure()
 
-    # IV Call
     _df_c = _df_sk.dropna(subset=["iv_call"])
     if not _df_c.empty:
         _fig_sk.add_trace(go.Scatter(
@@ -5514,7 +5440,6 @@ def _render_skew_tab():
             marker=dict(size=8, color="#00a651"),
             hovertemplate="Страйк: %{x}<br>IV Call: %{y:.2f}%<extra></extra>"))
 
-    # IV Put
     _df_p = _df_sk.dropna(subset=["iv_put"])
     if not _df_p.empty:
         _fig_sk.add_trace(go.Scatter(
@@ -5524,14 +5449,12 @@ def _render_skew_tab():
             marker=dict(size=8, color="#d32f2f"),
             hovertemplate="Страйк: %{x}<br>IV Put: %{y:.2f}%<extra></extra>"))
 
-    # Средняя линия
     _fig_sk.add_trace(go.Scatter(
         x=_df_sk["strike"], y=_df_sk["iv_avg"],
         mode="lines", name="IV сред.",
         line=dict(color="#1e5a7a", width=3),
         hovertemplate="Страйк: %{x}<br>IV: %{y:.2f}%<extra></extra>"))
 
-    # Линия регрессии
     if len(_df_sk) >= 3:
         _xr = np.array([_df_sk["strike"].min(), _df_sk["strike"].max()])
         try:
@@ -5544,7 +5467,6 @@ def _render_skew_tab():
         except Exception:
             pass
 
-    # Центральный страйк
     if _central_sk is not None:
         _fig_sk.add_vline(x=float(_central_sk),
                           line=dict(color="#4a6f8a", width=1.5, dash="dot"),
@@ -5568,9 +5490,6 @@ def _render_skew_tab():
 
     st.markdown("---")
 
-    # ============================================================
-    # Рекомендации по стратегиям
-    # ============================================================
     st.markdown("### 4) Рекомендации по стратегиям")
 
     if _skew_ratio < 15:
@@ -5638,9 +5557,6 @@ def _render_skew_tab():
 
     st.markdown("---")
 
-    # ============================================================
-    # Детальная таблица по страйкам
-    # ============================================================
     with st.expander("🔍 Детальная таблица IV по страйкам", expanded=False):
         _df_show_sk = _df_sk.copy()
         _df_show_sk = _df_show_sk.rename(columns={
