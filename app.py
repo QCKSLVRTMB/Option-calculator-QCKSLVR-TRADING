@@ -3995,7 +3995,6 @@ def _render_whatif_tab():
     # Параметры сценария — точные поля + слайдеры + календарь
     # ============================================================
 
-    # --- 1. Диапазон допустимых дат сценария ---
     _wt_exp_dates = []
     for _p in positions:
         _e = _p.get("Эксп.", "—")
@@ -4009,90 +4008,69 @@ def _render_whatif_tab():
                    if _wt_exp_dates else (_wt_min_date + timedelta(days=180)))
     _wt_max_date = _wt_max_exp + timedelta(days=30)
 
-    # --- 2. Сброс параметров при смене актива ---
+    # --- Сброс при смене актива ---
     _wt_asset_key = f"{_asset}|{_atype}"
     if st.session_state.get("_wt_last_asset") != _wt_asset_key:
         st.session_state.wt_price_abs = float(current_price)
-        st.session_state.wt_price_pct_slider = 0.0
+        st.session_state.wt_price_pct = 0.0
         st.session_state.wt_iv_abs = float(base_iv)
-        st.session_state.wt_iv_pp_slider = 0.0
+        st.session_state.wt_iv_pp = 0.0
         st.session_state.wt_scenario_date = _wt_min_date
-        for _k in ("wt_price_abs_inp", "wt_iv_abs_inp"):
-            if _k in st.session_state:
-                del st.session_state[_k]
+        st.session_state.wt_price_ver = st.session_state.get("wt_price_ver", 0) + 1
+        st.session_state.wt_iv_ver = st.session_state.get("wt_iv_ver", 0) + 1
         st.session_state["_wt_last_asset"] = _wt_asset_key
 
-    # --- 3. Инициализация session_state ---
-    if "wt_price_abs" not in st.session_state:
-        st.session_state.wt_price_abs = float(current_price)
-    if "wt_price_pct_slider" not in st.session_state:
-        st.session_state.wt_price_pct_slider = 0.0
-    if "wt_iv_abs" not in st.session_state:
-        st.session_state.wt_iv_abs = float(base_iv)
-    if "wt_iv_pp_slider" not in st.session_state:
-        st.session_state.wt_iv_pp_slider = 0.0
+    # --- Инициализация ---
+    for _k, _def in [("wt_price_abs", float(current_price)),
+                     ("wt_price_pct", 0.0),
+                     ("wt_iv_abs", float(base_iv)),
+                     ("wt_iv_pp", 0.0),
+                     ("wt_price_ver", 0),
+                     ("wt_iv_ver", 0)]:
+        if _k not in st.session_state:
+            st.session_state[_k] = _def
     if "wt_scenario_date" not in st.session_state:
         st.session_state.wt_scenario_date = _wt_min_date
 
-    # Клэмпы на всякий случай
+    # Клэмпы даты
     _sd = st.session_state.wt_scenario_date
     if _sd < _wt_min_date:
         st.session_state.wt_scenario_date = _wt_min_date
     elif _sd > _wt_max_date:
         st.session_state.wt_scenario_date = _wt_max_date
 
-    # --- 4. Callbacks ---
-    def _wt_price_slider_changed():
-        _pct = float(st.session_state.wt_price_pct_slider)
-        st.session_state.wt_price_abs = current_price * (1 + _pct / 100.0)
-        if "wt_price_abs_inp" in st.session_state:
-            del st.session_state["wt_price_abs_inp"]
+    # --- Ключи виджетов зависят от версии (принудительная пересборка) ---
+    _p_ver = st.session_state.wt_price_ver
+    _i_ver = st.session_state.wt_iv_ver
+    _p_abs_key = f"wt_p_abs_{_p_ver}"
+    _p_pct_key = f"wt_p_pct_{_p_ver}"
+    _i_abs_key = f"wt_i_abs_{_i_ver}"
+    _i_pp_key  = f"wt_i_pp_{_i_ver}"
 
-    def _wt_price_abs_changed():
-        _abs = float(st.session_state.wt_price_abs_inp)
-        _pct = (_abs / current_price - 1) * 100.0 if current_price > 0 else 0.0
-        st.session_state.wt_price_pct_slider = max(-50.0, min(50.0, _pct))
-        st.session_state.wt_price_abs = _abs
-
+    # --- Колбэки ресета ---
     def _wt_price_reset():
-        st.session_state.wt_price_pct_slider = 0.0
         st.session_state.wt_price_abs = float(current_price)
-        if "wt_price_abs_inp" in st.session_state:
-            del st.session_state["wt_price_abs_inp"]
-
-    def _wt_iv_slider_changed():
-        _pp = float(st.session_state.wt_iv_pp_slider)
-        st.session_state.wt_iv_abs = max(0.1, base_iv + _pp)
-        if "wt_iv_abs_inp" in st.session_state:
-            del st.session_state["wt_iv_abs_inp"]
-
-    def _wt_iv_abs_changed():
-        _abs = float(st.session_state.wt_iv_abs_inp)
-        _abs = max(0.1, _abs)
-        _pp = _abs - base_iv
-        st.session_state.wt_iv_pp_slider = max(-30.0, min(30.0, _pp))
-        st.session_state.wt_iv_abs = _abs
+        st.session_state.wt_price_pct = 0.0
+        st.session_state.wt_price_ver += 1
 
     def _wt_iv_reset():
-        st.session_state.wt_iv_pp_slider = 0.0
         st.session_state.wt_iv_abs = float(base_iv)
-        if "wt_iv_abs_inp" in st.session_state:
-            del st.session_state["wt_iv_abs_inp"]
+        st.session_state.wt_iv_pp = 0.0
+        st.session_state.wt_iv_ver += 1
 
     def _wt_date_reset():
         st.session_state.wt_scenario_date = _wt_min_date
 
     def _wt_reset_all():
-        st.session_state.wt_price_pct_slider = 0.0
         st.session_state.wt_price_abs = float(current_price)
-        st.session_state.wt_iv_pp_slider = 0.0
+        st.session_state.wt_price_pct = 0.0
+        st.session_state.wt_price_ver += 1
         st.session_state.wt_iv_abs = float(base_iv)
+        st.session_state.wt_iv_pp = 0.0
+        st.session_state.wt_iv_ver += 1
         st.session_state.wt_scenario_date = _wt_min_date
-        for _k in ("wt_price_abs_inp", "wt_iv_abs_inp"):
-            if _k in st.session_state:
-                del st.session_state[_k]
 
-    # --- 5. Header + Reset-all ---
+    # --- Header + Reset-all ---
     _hdr1, _hdr2 = st.columns([5, 1])
     with _hdr1:
         st.markdown("### Параметры сценария")
@@ -4102,7 +4080,7 @@ def _render_whatif_tab():
                   use_container_width=True,
                   help="Сбросить цену, IV и дату")
 
-    # --- 6. Цена БА ---
+    # ---------- Цена БА ----------
     st.markdown(
         "<div style='font-size:.75rem; color:#2c506d; "
         "font-weight:700; text-transform:uppercase; "
@@ -4110,20 +4088,20 @@ def _render_whatif_tab():
         unsafe_allow_html=True)
     _pc1, _pc2, _pc3 = st.columns([1.6, 3.5, 0.6])
     with _pc1:
-        st.number_input(
+        _p_abs_val = st.number_input(
             "Цена, ₽",
             min_value=0.01, max_value=1e9,
             value=float(st.session_state.wt_price_abs),
             step=0.5, format="%.4f",
-            key="wt_price_abs_inp",
-            on_change=_wt_price_abs_changed,
+            key=_p_abs_key,
             label_visibility="collapsed")
     with _pc2:
-        st.slider(
+        _p_pct_val = st.slider(
             "Изменение цены, %",
-            min_value=-50.0, max_value=50.0, step=0.5,
-            key="wt_price_pct_slider",
-            on_change=_wt_price_slider_changed,
+            min_value=-50.0, max_value=50.0,
+            value=float(st.session_state.wt_price_pct),
+            step=0.5,
+            key=_p_pct_key,
             label_visibility="collapsed")
     with _pc3:
         st.button("🔄", key="wt_price_reset_btn",
@@ -4131,7 +4109,21 @@ def _render_whatif_tab():
                   use_container_width=True,
                   help="Сбросить цену")
 
-    # --- 7. IV ---
+    # Синхронизация цены (без on_change)
+    if abs(_p_abs_val - st.session_state.wt_price_abs) > 1e-9:
+        st.session_state.wt_price_abs = _p_abs_val
+        _pct_calc = ((_p_abs_val / current_price - 1) * 100.0
+                     if current_price > 0 else 0.0)
+        st.session_state.wt_price_pct = max(-50.0, min(50.0, _pct_calc))
+        st.session_state.wt_price_ver += 1
+        st.rerun()
+    elif abs(_p_pct_val - st.session_state.wt_price_pct) > 1e-9:
+        st.session_state.wt_price_pct = _p_pct_val
+        st.session_state.wt_price_abs = current_price * (1 + _p_pct_val / 100.0)
+        st.session_state.wt_price_ver += 1
+        st.rerun()
+
+    # ---------- IV ----------
     st.markdown(
         "<div style='font-size:.75rem; color:#2c506d; "
         "font-weight:700; text-transform:uppercase; "
@@ -4140,20 +4132,20 @@ def _render_whatif_tab():
         unsafe_allow_html=True)
     _ic1, _ic2, _ic3 = st.columns([1.6, 3.5, 0.6])
     with _ic1:
-        st.number_input(
+        _i_abs_val = st.number_input(
             "IV, %",
             min_value=0.1, max_value=500.0,
             value=float(st.session_state.wt_iv_abs),
             step=0.5, format="%.2f",
-            key="wt_iv_abs_inp",
-            on_change=_wt_iv_abs_changed,
+            key=_i_abs_key,
             label_visibility="collapsed")
     with _ic2:
-        st.slider(
+        _i_pp_val = st.slider(
             "Изменение IV, п.п.",
-            min_value=-30.0, max_value=30.0, step=0.5,
-            key="wt_iv_pp_slider",
-            on_change=_wt_iv_slider_changed,
+            min_value=-30.0, max_value=30.0,
+            value=float(st.session_state.wt_iv_pp),
+            step=0.5,
+            key=_i_pp_key,
             label_visibility="collapsed")
     with _ic3:
         st.button("🔄", key="wt_iv_reset_btn",
@@ -4161,7 +4153,18 @@ def _render_whatif_tab():
                   use_container_width=True,
                   help="Сбросить IV")
 
-    # --- 8. Дата сценария ---
+    if abs(_i_abs_val - st.session_state.wt_iv_abs) > 1e-9:
+        st.session_state.wt_iv_abs = max(0.1, _i_abs_val)
+        st.session_state.wt_iv_pp = max(-30.0, min(30.0, _i_abs_val - base_iv))
+        st.session_state.wt_iv_ver += 1
+        st.rerun()
+    elif abs(_i_pp_val - st.session_state.wt_iv_pp) > 1e-9:
+        st.session_state.wt_iv_pp = _i_pp_val
+        st.session_state.wt_iv_abs = max(0.1, base_iv + _i_pp_val)
+        st.session_state.wt_iv_ver += 1
+        st.rerun()
+
+    # ---------- Дата сценария ----------
     st.markdown(
         "<div style='font-size:.75rem; color:#2c506d; "
         "font-weight:700; text-transform:uppercase; "
@@ -4207,7 +4210,7 @@ def _render_whatif_tab():
                   use_container_width=True,
                   help="Сбросить дату на сегодня")
 
-    # --- 9. Итоговые значения для расчётов ---
+    # ---------- Итоговые значения для расчётов ----------
     new_price = float(st.session_state.wt_price_abs)
     new_iv = float(st.session_state.wt_iv_abs)
     days_shift = (st.session_state.wt_scenario_date - date.today()).days
