@@ -1318,13 +1318,18 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.04, row_heights=[0.78, 0.22],
                         specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
+    # Определяем формат даты для подсказки:
+    #   D1 (interval=24)  → %d.%m.%Y
+    #   H1 (interval=60)  → %d.%m %H:%M
+    _hover_dt_fmt = "%d.%m.%Y %H:%M" if interval == 60 else "%d.%m.%Y"
+
     fig.add_trace(go.Ohlc(
         x=df["begin"], open=df["open"], high=df["high"],
         low=df["low"], close=df["close"],
         increasing_line_color="black", decreasing_line_color="black",
         name="", showlegend=False,
         hovertemplate=(
-            "<b>%{x|%d.%m.%Y}</b><br>"
+            f"<b>%{{x|{_hover_dt_fmt}}}</b><br>"
             "O: %{open:.2f}<br>"
             "H: %{high:.2f}<br>"
             "L: %{low:.2f}<br>"
@@ -1335,7 +1340,7 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
         x=df["begin"], y=df["volume"], marker_color="black",
         name="", showlegend=False,
         hovertemplate=(
-            "<b>%{x|%d.%m.%Y}</b><br>"
+            f"<b>%{{x|{_hover_dt_fmt}}}</b><br>"
             "V: %{y:,.0f}<extra></extra>"
         )),
         row=2, col=1)
@@ -1412,47 +1417,47 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
     if sell_level and sell_level > 0:
         _add_level(sell_level, f"Продажа {sell_level:.2f}", "#fb92f0", sell_markers)
     if current_price is not None and current_price > 0:
-        # горизонтальная линия текущей цены
+        # Горизонтальная линия текущей цены
         fig.add_hline(
             y=current_price,
-            line=dict(color="#1e88e5", width=2, dash="dash"),
+            line=dict(color="#1e88e5", width=1.5, dash="dash"),
             row=1, col=1)
 
-        # подпись НАПРОТИВ закрытия последнего бара (справа)
-        _last_bar_date = df["begin"].iloc[-1]
-        _last_bar_close = float(df["close"].iloc[-1])
-
-        # 1) синяя плашка «текущая цена» у правого края графика
+        # ---------- Плашка текущей цены (справа, прижата к оси) ----------
+        # x=1.0 — правый край plot area, xshift=2 — сдвигаем прямо
+        # к правой оси (в зону tick labels). Размеры минимальные,
+        # как в TradingView.
         fig.add_annotation(
             x=1.0, y=current_price,
             xref="paper", yref="y",
-            text=f" {current_price:.2f} ",
+            text=f"{current_price:.2f}",
             showarrow=False,
             xanchor="left",
             yanchor="middle",
-            font=dict(size=11, color="#ffffff",
-                      family="Arial Black"),
+            xshift=2,
+            font=dict(size=9, color="#ffffff", family="Arial"),
             bgcolor="#1e88e5",
-            bordercolor="#1e88e5",
-            borderwidth=1,
-            borderpad=3,
+            borderpad=2,
             row=1, col=1)
 
-        # 2) маленькая метка у последнего бара с его close
+        # ---------- Метка последнего бара: маленькая стрелка + close ----------
+        _last_bar_date = df["begin"].iloc[-1]
+        _last_bar_close = float(df["close"].iloc[-1])
+
         fig.add_annotation(
             x=_last_bar_date, y=_last_bar_close,
             xref="x", yref="y",
             text=f"{_last_bar_close:.2f}",
             showarrow=True,
             arrowhead=2,
-            arrowsize=1,
-            arrowwidth=1.5,
+            arrowsize=0.8,
+            arrowwidth=1,
             arrowcolor="#1e88e5",
-            ax=38, ay=0,
+            ax=32, ay=0,
             xanchor="left",
-            font=dict(size=10, color="#1e88e5",
-                      family="Arial Black"),
-            bgcolor="rgba(255,255,255,0.90)",
+            font=dict(size=9, color="#1e88e5",
+                      family="Arial"),
+            bgcolor="rgba(255,255,255,0.92)",
             bordercolor="#1e88e5",
             borderwidth=1,
             borderpad=2,
@@ -1469,10 +1474,19 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
                              line=dict(width=0), opacity=0, showlegend=False,
                              hoverinfo="skip", name="_right_axis"),
                   row=1, col=1, secondary_y=True)
-    fig.update_layout(title=title, height=520,
-                      margin=dict(l=20, r=20, t=50, b=20),
-                      plot_bgcolor="white", paper_bgcolor="white",
-                      hovermode="closest", showlegend=False)
+    fig.update_layout(
+        title=title, height=520,
+        margin=dict(l=20, r=70, t=50, b=20),
+        plot_bgcolor="white", paper_bgcolor="white",
+        hovermode="x unified",
+        showlegend=False,
+        hoverlabel=dict(
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="#1e5a7a",
+            font=dict(size=11, color="#1a3b4f",
+                      family="Consolas, monospace"),
+            align="left",
+            namelength=-1))
     if visible_strikes:
         _strike_vals = [float(k) for k in visible_strikes]
         _strike_text = [f"{int(k)}" if float(k).is_integer() else f"{k:.2f}" for k in _strike_vals]
@@ -1491,10 +1505,18 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
                      side="left", row=2, col=1,
                      showspikes=True, spikemode='across', spikesnap='cursor',
                      spikecolor='#888888', spikethickness=1, spikedash='dot')
-    fig.update_yaxes(side="right", row=1, col=1, secondary_y=True,
-                     showgrid=False, zeroline=False,
-                     tickfont=dict(size=10, color="#1a3b4f"),
-                     showspikes=True, spikemode='across',
+
+    # ПРАВАЯ ШКАЛА — спайки включены, тонкий пунктир, чтобы читалась
+    # цена на уровне курсора
+    fig.update_yaxes(
+        side="right", row=1, col=1, secondary_y=True,
+        showgrid=False, zeroline=False,
+        tickfont=dict(size=10, color="#1a3b4f"),
+        showspikes=True, spikemode='across',
+        spikesnap='cursor',
+        spikecolor='#1e88e5',
+        spikethickness=1, spikedash='dot',
+        title=None)
                      spikesnap='cursor',
                      spikecolor='#1e88e5', spikethickness=1,
                      spikedash='dot',
@@ -1510,16 +1532,23 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
         if pd.isna(_step) or _step <= pd.Timedelta(0):
             _step = pd.Timedelta(days=1)
         _x_max_extended = _x_max_val + _step * 15
-        fig.update_xaxes(type='date', range=[_x_min_val, _x_max_extended],
-                         showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-                         rangeslider_visible=False, row=1, col=1,
-                         showspikes=True, spikemode='across', spikesnap='cursor',
-                         spikecolor='#888888', spikethickness=1, spikedash='dot')
-        fig.update_xaxes(type='date', range=[_x_min_val, _x_max_extended],
-                         showgrid=True, gridcolor="rgba(0,0,0,0.05)",
-                         row=2, col=1,
-                         showspikes=True, spikemode='across', spikesnap='cursor',
-                         spikecolor='#888888', spikethickness=1, spikedash='dot')
+        # Формат оси X
+        _x_tickfmt = "%d.%m %H:%M" if interval == 60 else "%d.%m"
+
+        fig.update_xaxes(
+            type='date', range=[_x_min_val, _x_max_extended],
+            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+            rangeslider_visible=False, row=1, col=1,
+            tickformat=_x_tickfmt,
+            showspikes=True, spikemode='across', spikesnap='cursor',
+            spikecolor='#666666', spikethickness=1, spikedash='dot')
+        fig.update_xaxes(
+            type='date', range=[_x_min_val, _x_max_extended],
+            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+            row=2, col=1,
+            tickformat=_x_tickfmt,
+            showspikes=True, spikemode='across', spikesnap='cursor',
+            spikecolor='#666666', spikethickness=1, spikedash='dot')
     st.plotly_chart(fig, use_container_width=True, key=key)
 
 
