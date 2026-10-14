@@ -3391,6 +3391,8 @@ def _render_position_tab():
             _tot_com = _tot_pnl = _tot_delta = _tot_gamma = 0.0
             _tot_vega = _tot_theta = _tot_rho = 0.0
             for p in st.session_state.positions:
+                if not p.get("visible", True):
+                    continue
                 _q = int(p.get("Кол-во", 0))
                 _pr = float(p.get("Цена", 0))
                 _th = float(p.get("Теор.цена", 0))
@@ -3420,10 +3422,6 @@ def _render_position_tab():
                             del st.session_state[k]
                     st.session_state.positions = []
                     st.rerun()
-            with tot_row[2]:
-                st.markdown("<div style='padding-top:6px; font-size:.8rem; "
-                            "color:#2c506d; font-weight:700;'>ГО:</div>",
-                            unsafe_allow_html=True)
             with tot_row[7]:
                 st.markdown("<div style='padding-top:6px; font-size:.8rem; "
                             "color:#2c506d; font-weight:700;'>Итого:</div>",
@@ -3530,6 +3528,8 @@ def _render_position_tab():
         # =========================================================
         _net_cash_flow = 0.0
         for p in st.session_state.positions:
+            if not p.get("visible", True):
+                continue
             if p.get("Опцион") == "БА":
                 continue
             _q = int(p.get("Кол-во", 0))
@@ -3565,6 +3565,8 @@ def _render_position_tab():
         _ba_short_qty = 0
 
         for p in st.session_state.positions:
+            if not p.get("visible", True):
+                continue
             _opt = p.get("Опцион", "—")
             _q = int(p.get("Кол-во", 0))
             if _q == 0:
@@ -3608,9 +3610,15 @@ def _render_position_tab():
 
         _risk_value = 0.0
         try:
-            _strikes_all_r = [float(p["Страйк"]) for p in st.session_state.positions
+            _visible_positions_for_risk = [
+                x for x in st.session_state.positions
+                if x.get("visible", True)
+            ]
+            _strikes_all_r = [float(p["Страйк"])
+                              for p in _visible_positions_for_risk
                               if p.get("Страйк") is not None]
-            _ba_prices_r = [float(p["Цена"]) for p in st.session_state.positions
+            _ba_prices_r = [float(p["Цена"])
+                            for p in _visible_positions_for_risk
                             if p.get("Опцион") == "БА"
                             or p.get("Тип инструмента") == "БА"]
             _all_ref_r = _strikes_all_r + _ba_prices_r
@@ -3620,7 +3628,7 @@ def _render_position_tab():
                 _s_high_r = max(_all_ref_r) * 1.5
                 _S_eval_r = np.linspace(_s_low_r, _s_high_r, 800)
                 _pnl_eval_r = compute_payoff(
-                    st.session_state.positions, _S_eval_r,
+                    _visible_positions_for_risk, _S_eval_r,
                     comm_func=_calc_comm)
                 _min_pnl_r = float(np.min(_pnl_eval_r))
                 _risk_value = max(0.0, -_min_pnl_r)
