@@ -1311,7 +1311,8 @@ def find_breakevens(positions, price_min, price_max, n=500, comm_func=None, anch
 
 # ================= Биржевой график =================
 def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, key,
-                          current_price=None, comm_func=None, anchor_expiry=None):
+                          current_price=None, comm_func=None, anchor_expiry=None,
+                          interval=24):
     if df is None or df.empty:
         st.info(f"Нет данных для {title}")
         return
@@ -1517,10 +1518,6 @@ def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, 
         spikecolor='#1e88e5',
         spikethickness=1, spikedash='dot',
         title=None)
-                     spikesnap='cursor',
-                     spikecolor='#1e88e5', spikethickness=1,
-                     spikedash='dot',
-                     title=None)
     _x_min_val = df["begin"].min()
     _x_max_val = df["begin"].max()
     if pd.notna(_x_min_val) and pd.notna(_x_max_val):
@@ -3953,12 +3950,14 @@ def _render_position_tab():
                                   _buy_ch, _sell_ch, _strikes_ch,
                                   f"D1 — {_asset_ch}", "chart_d1_tab",
                                   current_price=_current_price_ch,
-                                  comm_func=_calc_comm_ui)
+                                  comm_func=_calc_comm_ui,
+                                  interval=24)
             render_exchange_chart(_df_h1, st.session_state.get("positions", []),
                                   _buy_ch, _sell_ch, _strikes_ch,
                                   f"H1 — {_asset_ch}", "chart_h1_tab",
                                   current_price=_current_price_ch,
-                                  comm_func=_calc_comm_ui)
+                                  comm_func=_calc_comm_ui,
+                                  interval=60)
         except Exception as e:
             st.warning(f"Не удалось построить графики: {e}")
 # ==================================================================
