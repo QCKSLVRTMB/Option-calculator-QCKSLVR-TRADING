@@ -1523,21 +1523,25 @@ def format_series_label(expiry_str: str) -> str:
         return f"⚪ {expiry_str}"
 
 
-# 🔧 Хелперы для раскраски греков (правила — как на доске опционов)
-def _greek_delta_bg(delta) -> str:
-    """Фон для ячейки Delta — те же правила, что на доске опционов."""
+# 🔧 Хелперы для раскраски греков (цвет шрифта — по аналогии со столбцом P&L)
+def _greek_delta_color(delta) -> str:
+    """Цвет шрифта для Delta. Правила как на доске опционов:
+       |Δ| 0.25–0.45 → 🟢, 0.15–0.25 или 0.45–0.55 → 🟡, иначе → 🔴.
+    """
     if delta is None or not isinstance(delta, (int, float)):
         return ""
     d = abs(delta)
     if 0.25 <= d <= 0.45:
-        return "background-color:#00ff0c; border-radius:4px;"
+        return "#00a651"
     if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
-        return "background-color:#fcff00; border-radius:4px;"
-    return "background-color:#ff0000; border-radius:4px;"
+        return "#e6a500"
+    return "#d32f2f"
 
 
-def _greek_theta_bg(theta, vega) -> str:
-    """Фон для ячейки Theta (соотношение |θ|/|ν|) — как на доске."""
+def _greek_theta_color(theta, vega) -> str:
+    """Цвет шрифта для Theta (соотношение |θ|/|ν|):
+       >1.0 → 🟢 (хорошо продавцу), >0.5 → 🟡, иначе → 🔴 (хорошо покупателю).
+    """
     if theta is None or vega is None:
         return ""
     if not isinstance(theta, (int, float)) or not isinstance(vega, (int, float)):
@@ -1546,10 +1550,10 @@ def _greek_theta_bg(theta, vega) -> str:
         return ""
     ratio = abs(theta) / abs(vega)
     if ratio > 1.0:
-        return "background-color:#00ff0c; border-radius:4px;"
+        return "#00a651"
     if ratio > 0.5:
-        return "background-color:#fcff00; border-radius:4px;"
-    return "background-color:#ff0000; border-radius:4px;"
+        return "#e6a500"
+    return "#d32f2f"
 
 
 def _card_style_full() -> str:
@@ -3289,23 +3293,22 @@ def _render_position_tab():
                                 f"color:{_color};'>{_pnl:+,.2f} ₽</div>",
                                 unsafe_allow_html=True)
 
-                # 🔧 Раскраска греков по правилам доски опционов
+                # 🔧 Раскраска греков цветом шрифта (по аналогии с P&L)
                 for ri, gr in zip([13, 14, 15, 16, 17],
                                   ["Дельта", "Гамма", "Вега", "Тета", "Ро"]):
                     val = p.get(gr)
                     txt = f"{val:+.4f}" if isinstance(val, (int, float)) else "—"
-                    _greek_bg = ""
+                    _greek_color = ""
                     if gr == "Дельта":
-                        _greek_bg = _greek_delta_bg(val)
+                        _greek_color = _greek_delta_color(val)
                     elif gr == "Тета":
-                        _greek_bg = _greek_theta_bg(val, p.get("Вега"))
-                    _txt_color = "color:#111; " if _greek_bg else ""
-                    _bg_style = f"{_greek_bg} " if _greek_bg else ""
+                        _greek_color = _greek_theta_color(val, p.get("Вега"))
+                    _style_color = f"color:{_greek_color}; font-weight:700;" \
+                                   if _greek_color else ""
                     with row[ri]:
                         st.markdown(
-                            f"<div style='padding-top:6px; padding-left:4px; "
-                            f"padding-right:4px; {gray}; {_bg_style}{_txt_color}"
-                            f"font-size:.78rem;'>{txt}</div>",
+                            f"<div style='padding-top:6px; {gray}; "
+                            f"font-size:.78rem; {_style_color}'>{txt}</div>",
                             unsafe_allow_html=True)
 
                 with row[18]:
