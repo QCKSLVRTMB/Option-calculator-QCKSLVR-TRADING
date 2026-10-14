@@ -4557,14 +4557,12 @@ def _render_heatmap_tab():
     # ---------- Фильтрация страйков ----------
     if _limit_strikes_around > 0 and _current_price_hm is not None:
         _all_strikes_hm = sorted(_df_hm["strike"].unique())
-        _near = [s for s in _all_strikes_hm
-                 if abs(s - _current_price_hm) <= _limit_strikes_around *
-                 (np.median(np.diff(_all_strikes_hm)) if len(_all_strikes_hm) > 1 else 1)]
-        # Более простое правило: отступить N страйков от ближайшего к текущей цене
-        _nearest_idx = min(range(len(_all_strikes_hm)),
-                           key=lambda i: abs(_all_strikes_hm[i] - _current_price_hm))
+        _nearest_idx = min(
+            range(len(_all_strikes_hm)),
+            key=lambda i: abs(_all_strikes_hm[i] - _current_price_hm))
         _lo = max(0, _nearest_idx - _limit_strikes_around)
-        _hi = min(len(_all_strikes_hm), _nearest_idx + _limit_strikes_around + 1)
+        _hi = min(len(_all_strikes_hm),
+                  _nearest_idx + _limit_strikes_around + 1)
         _strikes_keep = _all_strikes_hm[_lo:_hi]
         _df_hm = _df_hm[_df_hm["strike"].isin(_strikes_keep)]
 
@@ -4638,16 +4636,33 @@ def _render_heatmap_tab():
                     font=dict(size=10, color="#111")))
         fig_hm.update_layout(annotations=_annotations)
 
-    # Подсветка текущей цены БА
+    # Подсветка текущей цены БА (категориальная ось → используем add_shape)
     if _current_price_hm is not None:
-        _nearest_strike_label = min(
-            _strike_labels,
-            key=lambda s: abs(float(s) - _current_price_hm))
-        fig_hm.add_vline(x=_nearest_strike_label,
-                          line=dict(color="#1e88e5", width=2, dash="dash"),
-                          annotation_text=f"БА≈{_current_price_hm:.2f}",
-                          annotation_position="top")
+        try:
+            _nearest_strike_label = min(
+                _strike_labels,
+                key=lambda s: abs(float(s) - _current_price_hm))
+        except Exception:
+            _nearest_strike_label = None
 
+        if _nearest_strike_label is not None:
+            fig_hm.add_shape(
+                type="line",
+                xref="x", yref="paper",
+                x0=_nearest_strike_label, x1=_nearest_strike_label,
+                y0=0, y1=1,
+                line=dict(color="#1e88e5", width=2, dash="dash"),
+                layer="above")
+            fig_hm.add_annotation(
+                x=_nearest_strike_label, y=1,
+                xref="x", yref="paper",
+                text=f"БА≈{_current_price_hm:.2f}",
+                showarrow=False,
+                yshift=12,
+                font=dict(color="#1e88e5", size=11,
+                          family="Arial Black"),
+                bgcolor="rgba(255,255,255,0.85)",
+                bordercolor="#1e88e5", borderwidth=1)
     _fig_h = max(400, 40 + 42 * len(_expiries_sorted))
     fig_hm.update_layout(
         title=f"Heatmap IV — {_hm_asset} ({_hm_cat})",
