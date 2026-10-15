@@ -3702,6 +3702,47 @@ def _render_position_tab():
             _save_cache(st.session_state.positions_cache)
 
     # ==================================================================
+    # АВТООБНОВЛЕНИЕ ТЕОРЕТИЧЕСКИХ ЦЕН из живой доски MOEX
+    # ==================================================================
+    _live_boards = {}
+    for _lp in st.session_state.positions:
+        if _lp.get("Тип инструмента") != "Опцион":
+            continue
+        _la = _lp.get("_asset") or st.session_state.get("pos_asset", "")
+        _lt = _lp.get("_atype") or st.session_state.get("pos_category", "")
+        _ls = _lp.get("_series_code") or st.session_state.get("pos_series_code", "")
+        if not (_la and _lt and _ls):
+            continue
+        _lk = (_la, _lt, _ls)
+        if _lk not in _live_boards:
+            try:
+                _live_boards[_lk] = fetch_optionboard(_la, _lt, _ls)
+            except Exception:
+                _live_boards[_lk] = None
+        _lb = _live_boards[_lk]
+        if not _lb:
+            continue
+        _lsk = "call" if _lp.get("Опцион") == "Call" else "put"
+        _lrow = next((x for x in (_lb.get(_lsk) or [])
+                      if x.get("strike") == _lp.get("Страйк")), None)
+        if _lrow:
+            _new_th = float(_lrow.get("theorprice") or 0)
+            if _new_th > 0:
+                _lp["Теор.цена"] = _new_th
+            _lp["Дельта"] = _lrow.get("delta")
+            _lp["Гамма"]  = _lrow.get("gamma")
+            _lp["Вега"]   = _lrow.get("vega")
+            _lp["Тета"]   = _lrow.get("theta")
+            _lp["Ро"]     = _lrow.get("rho")
+            _lp["_vol"]   = float(_lrow.get("volatility") or 20.0)
+
+    if "positions_cache" in st.session_state:
+        _ck = st.session_state.get("_pos_active_key")
+        if _ck:
+            st.session_state.positions_cache[_ck] = list(st.session_state.positions)
+            _save_cache(st.session_state.positions_cache)
+
+    # ==================================================================
     # ТЕКУЩИЕ ПОЗИЦИИ
     # ==================================================================
     st.markdown("---")
@@ -3999,6 +4040,11 @@ def _render_position_tab():
                                key="positions_export_btn")
 
         if _refresh_clicked:
+            # Сбрасываем кэш fetch_optionboard, чтобы получить свежие данные
+            try:
+                fetch_optionboard.clear()
+            except Exception:
+                pass
             for _pi, _p in enumerate(st.session_state.positions):
                 _instr_p = _p.get("Тип инструмента", "Опцион")
                 if _instr_p != "Опцион":
