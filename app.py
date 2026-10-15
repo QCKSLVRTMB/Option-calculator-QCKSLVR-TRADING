@@ -1957,7 +1957,78 @@ def _get_board_for_analytics(asset, atype, series):
         return fetch_optionboard(asset, atype, series)
     except Exception:
         return None
-        # ================= UI =================
+
+
+# ================= Постоянный кэш позиций (файл) =================
+def _get_cache_file_path():
+    """Возвращает путь к файлу кэша. Пробует несколько вариантов."""
+    candidates = []
+    try:
+        candidates.append(Path(__file__).resolve().parent / "positions_cache.json")
+    except Exception:
+        pass
+    try:
+        candidates.append(Path.cwd() / "positions_cache.json")
+    except Exception:
+        pass
+    import tempfile
+    try:
+        candidates.append(Path(tempfile.gettempdir()) / "positions_cache.json")
+    except Exception:
+        pass
+
+    for _p in candidates:
+        try:
+            _p.parent.mkdir(parents=True, exist_ok=True)
+            _test = _p.parent / ".write_test"
+            _test.write_text("ok", encoding="utf-8")
+            _test.unlink()
+            return _p
+        except Exception:
+            continue
+    return None
+
+
+_CACHE_FILE = None
+
+
+def _cache_file():
+    global _CACHE_FILE
+    if _CACHE_FILE is None:
+        _CACHE_FILE = _get_cache_file_path()
+    return _CACHE_FILE
+
+
+def _load_cache():
+    """Читает кэш с диска. Возвращает dict {key: [legs]}."""
+    _f = _cache_file()
+    if _f is None or not _f.exists():
+        return {}
+    try:
+        with open(_f, "r", encoding="utf-8") as _fp:
+            _data = json.load(_fp)
+        if isinstance(_data, dict):
+            return {k: v for k, v in _data.items()
+                    if isinstance(k, str) and isinstance(v, list)}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_cache(_cache: dict):
+    """Пишет кэш на диск. Возвращает True/False."""
+    _f = _cache_file()
+    if _f is None:
+        return False
+    try:
+        with open(_f, "w", encoding="utf-8") as _fp:
+            json.dump(_cache, _fp, ensure_ascii=False, indent=2, default=str)
+        return True
+    except Exception:
+        return False
+
+
+# ================= UI =================
 st.title("MOEX Options & Black-Scholes")
 
 
@@ -2679,6 +2750,45 @@ def _render_position_tab():
 
     _pos_asset = resolve_canonical_asset_code(_pos_raw_asset, _pos_cat)
 
+    # ============================================================
+    # Кэш позиций по активам (persistent, в файле)
+    # ============================================================
+    if "positions_cache" not in st.session_state:
+        st.session_state.positions_cache = _load_cache()
+    if "positions" not in st.session_state:
+        st.session_state.positions = []
+
+    _new_key = f"{_pos_asset}|{_pos_cat}"
+    _old_key = st.session_state.get("_pos_active_key")
+
+    if _old_key is None:
+        st.session_state["_pos_active_key"] = _new_key
+        _cached = st.session_state.positions_cache.get(_new_key, [])
+        if _cached and not st.session_state.positions:
+            st.session_state.positions = list(_cached)
+        else:
+            st.session_state.positions_cache.setdefault(
+                _new_key, list(st.session_state.positions))
+        _save_cache(st.session_state.positions_cache)
+
+    elif _new_key != _old_key:
+        st.session_state.positions_cache[_old_key] = list(
+            st.session_state.positions)
+        st.session_state.positions = list(
+            st.session_state.positions_cache.get(_new_key, []))
+        st.session_state["_pos_active_key"] = _new_key
+        for _k in list(st.session_state.keys()):
+            if _k.startswith(("qty_", "price_", "qp_", "qm_",
+                              "pp_", "pm_")):
+                del st.session_state[_k]
+        _save_cache(st.session_state.positions_cache)
+
+    # Автосохранение текущего состояния на диск
+    if _new_key:
+        st.session_state.positions_cache[_new_key] = list(
+            st.session_state.positions)
+        _save_cache(st.session_state.positions_cache)
+
     if (_pos_asset != st.session_state.pos_asset
             or _pos_cat != st.session_state.pos_category):
         st.session_state.pos_asset = _pos_asset
@@ -2687,6 +2797,102 @@ def _render_position_tab():
         st.session_state.pos_series_code = ""
         st.session_state.pos_expiry = ""
         st.session_state.pos_autoloaded_for = (None, None)
+
+    # ============================================================
+    # UI кэша позиций
+    # ============================================================
+    _cache_path = _cache_file()
+    _cache_info = {
+        k: len(v) for k, v in st.session_state.positions_cache.items()
+        if isinstance(v, list) and len(v) > 0
+    }
+
+    _cache_label = (f"💾 Кэш позиций — активов: {len(_cache_info)} · "
+                    f"текущий: {_new_key} ({_cache_info.get(_new_key, 0)} шт.)")
+
+    with st.expander(_cache_label, expanded=False):
+        if _cache_path is not None:
+            st.caption(f"📁 Файл: `{_cache_path}`")
+        else:
+            st.caption("⚠ Файл недоступен — кэш работает только в памяти.")
+
+        if not _cache_info:
+            st.info("Кэш пуст. Собери позицию — она автоматически сохранится.")
+        else:
+            st.markdown("**Сохранённые активы:**")
+            for _ck in sorted(_cache_info.keys()):
+                _cn = _cache_info[_ck]
+                _is_current = (_ck == _new_key)
+                _cc1, _cc2, _cc3 = st.columns([4, 1, 1])
+                with _cc1:
+                    _mark = "🟢" if _is_current else "⚪"
+                    st.markdown(f"{_mark} `{_ck}` — **{_cn}** шт.")
+                with _cc2:
+                    if not _is_current:
+                        if st.button("📥 Загрузить",
+                                     key=f"pos_cache_load_{_ck}",
+                                     use_container_width=True):
+                            _cur_active = st.session_state.get("_pos_active_key")
+                            if _cur_active:
+                                st.session_state.positions_cache[_cur_active] = \
+                                    list(st.session_state.positions)
+                            _parts = _ck.split("|", 1)
+                            if len(_parts) == 2:
+                                st.session_state.pos_asset = _parts[0]
+                                st.session_state.pos_category = _parts[1]
+                                st.session_state["_pos_active_key"] = _ck
+                                st.session_state.positions = list(
+                                    st.session_state.positions_cache.get(_ck, []))
+                                for _k in list(st.session_state.keys()):
+                                    if _k.startswith(("qty_", "price_",
+                                                      "qp_", "qm_",
+                                                      "pp_", "pm_")):
+                                        del st.session_state[_k]
+                                st.session_state.pos_series_list = []
+                                st.session_state.pos_series_code = ""
+                                st.session_state.pos_expiry = ""
+                                st.session_state.pos_autoloaded_for = (None, None)
+                                for _wk in ("pos_asset_input",
+                                            "pos_category_select"):
+                                    if _wk in st.session_state:
+                                        del st.session_state[_wk]
+                                st.session_state["_wt_last_asset"] = None
+                                st.session_state["_current_market_price"] = None
+                                _save_cache(st.session_state.positions_cache)
+                                st.rerun()
+                with _cc3:
+                    if not _is_current:
+                        if st.button("🗑 Удалить",
+                                     key=f"pos_cache_del_{_ck}",
+                                     use_container_width=True):
+                            st.session_state.positions_cache.pop(_ck, None)
+                            _save_cache(st.session_state.positions_cache)
+                            st.rerun()
+
+            st.markdown("---")
+            _cb1, _cb2 = st.columns(2)
+            with _cb1:
+                if st.button("🔄 Сохранить сейчас",
+                             key="pos_cache_save_now",
+                             use_container_width=True):
+                    st.session_state.positions_cache[_new_key] = \
+                        list(st.session_state.positions)
+                    _ok = _save_cache(st.session_state.positions_cache)
+                    if _ok:
+                        st.success("✅ Кэш записан на диск")
+                    else:
+                        st.warning("⚠ Не удалось записать файл — кэш только в памяти")
+                    st.rerun()
+            with _cb2:
+                if st.button("🧹 Очистить весь кэш",
+                             key="pos_cache_clear_all",
+                             use_container_width=True,
+                             help="Удалить все сохранённые позиции (включая текущую)"):
+                    st.session_state.positions_cache = {}
+                    st.session_state.positions = []
+                    _save_cache({})
+                    st.success("Кэш очищен")
+                    st.rerun()
 
     _pos_loaded_for = st.session_state.get("pos_autoloaded_for", (None, None))
     if _pos_asset and (_pos_asset, _pos_cat) != _pos_loaded_for:
@@ -3515,6 +3721,14 @@ def _render_position_tab():
                                           type="primary",
                                           key="positions_refresh_btn")
         with _btn2:
+            # Синхронизация кэша перед экспортом — гарантируем свежесть файла
+            if "positions_cache" in st.session_state:
+                _cur_active = st.session_state.get("_pos_active_key")
+                if _cur_active:
+                    st.session_state.positions_cache[_cur_active] = \
+                        list(st.session_state.positions)
+                    _save_cache(st.session_state.positions_cache)
+
             _export_rows = []
             for i, p in enumerate(st.session_state.positions):
                 _q = int(p["Кол-во"]); _pr = float(p["Цена"]); _th = float(p["Теор.цена"])
