@@ -1974,20 +1974,20 @@ st.session_state["_calc_riskfree"]   = _safe_float_qp("rf_buy", 0.0)
 st.session_state["_calc_volatility"] = _safe_float_qp("vol_buy", 0.0)
 st.session_state["_calc_dividend"]   = _safe_float_qp("div_buy", 0.0)
 
-# 🔧 Порядок вкладок:
-# Калькулятор → Доска → Позиция → What-if → Журнал → Келли →
-# Heatmap IV → IV Rank / Децили → Skew → Оповещения
-tab_calc, tab_board, tab_position, tab_whatif, tab_journal, \
-    tab_kelly, tab_heatmap, tab_ivrank, tab_skew, tab_alerts = st.tabs([
+# 🔧 Обновлённый порядок вкладок:
+# Калькулятор → Доска → Позиция → What-if → Heatmap IV →
+# IV Rank → Skew → Журнал → Келли → Оповещения
+tab_calc, tab_board, tab_position, tab_whatif, tab_heatmap, \
+    tab_ivrank, tab_skew, tab_journal, tab_kelly, tab_alerts = st.tabs([
         "Калькулятор",
         "Доска опционов и кривая волатильности",
         "Позиция",
         "What-if симулятор",
-        "Журнал",
-        "Калькулятор Келли",
         "Heatmap IV",
         "IV Rank / Децили",
         "Детектор Skew",
+        "Журнал",
+        "Калькулятор Келли",
         "Оповещения",
     ])
 
@@ -2754,6 +2754,27 @@ def _render_position_tab():
                 if _pf_file is not None:
                     try:
                         _pf_df = pd.read_csv(_pf_file)
+
+                        _csv_asset = None
+                        _csv_category = None
+                        for _colname in ("Актив", "Тикер БА", "База", "Asset"):
+                            if _colname in _pf_df.columns:
+                                _vals = _pf_df[_colname].dropna().astype(str).unique()
+                                if len(_vals) > 0:
+                                    _csv_asset = _vals[0].strip()
+                                    break
+                        for _colname in ("Категория", "Категория БА", "Category"):
+                            if _colname in _pf_df.columns:
+                                _vals = _pf_df[_colname].dropna().astype(str).unique()
+                                if len(_vals) > 0:
+                                    _csv_category = _vals[0].strip()
+                                    break
+
+                        if _csv_asset:
+                            st.info(f"📌 В файле указан актив: **{_csv_asset}**"
+                                    + (f" · Категория: **{_csv_category}**"
+                                       if _csv_category else ""))
+
                         _imported = []
                         for _, row in _pf_df.iterrows():
                             _imported.append({
@@ -2782,13 +2803,32 @@ def _render_position_tab():
                                 "Ро": (float(row["Ро"])
                                        if pd.notna(row.get("Ро")) else None),
                                 "visible": True,
+                                "_asset": (_csv_asset
+                                           or st.session_state.get("pos_asset", "")),
+                                "_atype": (_csv_category
+                                           or st.session_state.get("pos_category", "")),
                             })
+
                         if st.button("Применить", type="primary", key="pf_apply"):
                             for k in list(st.session_state.keys()):
                                 if k.startswith(("qty_", "price_", "qp_", "qm_",
                                                   "pp_", "pm_")):
                                     del st.session_state[k]
                             st.session_state.positions = _imported
+
+                            if _csv_asset:
+                                _canon = resolve_canonical_asset_code(
+                                    _csv_asset, _csv_category or None)
+                                st.session_state.pos_asset = _canon
+                            if _csv_category and _csv_category in (
+                                    "Акция", "Фьючерс", "Валюта",
+                                    "Товар", "Индекс"):
+                                st.session_state.pos_category = _csv_category
+
+                            st.session_state.pos_series_list = []
+                            st.session_state.pos_series_code = ""
+                            st.session_state.pos_expiry = ""
+                            st.session_state.pos_autoloaded_for = (None, None)
                             st.rerun()
                         st.caption(f"Строк: {len(_imported)}")
                     except Exception as e:
@@ -3249,7 +3289,7 @@ def _render_position_tab():
                 with row[1]:
                     icon = "👁" if visible else "🚫"
                     if st.button(icon, key=f"vis_{_id}",
-                                 help="Скрыть/показать в профиле",
+                                 help="Скрыть/показать в профиле и расчётах",
                                  use_container_width=True):
                         p["visible"] = not visible
                         st.rerun()
@@ -3424,7 +3464,7 @@ def _render_position_tab():
                     st.rerun()
             with tot_row[7]:
                 st.markdown("<div style='padding-top:6px; font-size:.8rem; "
-                            "color:#2c506d; font-weight:700;'>Итого:</div>",
+                            "color:#2c506d; font-weight:700;'>Итого (видимые):</div>",
                             unsafe_allow_html=True)
 
             _color_pnl_tot = "#00a651" if _tot_pnl > 0 else ("#d32f2f" if _tot_pnl < 0 else "#333")
@@ -3470,6 +3510,8 @@ def _render_position_tab():
                 else:
                     _c = _calc_comm(_pr, _instr); _pl = (_th - _pr - _c) * _q
                 _export_rows.append({
+                    "Актив": st.session_state.get("pos_asset", ""),
+                    "Категория": st.session_state.get("pos_category", ""),
                     "#": i + 1, "Тип": _instr, "Опцион": p["Опцион"],
                     "Направление": _side_ui(p.get("Направление",
                                                     _side_from_qty(_q))),
@@ -3526,10 +3568,11 @@ def _render_position_tab():
         # =========================================================
         # Анализ позиции: тип (дебет/кредит) и реальный риск
         # =========================================================
+        _visible_positions = [p for p in st.session_state.positions
+                              if p.get("visible", True)]
+
         _net_cash_flow = 0.0
-        for p in st.session_state.positions:
-            if not p.get("visible", True):
-                continue
+        for p in _visible_positions:
             if p.get("Опцион") == "БА":
                 continue
             _q = int(p.get("Кол-во", 0))
@@ -3564,9 +3607,7 @@ def _render_position_tab():
         _ba_long_qty = 0
         _ba_short_qty = 0
 
-        for p in st.session_state.positions:
-            if not p.get("visible", True):
-                continue
+        for p in _visible_positions:
             _opt = p.get("Опцион", "—")
             _q = int(p.get("Кол-во", 0))
             if _q == 0:
@@ -3610,15 +3651,9 @@ def _render_position_tab():
 
         _risk_value = 0.0
         try:
-            _visible_positions_for_risk = [
-                x for x in st.session_state.positions
-                if x.get("visible", True)
-            ]
-            _strikes_all_r = [float(p["Страйк"])
-                              for p in _visible_positions_for_risk
+            _strikes_all_r = [float(p["Страйк"]) for p in _visible_positions
                               if p.get("Страйк") is not None]
-            _ba_prices_r = [float(p["Цена"])
-                            for p in _visible_positions_for_risk
+            _ba_prices_r = [float(p["Цена"]) for p in _visible_positions
                             if p.get("Опцион") == "БА"
                             or p.get("Тип инструмента") == "БА"]
             _all_ref_r = _strikes_all_r + _ba_prices_r
@@ -3628,7 +3663,7 @@ def _render_position_tab():
                 _s_high_r = max(_all_ref_r) * 1.5
                 _S_eval_r = np.linspace(_s_low_r, _s_high_r, 800)
                 _pnl_eval_r = compute_payoff(
-                    _visible_positions_for_risk, _S_eval_r,
+                    _visible_positions, _S_eval_r,
                     comm_func=_calc_comm)
                 _min_pnl_r = float(np.min(_pnl_eval_r))
                 _risk_value = max(0.0, -_min_pnl_r)
@@ -3953,7 +3988,7 @@ def _render_position_tab():
 def _render_whatif_tab():
     st.header("What-if симулятор")
     st.caption("Симуляция P&L текущей позиции при изменении цены БА, "
-               "волатильности и времени до экспирации. "
+               "волатильности и даты сценария. "
                "Позиция берётся с вкладки «Позиция».")
 
     _asset = st.session_state.get("pos_asset", "")
@@ -4008,7 +4043,6 @@ def _render_whatif_tab():
                    if _wt_exp_dates else (_wt_min_date + timedelta(days=180)))
     _wt_max_date = _wt_max_exp + timedelta(days=30)
 
-    # --- Сброс при смене актива ---
     _wt_asset_key = f"{_asset}|{_atype}"
     if st.session_state.get("_wt_last_asset") != _wt_asset_key:
         st.session_state.wt_price_abs = float(current_price)
@@ -4020,7 +4054,6 @@ def _render_whatif_tab():
         st.session_state.wt_iv_ver = st.session_state.get("wt_iv_ver", 0) + 1
         st.session_state["_wt_last_asset"] = _wt_asset_key
 
-    # --- Инициализация ---
     for _k, _def in [("wt_price_abs", float(current_price)),
                      ("wt_price_pct", 0.0),
                      ("wt_iv_abs", float(base_iv)),
@@ -4032,14 +4065,12 @@ def _render_whatif_tab():
     if "wt_scenario_date" not in st.session_state:
         st.session_state.wt_scenario_date = _wt_min_date
 
-    # Клэмпы даты
     _sd = st.session_state.wt_scenario_date
     if _sd < _wt_min_date:
         st.session_state.wt_scenario_date = _wt_min_date
     elif _sd > _wt_max_date:
         st.session_state.wt_scenario_date = _wt_max_date
 
-    # --- Ключи виджетов зависят от версии (принудительная пересборка) ---
     _p_ver = st.session_state.wt_price_ver
     _i_ver = st.session_state.wt_iv_ver
     _p_abs_key = f"wt_p_abs_{_p_ver}"
@@ -4047,7 +4078,6 @@ def _render_whatif_tab():
     _i_abs_key = f"wt_i_abs_{_i_ver}"
     _i_pp_key  = f"wt_i_pp_{_i_ver}"
 
-    # --- Колбэки ресета ---
     def _wt_price_reset():
         st.session_state.wt_price_abs = float(current_price)
         st.session_state.wt_price_pct = 0.0
@@ -4070,7 +4100,6 @@ def _render_whatif_tab():
         st.session_state.wt_iv_ver += 1
         st.session_state.wt_scenario_date = _wt_min_date
 
-    # --- Header + Reset-all ---
     _hdr1, _hdr2 = st.columns([5, 1])
     with _hdr1:
         st.markdown("### Параметры сценария")
@@ -4109,7 +4138,6 @@ def _render_whatif_tab():
                   use_container_width=True,
                   help="Сбросить цену")
 
-    # Синхронизация цены (без on_change)
     if abs(_p_abs_val - st.session_state.wt_price_abs) > 1e-9:
         st.session_state.wt_price_abs = _p_abs_val
         _pct_calc = ((_p_abs_val / current_price - 1) * 100.0
@@ -4210,7 +4238,7 @@ def _render_whatif_tab():
                   use_container_width=True,
                   help="Сбросить дату на сегодня")
 
-    # ---------- Итоговые значения для расчётов ----------
+    # ---------- Итоговые значения ----------
     new_price = float(st.session_state.wt_price_abs)
     new_iv = float(st.session_state.wt_iv_abs)
     days_shift = (st.session_state.wt_scenario_date - date.today()).days
@@ -4221,6 +4249,9 @@ def _render_whatif_tab():
     st.caption("💡 Поле ввода = точное значение, слайдер = быстрая подстройка. "
                "Кнопка 🔄 сбрасывает конкретный параметр.")
 
+    # ============================================================
+    # Расчёт
+    # ============================================================
     comm_func = _calc_comm_ui
 
     pnl_now = _portfolio_value(
@@ -4265,6 +4296,7 @@ def _render_whatif_tab():
 
     st.markdown("---")
 
+    # ---------- Профиль P&L на сценарий ----------
     st.markdown("### Профиль P&L на выбранный сценарий")
     _strikes_wa = sorted({float(p["Страйк"]) for p in positions
                            if p.get("Страйк") is not None})
@@ -4323,6 +4355,7 @@ def _render_whatif_tab():
 
     st.markdown("---")
 
+    # ---------- Тепловая карта P&L ----------
     st.markdown("### Тепловая карта P&L (цена БА × IV)")
     _h_c1, _h_c2 = st.columns(2)
     with _h_c1:
@@ -4374,12 +4407,11 @@ def _render_whatif_tab():
     st.plotly_chart(fig_hm, use_container_width=True)
 
     st.caption("💡 Тепловая карта показывает P&L по всей комбинации "
-               "«цена × IV» при фиксированном сдвиге времени. "
-               "Линия середины (белая) — уровень P&L = 0.")
+               "«цена × IV» при фиксированном сдвиге времени.")
 
 
 # ==================================================================
-# ============ ВКЛАДКА 5: ЖУРНАЛ ==================================
+# ============ ВКЛАДКА 8: ЖУРНАЛ ==================================
 # ==================================================================
 @st.fragment
 def _render_journal_tab():
@@ -4436,6 +4468,9 @@ def _render_journal_tab():
                                           value=0.0, step=0.01, format="%.4f",
                                           key="jf_comm")
 
+            j_burned = st.checkbox("☠️ Опцион сгорел (потеря премии)",
+                                    value=False, key="jf_burned")
+
             j_note = st.text_input("Заметка", value="", key="jf_note")
 
             _jsubmit = st.form_submit_button("➕ Добавить в журнал",
@@ -4443,10 +4478,17 @@ def _render_journal_tab():
                                               use_container_width=True)
             if _jsubmit:
                 _sign = 1 if j_side == "Покупка" else -1
-                _is_closed = j_exit > 0
-                if _is_closed:
+                if j_burned:
+                    _status = "Сгорел"
+                    _exit_val = None
+                    _pnl = -_sign * (j_entry * j_qty) - j_comm
+                elif j_exit > 0:
+                    _status = "Закрыта"
+                    _exit_val = float(j_exit)
                     _pnl = (_sign * (j_exit - j_entry) * j_qty) - j_comm
                 else:
+                    _status = "Открыта"
+                    _exit_val = None
                     _pnl = 0.0
                 st.session_state.journal_rows.append({
                     "_id": _new_position_id(),
@@ -4460,15 +4502,17 @@ def _render_journal_tab():
                     "Экспирация": j_expiry.isoformat(),
                     "Кол-во": int(j_qty),
                     "Цена входа": float(j_entry),
-                    "Цена выхода": float(j_exit) if _is_closed else None,
+                    "Цена выхода": _exit_val,
                     "Комиссия": float(j_comm),
                     "P&L": float(_pnl),
-                    "Статус": "Закрыта" if _is_closed else "Открыта",
+                    "Статус": _status,
                     "Заметка": j_note,
                 })
-                st.success(f"Сделка добавлена: "
-                           f"{j_ticker} {j_opt} {j_strike} "
-                           f"({j_side} × {j_qty})")
+                _msg = f"Сделка добавлена: {j_ticker} {j_opt} {j_strike} " \
+                       f"({j_side} × {j_qty})"
+                if j_burned:
+                    _msg += " ☠️ сгорел"
+                st.success(_msg)
                 st.rerun()
 
     st.markdown("### Управление")
@@ -4540,7 +4584,8 @@ def _render_journal_tab():
         st.info("Журнал пуст. Добавьте первую сделку.")
         return
 
-    _closed = [r for r in _rows if r.get("Статус") == "Закрыта"]
+    _closed = [r for r in _rows
+               if r.get("Статус") in ("Закрыта", "Сгорел")]
     _wins = [r for r in _closed if (r.get("P&L") or 0) > 0]
     _losses = [r for r in _closed if (r.get("P&L") or 0) < 0]
     _total_pnl = sum((r.get("P&L") or 0) for r in _closed)
@@ -4590,6 +4635,14 @@ def _render_journal_tab():
                     s = "color: #00a651; font-weight: 600;"
                 elif row[col] == "Продажа":
                     s = "color: #d32f2f; font-weight: 600;"
+            elif col == "Статус":
+                if row[col] == "Сгорел":
+                    s = ("background-color: #ffe6e6; color: #8b1e1e; "
+                         "font-weight: 700;")
+                elif row[col] == "Закрыта":
+                    s = "color: #5a6b78;"
+                elif row[col] == "Открыта":
+                    s = "color: #1e88e5; font-weight: 600;"
             _styles.append(s)
         return _styles
 
@@ -4602,6 +4655,109 @@ def _render_journal_tab():
             "P&L":          "{:+,.2f}",
         }, na_rep="—"),
         use_container_width=True, hide_index=True, height=400)
+
+    with st.expander("✏️ Редактировать / закрыть сделку", expanded=False):
+        if not st.session_state.journal_rows:
+            st.info("Журнал пуст.")
+        else:
+            _edit_opts = [
+                f"{i}: {r.get('Дата входа','?')} · {r.get('Тикер','?')} · "
+                f"{r.get('Опцион','?')} {r.get('Страйк','—')} · "
+                f"{r.get('Статус','?')} · P&L {r.get('P&L',0):+.2f} ₽"
+                for i, r in enumerate(st.session_state.journal_rows)
+            ]
+            _edit_sel = st.selectbox("Выберите запись", _edit_opts,
+                                      key="journal_edit_sel")
+            if _edit_sel:
+                _edit_idx = int(_edit_sel.split(":", 1)[0])
+                _edit_row = st.session_state.journal_rows[_edit_idx]
+                _cur_status = _edit_row.get("Статус", "Открыта")
+                _cur_exit = _edit_row.get("Цена выхода")
+                _cur_comm = float(_edit_row.get("Комиссия", 0.0) or 0.0)
+
+                st.markdown(
+                    f"**Редактируется:** {_edit_row.get('Тикер','?')} · "
+                    f"{_edit_row.get('Направление','?')} "
+                    f"{_edit_row.get('Опцион','?')} "
+                    f"{_edit_row.get('Страйк','—')} × "
+                    f"{_edit_row.get('Кол-во', 0)} "
+                    f"по {_edit_row.get('Цена входа', 0):.4f} ₽")
+
+                _ec1, _ec2, _ec3 = st.columns(3)
+                with _ec1:
+                    _e_exit = st.number_input(
+                        "Цена выхода",
+                        min_value=0.0,
+                        value=float(_cur_exit) if _cur_exit is not None else 0.0,
+                        step=0.01, format="%.4f",
+                        key=f"journal_edit_exit_{_edit_idx}")
+                    _e_burned = st.checkbox(
+                        "☠️ Сгорел (потеря премии)",
+                        value=(_cur_status == "Сгорел"),
+                        key=f"journal_edit_burned_{_edit_idx}")
+                with _ec2:
+                    _e_comm = st.number_input(
+                        "Комиссия, ₽",
+                        min_value=0.0, value=_cur_comm,
+                        step=0.01, format="%.4f",
+                        key=f"journal_edit_comm_{_edit_idx}")
+                with _ec3:
+                    _e_note = st.text_input(
+                        "Заметка",
+                        value=str(_edit_row.get("Заметка", "")),
+                        key=f"journal_edit_note_{_edit_idx}")
+
+                _bc1, _bc2, _bc3 = st.columns([1, 1, 1])
+                with _bc1:
+                    if st.button("💾 Сохранить", type="primary",
+                                 use_container_width=True,
+                                 key="journal_edit_save"):
+                        _sign = 1 if _edit_row["Направление"] == "Покупка" else -1
+                        _entry = float(_edit_row["Цена входа"] or 0)
+                        _qty = int(_edit_row["Кол-во"] or 0)
+
+                        if _e_burned:
+                            _new_status = "Сгорел"
+                            _new_exit = None
+                            _new_pnl = -_sign * _entry * _qty - _e_comm
+                        elif _e_exit > 0:
+                            _new_status = "Закрыта"
+                            _new_exit = float(_e_exit)
+                            _new_pnl = _sign * (_e_exit - _entry) * _qty - _e_comm
+                        else:
+                            _new_status = "Открыта"
+                            _new_exit = None
+                            _new_pnl = 0.0
+
+                        _edit_row["Цена выхода"] = _new_exit
+                        _edit_row["Комиссия"] = float(_e_comm)
+                        _edit_row["P&L"] = float(_new_pnl)
+                        _edit_row["Статус"] = _new_status
+                        _edit_row["Заметка"] = _e_note
+                        st.success(f"✅ Запись обновлена: {_new_status}, "
+                                   f"P&L = {_new_pnl:+.2f} ₽")
+                        st.rerun()
+                with _bc2:
+                    if st.button("☠️ Пометить как «сгорел»",
+                                 use_container_width=True,
+                                 key="journal_burn_quick"):
+                        _sign = 1 if _edit_row["Направление"] == "Покупка" else -1
+                        _entry = float(_edit_row["Цена входа"] or 0)
+                        _qty = int(_edit_row["Кол-во"] or 0)
+                        _edit_row["Цена выхода"] = None
+                        _edit_row["P&L"] = -_sign * _entry * _qty - _cur_comm
+                        _edit_row["Статус"] = "Сгорел"
+                        st.success("✅ Помечено как сгоревший")
+                        st.rerun()
+                with _bc3:
+                    if st.button("↩️ Открыть снова",
+                                 use_container_width=True,
+                                 key="journal_reopen_quick"):
+                        _edit_row["Цена выхода"] = None
+                        _edit_row["P&L"] = 0.0
+                        _edit_row["Статус"] = "Открыта"
+                        st.success("✅ Запись снова открыта")
+                        st.rerun()
 
     with st.expander("🗑 Удалить сделки", expanded=False):
         _del_opts = [
@@ -4623,7 +4779,7 @@ def _render_journal_tab():
 
 
 # ==================================================================
-# ============ ВКЛАДКА 6: КАЛЬКУЛЯТОР КЕЛЛИ =======================
+# ============ ВКЛАДКА 9: КАЛЬКУЛЯТОР КЕЛЛИ =======================
 # ==================================================================
 @st.fragment
 def _render_kelly_tab():
@@ -4657,14 +4813,8 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
    что ваша оценка $p$ и $r$ может быть завышена, а сделки коррелированы.
 2. Если $f^* \leq 0$ — **система убыточна**, торговать по ней нельзя.
 3. Формула предполагает **последовательные независимые** сделки. При
-   одновременных сделках используйте **метод корректировки риска** (см. ниже).
-4. Критерий Келли агрессивен. Многие практики не рекомендуют использовать
-   полный Келли.
-
-**Метод корректировки риска (для нескольких одновременных сделок):**
-если $f^* = 20\%$, а на входе 5 сделок, инвестируйте не 20% × 5 = 100%,
-а последовательно: 20% от доступного капитала на сделку, потом 20% от
-остатка и т.д. Итоговая экспозиция автоматически сокращается.
+   одновременных сделках используйте **метод корректировки риска**.
+4. Критерий Келли агрессивен.
 
 **Источник:** Лоренс МакМиллан, «МакМиллан об опционах», Глава 7.
 """)
@@ -4677,7 +4827,8 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
 
     if _src == "Из журнала":
         _rows = st.session_state.get("journal_rows", [])
-        _closed = [r for r in _rows if r.get("Статус") == "Закрыта"]
+        _closed = [r for r in _rows
+                   if r.get("Статус") in ("Закрыта", "Сгорел")]
         if not _closed:
             st.warning("В журнале нет закрытых сделок. "
                        "Переключитесь на ручной ввод или добавьте сделки.")
@@ -4717,8 +4868,7 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
 
     st.markdown("### 2) Депозит")
     _deposit = float(st.session_state.get("dep_inp", 100000.0))
-    st.info(f"💰 Депозит берётся с вкладки **«Позиция»**: **{_deposit:,.2f} ₽** "
-            f"(поле «Депозит, ₽»). Изменить — на той вкладке.")
+    st.info(f"💰 Депозит берётся с вкладки **«Позиция»**: **{_deposit:,.2f} ₽**")
 
     st.markdown("### 3) Результат")
     _f_full = None
@@ -4796,17 +4946,12 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
                  "Критерий Келли рекомендует **не торговать** по этой стратегии.")
     elif _f_full > 0.25:
         st.warning(f"⚠ Доля Келли {_f_full*100:.1f}% очень высокая. "
-                   f"Рассмотрите ½ или ¼ Келли. Также проверьте, "
-                   f"не завышена ли оценка p.")
+                   f"Рассмотрите ½ или ¼ Келли.")
     else:
         st.success(f"✅ Доля Келли {_f_full*100:.1f}% укладывается в разумные рамки. "
                    f"Для консервативной торговли используйте ½ или ¼ Келли.")
 
-    with st.expander("📉 Метод корректировки риска "
-                     "(для нескольких одновременных сделок)", expanded=False):
-        st.markdown("Показывает, сколько капитала остаётся и сколько "
-                    "вложить в каждую сделку, если одновременно поступает "
-                    "несколько сигналов.")
+    with st.expander("📉 Метод корректировки риска", expanded=False):
         _n_sim = st.number_input("Число одновременных сделок",
                                   min_value=1, max_value=20, value=5,
                                   step=1, key="kelly_n_sim")
@@ -4834,8 +4979,8 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
         st.caption(f"Итоговая экспозиция при {_n_sim} сделках: "
                    f"**{(1 - _capital) * 100:.2f}%** "
                    f"= **{(1 - _capital) * _deposit:,.2f} ₽**")
-                         # ==================================================================
-# ============ ВКЛАДКА 7: HEATMAP IV ==============================
+        # ==================================================================
+# ============ ВКЛАДКА 5: HEATMAP IV ==============================
 # ==================================================================
 @st.fragment
 def _render_heatmap_tab():
@@ -4845,37 +4990,32 @@ def _render_heatmap_tab():
                "Помогает увидеть структуру срочной волатильности "
                "(term structure) и улыбку.")
 
-    _hm1, _hm2, _hm3 = st.columns([3, 2, 2])
+    # Актив и категория берутся из вкладки «Позиция»
+    _hm_asset = st.session_state.get("pos_asset", "")
+    _hm_cat = st.session_state.get("pos_category", "")
+
+    if not _hm_asset:
+        st.warning("Сначала выберите актив и категорию на вкладке «Позиция».")
+        return
+
+    _hm1, _hm2 = st.columns([4, 2])
     with _hm1:
-        _hm_asset_raw = st.text_input(
-            "Базовый актив", value=st.session_state.get("board_asset", "SBER"),
-            key="hm_asset_input").strip()
+        st.info(f"📌 Актив: **{_hm_asset}** · Категория: **{_hm_cat}** "
+                f"(из вкладки «Позиция»)")
     with _hm2:
-        _hm_cat_opts = ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
-        _hm_cat_default = st.session_state.get("board_category", "Акция")
-        _hm_cat_idx = (_hm_cat_opts.index(_hm_cat_default)
-                        if _hm_cat_default in _hm_cat_opts else 0)
-        _hm_cat = st.selectbox("Категория БА", _hm_cat_opts,
-                                index=_hm_cat_idx, key="hm_cat_select")
-    with _hm3:
-        st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
         _hm_build = st.button("🔄 Построить Heatmap",
                                type="primary",
                                use_container_width=True,
                                key="hm_build_btn")
 
-    _hm_asset = resolve_canonical_asset_code(_hm_asset_raw, _hm_cat)
+    _hm_cache_key_base = f"_hm_cache_{_hm_asset}_{_hm_cat}"
 
-    if not _hm_asset:
-        st.info("Укажите тикер базового актива.")
-        return
-
-    if not _hm_build and f"_hm_cache_{_hm_asset}_{_hm_cat}" not in st.session_state:
+    if not _hm_build and _hm_cache_key_base not in st.session_state:
         st.info("Нажмите «Построить Heatmap» для загрузки данных "
                 "(может занять 10–30 секунд).")
         return
 
-    _cache_key = f"_hm_cache_{_hm_asset}_{_hm_cat}"
+    _cache_key = _hm_cache_key_base
 
     if _hm_build or _cache_key not in st.session_state:
         with st.spinner(f"Загрузка серий и досок для {_hm_asset}…"):
@@ -5114,7 +5254,7 @@ def _render_heatmap_tab():
 
 
 # ==================================================================
-# ============ ВКЛАДКА 8: IV RANK / ДЕЦИЛИ ========================
+# ============ ВКЛАДКА 6: IV RANK / ДЕЦИЛИ ========================
 # ==================================================================
 @st.fragment
 def _render_ivrank_tab():
@@ -5123,26 +5263,18 @@ def _render_ivrank_tab():
                "её исторического диапазона. "
                "Методика по Гл. 6.5.1 МакМиллана.")
 
-    _iv1, _iv2 = st.columns([3, 2])
-    with _iv1:
-        _iv_asset_raw = st.text_input(
-            "Базовый актив",
-            value=st.session_state.get("board_asset", "SBER"),
-            key="ivr_asset_input").strip()
-    with _iv2:
-        _iv_cat_opts = ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
-        _iv_cat_def = st.session_state.get("board_category", "Акция")
-        _iv_cat_idx = (_iv_cat_opts.index(_iv_cat_def)
-                        if _iv_cat_def in _iv_cat_opts else 0)
-        _iv_cat = st.selectbox("Категория БА", _iv_cat_opts,
-                                index=_iv_cat_idx, key="ivr_cat_select")
-
-    _iv_asset = resolve_canonical_asset_code(_iv_asset_raw, _iv_cat)
+    # Актив и категория берутся из вкладки «Позиция»
+    _iv_asset = st.session_state.get("pos_asset", "")
+    _iv_cat = st.session_state.get("pos_category", "")
 
     if not _iv_asset:
-        st.info("Укажите тикер базового актива.")
+        st.warning("Сначала выберите актив и категорию на вкладке «Позиция».")
         return
 
+    st.info(f"📌 Актив: **{_iv_asset}** · Категория: **{_iv_cat}** "
+            f"(из вкладки «Позиция»)")
+
+    # ---------- Получение серий ----------
     _series_for_iv = []
     try:
         _series_for_iv = fetch_optionseries(_iv_asset, _iv_cat) or []
@@ -5166,6 +5298,7 @@ def _render_ivrank_tab():
 
     st.markdown("---")
 
+    # ---------- Текущая IV ----------
     with st.spinner("Загрузка доски опционов…"):
         _board_iv = _get_board_for_analytics(_iv_asset, _iv_cat, _iv_chosen_code)
 
@@ -5181,6 +5314,9 @@ def _render_ivrank_tab():
 
     _store_iv_snapshot(_iv_asset, _iv_cat, _iv_chosen_code, _current_iv)
 
+    # ============================================================
+    # Блок 1. Текущая IV и историческая волатильность
+    # ============================================================
     st.markdown("### 1) Текущая IV vs. историческая волатильность")
 
     _hist_vol_map = {}
@@ -5230,6 +5366,9 @@ def _render_ivrank_tab():
 
     st.markdown("---")
 
+    # ============================================================
+    # Блок 2. IV Rank и IV Percentile
+    # ============================================================
     st.markdown("### 2) IV Rank / IV Percentile")
 
     _hist_key = f"{_iv_asset}|{_iv_cat}|{_iv_chosen_code}"
@@ -5317,8 +5456,7 @@ def _render_ivrank_tab():
 
 def _render_iv_recommendations(iv_rank, iv_pct, iv_current, hv_avg,
                                 hist_available=True, decile_of_iv=None):
-    """Выводит рекомендации по торговле волатильностью на основе
-    IV Rank / децилей (Гл. 6.5.1 МакМиллана)."""
+    """Рекомендации по торговле волатильностью (Гл. 6.5.1)."""
 
     st.markdown("### 3) Рекомендации")
 
@@ -5376,29 +5514,27 @@ def _render_iv_recommendations(iv_rank, iv_pct, iv_current, hv_avg,
         st.markdown("""
 **Логика:** IV в нижней части исторического диапазона — опционы
 относительно дешёвые. Ожидаем роста IV → выгодны длинные опционные
-позиции (при отсутствии направленного прогноза).
+позиции.
 
-**Возможные стратегии:**
+**Стратегии:**
 | Стратегия | Комментарий |
 |---|---|
-| **Long Straddle** | Buy Call + Buy Put на одном страйке. Классика для ставки на рост IV. |
-| **Long Strangle** | Дешевле стрэддла, но требует большего движения для прибыли. |
-| **Обратный спрэд (Call / Put)** | Неограниченный потенциал с одной стороны, ограниченный риск. |
-| **Календарный спрэд (Long Calendar)** | Продажа короткого, покупка длинного на том же страйке. Требует роста IV. |
+| **Long Straddle** | Buy Call + Buy Put на одном страйке. |
+| **Long Strangle** | Дешевле стрэддла, но требует большего движения. |
+| **Обратный спрэд (Call / Put)** | Неограниченный потенциал с одной стороны. |
+| **Календарный спрэд** | Продажа короткого, покупка длинного на том же страйке. |
 
-**Стопы:** для стрэддлов — 50–60% от уплаченной премии (по книге).
-Для календарных — выход при истечении ближнего опциона.
+**Стопы:** для стрэддлов — 50–60% от уплаченной премии.
 """)
     elif _zone == "low_mid":
         st.markdown("#### 🟢 Стратегии: умеренная покупка волатильности")
         st.markdown("""
 IV ниже среднего, но не на дне диапазона. Возможны осторожные
-покупки волатильности при наличии катализатора (новости, истечение,
-события).
+покупки волатильности при наличии катализатора.
 
 **Подходящие инструменты:**
 - Long Straddle — с приоритетом на событийные опционы;
-- Long Call / Long Put (если есть направленный взгляд);
+- Long Call / Long Put;
 - Bull/Bear спреды с перевесом длинной стороны.
 
 **Не рекомендуется:** продажа волатильности (мало премии).
@@ -5410,58 +5546,44 @@ IV в середине диапазона — явного преимущест�
 ни у продавца волатильности нет.
 
 **Рекомендуется:**
-- Направленные стратегии (Long Call / Long Put / спреды);
-- Работать по технической картине БА, а не по волатильности;
-- Искать **наклон волатильности** (skew) для статистического эджа —
-  см. вкладку «Детектор Skew».
+- Направленные стратегии;
+- Работать по технической картине БА;
+- Искать **наклон волатильности** (вкладка «Детектор Skew»).
 
 **Не рекомендуется:** ставить только на движение IV.
 """)
     elif _zone == "high_mid":
         st.markdown("#### 🟡 Стратегии: умеренная продажа волатильности")
         st.markdown("""
-IV выше среднего — опционы относительно дорогие. При отсутствии
-катализатора волатильность вероятно вернётся к норме.
+IV выше среднего — опционы относительно дорогие.
 
-**Возможные стратегии:**
+**Стратегии:**
 | Стратегия | Комментарий |
 |---|---|
-| **Short Strangle** | Продажа Call и Put «вне денег». Прибыль в широком диапазоне. |
-| **Short Straddle** | Максимум премии, но узкий диапазон прибыли. |
-| **Iron Condor** | Ограниченный риск, ограниченная прибыль. |
+| **Short Strangle** | Продажа Call и Put «вне денег». |
+| **Short Straddle** | Максимум премии, узкий диапазон прибыли. |
+| **Iron Condor** | Ограниченный риск. |
 | **Пропорциональный спрэд** | Продажа 2 опционов + покупка 1 (1-к-2). |
-| **Покрытый Call** (если есть акция) | Консервативная стратегия. |
 
-⚠ **Обязательно:** проверьте вкладку «Детектор Skew» — нет ли
-предстоящего события (поглощение, отчёт), которое может оправдать
-высокую IV.
+⚠ **Проверьте вкладку «Детектор Skew»** — нет ли события.
 """)
     elif _zone == "high":
         st.warning(
             "⚠ **ВНИМАНИЕ:** высокая IV может отражать реальное ожидание "
             "крупного события (поглощение, суд, FDA, отчёт). Перед продажей "
             "волатильности **проверьте новости** и посмотрите наклон IV "
-            "(вкладка «Детектор Skew»). "
-            "Если skew очень крутой — возможен инсайдерский трейдинг, "
-            "продавать такую волатильность **опасно**.")
+            "(вкладка «Детектор Skew»).")
         st.markdown("#### 🔴 Стратегии: продажа волатильности (с осторожностью)")
         st.markdown("""
-**Логика:** IV на максимуме — опционы очень дорогие, вероятен
-возврат к среднему. Но прежде чем продавать — убедитесь, что нет
-реальной причины для высокой IV.
-
-**Возможные стратегии:**
-- **Short Strangle / Short Straddle** — с обязательным контролем риска;
+**Стратегии:**
+- **Short Strangle / Short Straddle** — с контролем риска;
 - **Iron Condor** — ограниченный риск;
-- **Крылья**: покупка дешёвых OTM-опционов для защиты от разрывов;
-- **Ratio Spread** — пропорциональное надписание.
+- **Крылья** — покупка дешёвых OTM для защиты.
 
 **Правила (по МакМиллану, Гл. 6):**
 - Продавайте IV, когда она у верхней границы диапазона;
-- **Если IV пробивает диапазон на новые максимумы** — прекращайте
-  продавать, это может быть предвестником события;
-- Используйте **дельта- и гамма-нейтральные** позиции для продажи IV
-  (см. примеры гл. 6).
+- **Если IV пробивает диапазон на новые максимумы** — прекращайте;
+- Используйте **дельта- и гамма-нейтральные** позиции.
 """)
 
     st.markdown("---")
@@ -5473,7 +5595,7 @@ IV выше среднего — опционы относительно дор�
         "текущий момент в 9-ом или 10-м дециле — следует рассматривать "
         "стратегии продажи опционов». — МакМиллан об опционах")
                                     # ==================================================================
-# ============ ВКЛАДКА 9: ДЕТЕКТОР SKEW ===========================
+# ============ ВКЛАДКА 7: ДЕТЕКТОР SKEW ===========================
 # ==================================================================
 @st.fragment
 def _render_skew_tab():
@@ -5481,26 +5603,18 @@ def _render_skew_tab():
     st.caption("Анализ наклона волатильности (volatility skew). "
                "Методика по Гл. 6.8 МакМиллана: σ/μ ≥ 15% — есть skew.")
 
-    _sk1, _sk2 = st.columns([3, 2])
-    with _sk1:
-        _sk_asset_raw = st.text_input(
-            "Базовый актив",
-            value=st.session_state.get("board_asset", "SBER"),
-            key="sk_asset_input").strip()
-    with _sk2:
-        _sk_cat_opts = ["Акция", "Фьючерс", "Валюта", "Товар", "Индекс"]
-        _sk_cat_def = st.session_state.get("board_category", "Акция")
-        _sk_cat_idx = (_sk_cat_opts.index(_sk_cat_def)
-                        if _sk_cat_def in _sk_cat_opts else 0)
-        _sk_cat = st.selectbox("Категория БА", _sk_cat_opts,
-                                index=_sk_cat_idx, key="sk_cat_select")
-
-    _sk_asset = resolve_canonical_asset_code(_sk_asset_raw, _sk_cat)
+    # Актив и категория берутся из вкладки «Позиция»
+    _sk_asset = st.session_state.get("pos_asset", "")
+    _sk_cat = st.session_state.get("pos_category", "")
 
     if not _sk_asset:
-        st.info("Укажите тикер базового актива.")
+        st.warning("Сначала выберите актив и категорию на вкладке «Позиция».")
         return
 
+    st.info(f"📌 Актив: **{_sk_asset}** · Категория: **{_sk_cat}** "
+            f"(из вкладки «Позиция»)")
+
+    # ---------- Серии ----------
     try:
         _sk_series_all = fetch_optionseries(_sk_asset, _sk_cat) or []
     except Exception as e:
@@ -5522,6 +5636,7 @@ def _render_skew_tab():
 
     st.markdown("---")
 
+    # ---------- Доска ----------
     with st.spinner("Загрузка доски опционов…"):
         _board_sk = _get_board_for_analytics(_sk_asset, _sk_cat, _sk_chosen_code)
 
@@ -5529,6 +5644,7 @@ def _render_skew_tab():
         st.warning("Не удалось загрузить доску опционов.")
         return
 
+    # ---------- Извлечение IV по страйкам ----------
     _sk_rows = []
     _calls_sk = _board_sk.get("call") or []
     _puts_sk = _board_sk.get("put") or []
@@ -5723,14 +5839,14 @@ def _render_skew_tab():
 
 | Стратегия | Комментарий |
 |---|---|
-| **Пропорциональный Call-спрэд** (1-к-2) | Купить 1 OTM Call + продать 2 дальних OTM Call. Прибыль при движении к верхнему страйку. |
+| **Пропорциональный Call-спрэд** (1-к-2) | Купить 1 OTM Call + продать 2 дальних OTM Call. |
 | **Обратный Put-спрэд** | Купить 2 дешёвых OTM Put + продать 1 дорогой OTM Put. |
 
 **Правила:**
 - На длинной стороне — «около денег», на короткой — «вне денег»;
-- Если IV в нижней части диапазона — предпочитайте **обратный Put-спрэд**;
-- Если IV у верхней границы — **пропорциональный Call-спрэд**;
-- Обязательно ставьте **ментальные стопы** и забирайте часть прибыли.
+- IV низкая → **обратный Put-спрэд**;
+- IV высокая → **пропорциональный Call-спрэд**;
+- Обязательно — ментальные стопы.
 """)
     elif _skew_type == "reverse":
         st.success(
@@ -5743,29 +5859,22 @@ def _render_skew_tab():
 
 | Стратегия | Комментарий |
 |---|---|
-| **Обратный Call-спрэд** | Продать 1 Call «в деньгах» + купить 2 OTM Call. Основная стратегия. |
+| **Обратный Call-спрэд** | Продать 1 Call «в деньгах» + купить 2 OTM Call. |
 | **Пропорциональный Put-спрэд** (1-к-2) | Купить 1 ATM Put + продать 2 дальних OTM Put. |
 
-**Особенности для индексов (ОЕХ, SPX-подобных):**
-- Наклон устойчив годами, не исчезает быстро;
-- При росте базового актива позиция становится дельта-длинной — 
-  роллируйте длинные Call вверх по страйкам для ренейтрализации;
-- Маржевое требование: разница между страйками short Call.
-
-⚠ Продавайте только **дельта-хеджированные** или **гамма-нейтральные**
-позиции, иначе убытки на трендах могут перекрыть эдж.
+**Особенности для индексов:**
+- Наклон устойчив годами;
+- При росте БА — роллируйте длинные Call вверх;
+- ⚠ Только дельта-хеджированные позиции.
 """)
     elif _skew_type == "dual":
         st.info("🟣 **Двойной наклон** — IV повышена и на нижних, и на "
-                 "верхних страйках. Обычно возникает на рынках металлов "
-                 "и на активах с большой неопределённостью.")
+                 "верхних страйках. Обычно возникает на рынках металлов.")
         st.markdown("""
 **Рекомендуемые стратегии:**
-
-- **Короткий стрэддл** на центральном страйке (высокая IV по обе стороны);
-- **Продажа Iron Condor** — с защитными крыльями против разрывов;
-- Покупка дешёвых «около денег» опционов + продажа дорогих «вне денег»
-  на обоих крыльях.
+- **Короткий стрэддл** на центральном страйке;
+- **Продажа Iron Condor** — с защитными крыльями;
+- Покупка дешёвых ATM + продажа дорогих OTM на обоих крыльях.
 """)
     else:
         st.info("Плоский наклон — статистического преимущества нет. "
@@ -5792,9 +5901,7 @@ def _render_skew_tab():
             height=min(120 + 35 * len(_df_show_sk), 500))
 
     st.caption("📚 Методика: **σ/μ ≥ 15% → есть skew** "
-               "(Л. МакМиллан, «МакМиллан об опционах», Гл. 6.8). "
-               "Направление определяется по разнице средних IV между "
-               "левым (Put) и правым (Call) крыльями относительно центра.")
+               "(Л. МакМиллан, «МакМиллан об опционах», Гл. 6.8).")
 
 
 # ==================================================================
@@ -6048,9 +6155,7 @@ def _render_alerts_tab():
                     key="alerts_export_csv")
 
         _render_alerts_live()
-
-
-# ==================================================================
+        # ==================================================================
 # ============ ВЫЗОВ РЕНДЕР-ФУНКЦИЙ ВНУТРИ st.tabs =================
 # ==================================================================
 with tab_calc:
@@ -6065,12 +6170,6 @@ with tab_position:
 with tab_whatif:
     _render_whatif_tab()
 
-with tab_journal:
-    _render_journal_tab()
-
-with tab_kelly:
-    _render_kelly_tab()
-
 with tab_heatmap:
     _render_heatmap_tab()
 
@@ -6079,6 +6178,12 @@ with tab_ivrank:
 
 with tab_skew:
     _render_skew_tab()
+
+with tab_journal:
+    _render_journal_tab()
+
+with tab_kelly:
+    _render_kelly_tab()
 
 with tab_alerts:
     _render_alerts_tab()
