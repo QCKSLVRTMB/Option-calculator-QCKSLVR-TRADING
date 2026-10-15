@@ -679,6 +679,12 @@ def _normalize_alerts_df(_xls: pd.DataFrame):
             _col_map[c] = "Тикер БА"
         elif "категор" in c_str:
             _col_map[c] = "Категория БА"
+        elif c_str == "тренд":
+            _col_map[c] = "Тренд"
+        elif c_str == "волна":
+            _col_map[c] = "Волна"
+        elif c_str == "тенденция":
+            _col_map[c] = "Тенденция"
         elif "покуп" in c_str or "bid" in c_str:
             _col_map[c] = "Уровень покупок"
         elif "продаж" in c_str or "ask" in c_str:
@@ -691,6 +697,12 @@ def _normalize_alerts_df(_xls: pd.DataFrame):
     _xls["Уровень покупок"] = pd.to_numeric(_xls["Уровень покупок"], errors="coerce")
     _xls["Уровень продаж"] = pd.to_numeric(_xls["Уровень продаж"], errors="coerce")
     _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок", "Уровень продаж"])
+    # Опциональные колонки — заполняем пустыми строками, если их нет
+    for _opt_col in ("Тренд", "Волна", "Тенденция"):
+        if _opt_col not in _xls.columns:
+            _xls[_opt_col] = ""
+        else:
+            _xls[_opt_col] = _xls[_opt_col].fillna("").astype(str).str.strip()
     return _xls, None
 
 
@@ -1637,6 +1649,11 @@ def _render_alert_card(r: dict) -> str:
     _buy_active = r["buy_active"]
     _sell_active = r["sell_active"]
 
+    _trend = r.get("trend", "")
+    _wave = r.get("wave", "")
+    _tendency = r.get("tendency", "")
+    _emoji_triplet = _trend_emoji_triplet(_trend, _wave, _tendency)
+
     _price_str = f"{_last:,.2f} ₽" if _last else "— ₽"
     _buy_dev_str = f"{_buy_dev:+.2f} %" if _buy_dev is not None else "—"
     _sell_dev_str = f"{_sell_dev:+.2f} %" if _sell_dev is not None else "—"
@@ -1651,9 +1668,9 @@ def _render_alert_card(r: dict) -> str:
     return f"""
     <div style="border:1px solid #cfd6dc; border-radius:8px; padding:10px 12px;
                 background:#ffffff; margin-bottom:8px;">
-      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+    <div style="display:flex; justify-content:space-between; align-items:baseline;">
         <div style="font-size:1.15rem; font-weight:700; color:#111; line-height:1.1;">
-          {_ticker}</div>
+          {_ticker} <span style="font-size:.85rem; margin-left:6px;">{_emoji_triplet}</span></div>
         <div style="font-size:1.05rem; font-weight:700; color:#111;">
           {_price_str}</div>
       </div>
@@ -1946,6 +1963,84 @@ def _get_current_market_price_for_asset(asset, atype):
         if secid is None:
             return None
         return get_last_close_price(secid, eng, mkt)
+    except Exception:
+        return None
+
+# ================= Хелперы для оповещений: тренд / волна / тенденция =================
+_ALERT_TREND_EMOJI = {
+    "вверх": "🟩",
+    "вниз":  "🟥",
+    "рейндж": "🟦",
+}
+
+_ALERT_RECOMMENDATION_MAP = {
+    ("вверх", "вверх", "вверх"): ("CALL", "Присоединиться к движению вверх в восходящей тенденции. Ожидание - обновление максимума волны и тренда."),
+    ("вверх", "вверх", "вниз"):  ("CALL", "Ожидание появления объема на уровне покупок в нисходящей тенденции и ослабления продаж"),
+    ("вверх", "вниз", "вверх"):  ("CALL", "Ожидание разворота волны вверх от сильного уровня покупок и продолжения восходящего тренда. Присоединиться к движению вверх в восходящей тенденции на тесте. Держать сделку до появления объема продавца или разворота тенденции вниз"),
+    ("вверх", "вниз", "вниз"):   ("CALL", "Ожидание разворота волны вверх от сильного уровня покупок и продолжения восходящего тренда. Дождаться разворота тенденции и волны. Вход на 3 ноге, тесте ПК или тесте перебивки объема."),
+    ("вниз", "вверх", "вверх"):  ("PUT",  "Ожидание разворота тенденции, а затем и волны вниз и продолжение нисходящего тренда. Дождаться разворота тенденции и волны вниз. Вход на 3 ноге, тесте ПК или тесте перебивки объема."),
+    ("вниз", "вверх", "вниз"):   ("PUT",  "Ожидание разворота волны вниз от сильного уровня продаж и продолжения нисходящего тренда. Присоединиться к движению вниз в нисходящей тенденции на тесте. Держать сделку до появления объема покупателя или разворота тенденции вверх"),
+    ("вниз", "вниз", "вверх"):   ("PUT",  "Ожидание появления объема на уровне продаж в восходящей тенденции и ослабления покупок"),
+    ("вниз", "вниз", "вниз"):    ("PUT",  "Присоединиться к движению вниз в нисходящей тенденции. Ожидание - обновление минимума волны и тренда."),
+    ("рейндж", "вверх", "вверх"): ("CALL", "Торговля от нижней границы рейнджа (ICE) до верхней границы рейнджа (CREEK). Присоединиться к движению вверх в восходящей тенденции."),
+    ("рейндж", "вверх", "вниз"):  ("CALL", "Торговля от нижней границы рейнджа (ICE) до верхней границы рейнджа (CREEK). Ожидание появления объема на уровне покупок в зигзаге тенденции вверх и ослабления продаж."),
+    ("рейндж", "вниз", "вверх"):  ("PUT",  "Торговля от верхней границы рейнджа (CREEK) до нижней границы рейнджа (ICE). Ожидание появления объема на уровне продаж в зигзаге тенденции вниз и ослабления покупок."),
+    ("рейндж", "вниз", "вниз"):   ("PUT",  "Торговля от верхней границы рейнджа (CREEK) до нижней границы рейнджа (ICE). Присоединиться к движению вниз в нисходящей тенденции."),
+}
+
+
+def _trend_emoji(value) -> str:
+    """Один эмодзи по значению Тренд/Волна/Тенденция."""
+    if value is None:
+        return ""
+    v = str(value).strip().lower()
+    return _ALERT_TREND_EMOJI.get(v, "")
+
+
+def _trend_emoji_triplet(trend, wave, tendency) -> str:
+    """Три эмодзи через пробел."""
+    parts = [_trend_emoji(trend), _trend_emoji(wave), _trend_emoji(tendency)]
+    parts = [p for p in parts if p]
+    return " ".join(parts)
+
+
+def _get_recommendation(trend, wave, tendency):
+    """Возвращает (направление, описание) по комбинации тренд/волна/тенденция."""
+    if not (trend and wave and tendency):
+        return (None, None)
+    key = (str(trend).strip().lower(),
+           str(wave).strip().lower(),
+           str(tendency).strip().lower())
+    return _ALERT_RECOMMENDATION_MAP.get(key, (None, None))
+
+
+def find_alert_full_info(ticker: str, category: str = None):
+    """Полная информация из оповещений: уровни + тренд/волна/тенденция."""
+    df = st.session_state.get("alerts_df")
+    if df is None or df.empty:
+        return None
+    tk = ticker.upper().strip()
+    try:
+        mask = df["Тикер БА"].astype(str).str.upper().str.strip() == tk
+        if category and "Категория БА" in df.columns:
+            mask_cat = df["Категория БА"].astype(str).str.strip() == category
+            rows = df[mask & mask_cat]
+            if rows.empty:
+                rows = df[mask]
+        else:
+            rows = df[mask]
+        if rows.empty:
+            return None
+        row = rows.iloc[0]
+        return {
+            "ticker": tk,
+            "category": str(row.get("Категория БА", "")),
+            "lvl_buy": float(row["Уровень покупок"]),
+            "lvl_sell": float(row["Уровень продаж"]),
+            "trend": str(row.get("Тренд", "")).strip(),
+            "wave": str(row.get("Волна", "")).strip(),
+            "tendency": str(row.get("Тенденция", "")).strip(),
+        }
     except Exception:
         return None
 
@@ -2749,6 +2844,52 @@ def _render_position_tab():
         )
 
     _pos_asset = resolve_canonical_asset_code(_pos_raw_asset, _pos_cat)
+
+    # ============================================================
+    # Тренд / Волна / Тенденция + Расшифровка (из листа оповещений)
+    # ============================================================
+    _alert_info_pos = find_alert_full_info(_pos_asset, _pos_cat)
+    if _alert_info_pos:
+        _pos_triplet = _trend_emoji_triplet(
+            _alert_info_pos["trend"],
+            _alert_info_pos["wave"],
+            _alert_info_pos["tendency"])
+        _pos_rec_side, _pos_rec_desc = _get_recommendation(
+            _alert_info_pos["trend"],
+            _alert_info_pos["wave"],
+            _alert_info_pos["tendency"])
+
+        if _pos_triplet:
+            _pos_rec_color = ("#00a651" if _pos_rec_side == "CALL"
+                              else "#d32f2f" if _pos_rec_side == "PUT"
+                              else "#333")
+            _pos_rec_badge = ""
+            if _pos_rec_side:
+                _pos_rec_badge = (
+                    f"<span style='padding:2px 12px; border-radius:6px; "
+                    f"background:{_pos_rec_color}; color:white; "
+                    f"font-weight:700; font-size:.85rem; margin-left:12px; "
+                    f"letter-spacing:.05em;'>{_pos_rec_side}</span>")
+            _pos_desc_html = ""
+            if _pos_rec_desc:
+                _pos_desc_html = (
+                    f"<div style='margin-top:8px; padding:10px 14px; "
+                    f"background:#ffffff; border-radius:8px; "
+                    f"border-left:4px solid {_pos_rec_color}; "
+                    f"font-size:.85rem; color:#333; line-height:1.45;'>"
+                    f"{_pos_rec_desc}</div>")
+
+            st.markdown(
+                f"<div style='padding:12px 16px; background:#eef6fb; "
+                f"border-radius:10px; border:1px solid #cfdfe9; "
+                f"margin-top:8px; margin-bottom:6px;'>"
+                f"<div style='display:flex; align-items:center;'>"
+                f"<span style='font-size:1.3rem; letter-spacing:2px;'>"
+                f"{_pos_triplet}</span>"
+                f"{_pos_rec_badge}</div>"
+                f"{_pos_desc_html}"
+                f"</div>",
+                unsafe_allow_html=True)
 
     # ============================================================
     # Кэш позиций по активам (persistent, в файле)
@@ -6287,6 +6428,9 @@ def _render_alerts_tab():
                     "market_price": _last,
                     "buy_active": _buy_active,
                     "sell_active": _sell_active,
+                    "trend": str(_row.get("Тренд", "")).strip(),
+                    "wave": str(_row.get("Волна", "")).strip(),
+                    "tendency": str(_row.get("Тенденция", "")).strip(),
                 })
 
             _n_total = len(_rows_out)
