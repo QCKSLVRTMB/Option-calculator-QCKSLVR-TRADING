@@ -23,9 +23,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-if "cache_cleared_v5" not in st.session_state:
+if "cache_cleared_v6" not in st.session_state:
     st.cache_data.clear()
-    st.session_state["cache_cleared_v5"] = True
+    st.session_state["cache_cleared_v6"] = True
 
 st.markdown("""
 <style>
@@ -1025,37 +1025,50 @@ def get_alert_assets_list():
 @st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
     moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
-    code_to_fetch = asset_input
-    s_upper = asset_input.strip().upper()
+    s_upper = (asset_input or "").strip().upper()
     if asset_type_ui == "Индекс":
         idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
-        code_to_fetch = idx_map.get(s_upper, s_upper)
-    elif asset_type_ui == "Акция":
-        code_to_fetch = s_upper
-    elif asset_type_ui == "Фьючерс":
-        # Если введён тикер акции (GAZP, SBER…) — мапим на код фьючерса (GZ, SR…)
-        code_to_fetch = _FUTURES_UNDERLYING_CODE.get(s_upper, s_upper)
-    return code_to_fetch, moex_type
+        return idx_map.get(s_upper, s_upper), moex_type
+    # ISS option-calc для фьючерсных опционов использует ИСХОДНЫЙ тикер
+    # базового актива (GAZP, SBER, LKOH…), НЕ код фьючерса (GZ, SR…).
+    return s_upper, moex_type
+
+
+def _asset_code_candidates(asset: str, asset_type_ui: str):
+    """Список кодов актива для попытки обращения к ISS (в порядке приоритета)."""
+    s_upper = (asset or "").strip().upper()
+    if asset_type_ui == "Индекс":
+        idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
+        return [idx_map.get(s_upper, s_upper)]
+    if asset_type_ui == "Фьючерс":
+        primary = s_upper
+        alt = _FUTURES_UNDERLYING_CODE.get(s_upper, s_upper)
+        return [primary, alt] if alt != primary else [primary]
+    return [s_upper]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_optionseries(asset: str, asset_type_ui: str):
-    asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
-    url = f"{API_BASE_URL}/assets/{asset_code}/optionseries"
-    data = iss_get_json(url, params={'asset_type': moex_type}, timeout=15)
-    if data is None:
-        return []
-    series = []
-    if isinstance(data, list):
-        for item in data:
-            if 'optionseries_code' in item and 'expiration_date' in item:
-                series.append({'code': item['optionseries_code'],
-                               'expiry': item['expiration_date']})
-    elif isinstance(data, dict) and 'data' in data:
-        for item in data['data']:
-            if 'optionseries_code' in item and 'expiration_date' in item:
-                series.append({'code': item['optionseries_code'],
-                               'expiry': item['expiration_date']})
+    moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
+    for asset_code in _asset_code_candidates(asset, asset_type_ui):
+        url = f"{API_BASE_URL}/assets/{asset_code}/optionseries"
+        data = iss_get_json(url, params={'asset_type': moex_type}, timeout=15)
+        if data is None:
+            continue
+        series = []
+        if isinstance(data, list):
+            for item in data:
+                if 'optionseries_code' in item and 'expiration_date' in item:
+                    series.append({'code': item['optionseries_code'],
+                                   'expiry': item['expiration_date']})
+        elif isinstance(data, dict) and 'data' in data:
+            for item in data['data']:
+                if 'optionseries_code' in item and 'expiration_date' in item:
+                    series.append({'code': item['optionseries_code'],
+                                   'expiry': item['expiration_date']})
+        if series:
+            return series
+    return []
     return series
 
 
@@ -1069,16 +1082,22 @@ def fetch_all_series_for_asset(asset: str, asset_type_ui: str):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_series_info(asset: str, asset_type_ui: str, series_code: str):
-    asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
-    url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}"
-    r = iss_get(url, params={'asset_type': moex_type}, timeout=15)
-    if r is None or r.status_code != 200:
-        r = iss_get(url, timeout=15)
-    if r is None:
-        return {}
-    try:
-        data = r.json()
-    except Exception:
+    moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
+    data = None
+    for asset_code in _asset_code_candidates(asset, asset_type_ui):
+        url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}"
+        r = iss_get(url, params={'asset_type': moex_type}, timeout=15)
+        if r is None or r.status_code != 200:
+            r = iss_get(url, timeout=15)
+        if r is None:
+            continue
+        try:
+            data = r.json()
+        except Exception:
+            continue
+        if data:
+            break
+    if not data:
         return {}
     translated = {
         "Опционная серия": data.get('optionseries_code', '—'),
@@ -1151,18 +1170,23 @@ def fetch_central_strike(asset_code, series_code, asset_type):
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
-    asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
-    board_data, used_asset_type = None, None
+    board_data, used_asset_type, used_asset_code = None, None, None
     tried = []
-    for at in [moex_type, 'share', 'futures', 'index', 'currency', 'commodity']:
-        if at in tried:
-            continue
-        tried.append(at)
-        url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}/optionboard"
-        data = iss_get_json(url, params={'asset_type': at}, timeout=15)
-        if data is not None:
-            board_data = data
-            used_asset_type = at
+    base_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
+    for asset_code in _asset_code_candidates(asset, asset_type_ui):
+        for at in [base_type, 'share', 'futures', 'index', 'currency', 'commodity']:
+            key = (asset_code, at)
+            if key in tried:
+                continue
+            tried.append(key)
+            url = f"{API_BASE_URL}/assets/{asset_code}/optionseries/{series_code}/optionboard"
+            data = iss_get_json(url, params={'asset_type': at}, timeout=15)
+            if data is not None:
+                board_data = data
+                used_asset_type = at
+                used_asset_code = asset_code
+                break
+        if board_data:
             break
     if not board_data:
         raise RuntimeError("Не удалось получить доску опционов")
@@ -1174,8 +1198,8 @@ def fetch_optionboard(asset: str, asset_type_ui: str, series_code: str):
             cs = float(_cs_raw)
     except Exception:
         cs = None
-    if cs is None:
-        cs = fetch_central_strike(asset_code, series_code, used_asset_type)
+    if cs is None and used_asset_code:
+        cs = fetch_central_strike(used_asset_code, series_code, used_asset_type)
     board_data['central_strike'] = cs
     board_data['series_code'] = series_code
     return board_data
@@ -2122,21 +2146,20 @@ def _fetch_board_nocache(asset: str, asset_type_ui: str, series_code: str):
     """Прямой запрос доски к MOEX ISS — БЕЗ кэша Streamlit."""
     if not (asset and asset_type_ui and series_code):
         return None
-    try:
-        asset_code, moex_type = get_asset_code_and_type(asset, asset_type_ui)
-    except Exception:
-        return None
+    base_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
     tried = []
-    for at in [moex_type, 'share', 'futures', 'index', 'currency', 'commodity']:
-        if at in tried:
-            continue
-        tried.append(at)
-        url = (f"{API_BASE_URL}/assets/{asset_code}"
-               f"/optionseries/{series_code}/optionboard")
-        data = iss_get_json(url, params={'asset_type': at}, timeout=15)
-        if data is not None:
-            return data
-    return None
+    for asset_code in _asset_code_candidates(asset, asset_type_ui):
+        for at in [base_type, 'share', 'futures', 'index', 'currency', 'commodity']:
+            key = (asset_code, at)
+            if key in tried:
+                continue
+            tried.append(key)
+            url = (f"{API_BASE_URL}/assets/{asset_code}"
+                   f"/optionseries/{series_code}/optionboard")
+            data = iss_get_json(url, params={'asset_type': at}, timeout=15)
+            if data is not None:
+                return data
+        return None
 def _strike_eq(a, b) -> bool:
     """Устойчивое сравнение страйков (int/float/str/numpy)."""
     try:
