@@ -2250,6 +2250,16 @@ def _find_board_row(board, side_key: str, strike):
         if _strike_eq(row.get("strike"), strike):
             return row
     return None
+def _find_board_row_by_secid(board, secid):
+    """Ищет строку в доске по secid опциона (и по call, и по put)."""
+    if not board or not secid or str(secid).strip() in ("", "—"):
+        return None
+    _needle = str(secid).strip().upper()
+    for _side in ("call", "put"):
+        for row in (board.get(_side) or []):
+            if str(row.get("secid", "")).strip().upper() == _needle:
+                return row
+    return None
 def _get_board_for_analytics(asset, atype, series):
     if not (asset and atype and series):
         return None
@@ -3888,10 +3898,7 @@ def _render_position_tab():
         _b = _pos_board_cache[_bk]
         if not _b:
             continue
-        _side_key = "call" if _p.get("Опцион") == "Call" else "put"
-        _side_list = _b.get(_side_key) or []
-        _match = next((x for x in _side_list
-                       if x.get("strike") == _p.get("Страйк")), None)
+        _match = _find_board_row_by_secid(_b, _p.get("Тикер"))
         if _match:
             _p["Теор.цена"] = float(_match.get("theorprice") or 0)
             _p["Дельта"] = _match.get("delta")
@@ -3930,9 +3937,7 @@ def _render_position_tab():
         _lb = _live_boards[_lk]
         if not _lb:
             continue
-        _lsk = "call" if _lp.get("Опцион") == "Call" else "put"
-        _lrow = next((x for x in (_lb.get(_lsk) or [])
-                      if x.get("strike") == _lp.get("Страйк")), None)
+        _lrow = _find_board_row_by_secid(_lb, _lp.get("Тикер"))
         if _lrow:
             _new_th = float(_lrow.get("theorprice") or 0)
             if _new_th > 0:
@@ -3980,8 +3985,7 @@ def _render_position_tab():
             for _lp in st.session_state.positions:
                 if _lp.get("Тип инструмента") != "Опцион":
                     continue
-                _side_key = "call" if _lp.get("Опцион") == "Call" else "put"
-                _row = _find_board_row(_live_board, _side_key, _lp.get("Страйк"))
+                _row = _find_board_row_by_secid(_live_board, _lp.get("Тикер"))
                 if not _row:
                     continue
                 # теоретическая цена
@@ -4038,7 +4042,7 @@ def _render_position_tab():
             _boards_live[_s] = _fetch_board_nocache(
                 _pos_asset_r, _pos_atype_r, _s)
 
-        # Обновляем теор. цены и греки
+        # Обновляем теор. цены и греки — поиск по secid (Тикер)
         _updated_count = 0
         for _lp in st.session_state.positions:
             if _lp.get("Тип инструмента") != "Опцион":
@@ -4047,8 +4051,7 @@ def _render_position_tab():
             _b = _boards_live.get(_s)
             if not _b:
                 continue
-            _side = "call" if _lp.get("Опцион") == "Call" else "put"
-            _row = _find_board_row(_b, _side, _lp.get("Страйк"))
+            _row = _find_board_row_by_secid(_b, _lp.get("Тикер"))
             if not _row:
                 continue
             _th = _row.get("theorprice")
@@ -4404,8 +4407,7 @@ def _render_position_tab():
                 _board_p = _ref_boards[_bk_p]
                 if not _board_p:
                     continue
-                _side_key_p = "call" if _p.get("Опцион") == "Call" else "put"
-                _row_p = _find_board_row(_board_p, _side_key_p, _p.get("Страйк"))
+                _row_p = _find_board_row_by_secid(_board_p, _p.get("Тикер"))
                 if _row_p is None:
                     continue
                 _th_p = _row_p.get("theorprice")
