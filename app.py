@@ -80,6 +80,20 @@ div[data-testid="stTabs"] > div[data-baseweb="tab-list"] {
 
 # ================= MOEX API =================
 API_BASE_URL = "https://iss.moex.com/iss/apps/option-calc/v1"
+# Маппинг "тикер акции → код фьючерса" для MOEX ISS
+# (используется, когда категория БА = "Фьючерс", а введён тикер акции)
+_FUTURES_UNDERLYING_CODE = {
+    "GAZP": "GZ",  "SBER": "SR",  "SBERP": "SP", "LKOH": "LK",
+    "ROSN": "RN",  "NOTK": "NK",  "TATN": "TT",  "TATNP": "TP",
+    "SNGSP": "SP", "MTSS": "MT",  "MGNT": "MG",  "GMKN": "GK",
+    "NLMK": "NM",  "CHMF": "CH",  "ALRS": "AL",  "VTBR": "VB",
+    "MOEX": "ME",  "AFKS": "AK",  "IRAO": "IR",  "HYDR": "HY",
+    "RTKM": "RT",  "PLZL": "PL",  "MAGN": "MM",  "YDEX": "YD",
+    "PHOR": "PH",  "RUAL": "RL",  "FEES": "FS",  "TRNFP": "TN",
+    "AFLT": "AF",  "SIBN": "SB",  "PIKK": "PI",  "FLOT": "FL",
+    "CBOM": "CM",  "SGZH": "SG",  "BSPB": "BS",  "KMAZ": "KM",
+    "ASTR": "AS",  "SVCB": "SC",
+}
 
 ASSET_TYPE_MAP = {
     'Фьючерс': 'futures', 'Акция': 'share', 'Валюта': 'currency',
@@ -1018,6 +1032,9 @@ def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
         code_to_fetch = idx_map.get(s_upper, s_upper)
     elif asset_type_ui == "Акция":
         code_to_fetch = s_upper
+    elif asset_type_ui == "Фьючерс":
+        # Если введён тикер акции (GAZP, SBER…) — мапим на код фьючерса (GZ, SR…)
+        code_to_fetch = _FUTURES_UNDERLYING_CODE.get(s_upper, s_upper)
     return code_to_fetch, moex_type
 
 
@@ -3025,6 +3042,21 @@ def _render_position_tab():
             or _pos_cat != st.session_state.pos_category):
         st.session_state.pos_asset = _pos_asset
         st.session_state.pos_category = _pos_cat
+
+    # Информационная строка — какой код уйдёт в ISS
+    try:
+        _iss_code_disp, _iss_type_disp = get_asset_code_and_type(
+            _pos_asset, _pos_cat)
+        if _iss_code_disp and _iss_code_disp.upper() != _pos_asset.upper():
+            st.caption(
+                f"🔗 Для категории **{_pos_cat}** запрашивается код "
+                f"**`{_iss_code_disp}`** (тип: `{_iss_type_disp}`)")
+        else:
+            st.caption(
+                f"🔗 Запрос: код **`{_iss_code_disp}`** · "
+                f"тип: `{_iss_type_disp}`")
+    except Exception:
+        pass
         st.session_state.pos_series_list = []
         st.session_state.pos_series_code = ""
         st.session_state.pos_expiry = ""
@@ -3783,11 +3815,13 @@ def _render_position_tab():
     _pos_atype_for_refresh = st.session_state.get("pos_category", "")
 
     if _pos_asset_for_refresh and _pos_atype_for_refresh:
-        # Принудительно сбрасываем кэш fetch_optionboard — нужны свежие данные
-        try:
-            fetch_optionboard.clear()
-        except Exception:
-            pass
+        # Принудительно сбрасываем кэш — нужны свежие данные с правильным asset_code
+        for _fn in (fetch_optionboard, fetch_optionseries,
+                    get_asset_code_and_type, fetch_series_info):
+            try:
+                _fn.clear()
+            except Exception:
+                passs
 
         _live_board = None
         if _pos_series_for_refresh:
