@@ -382,7 +382,90 @@ TV_TICKER_MAP = {
     },
 }
 
+# ================= Живой справочник активов MOEX option-calc =================
+_OPTION_CALC_ASSETS = None
+_OPTION_CALC_ASSETS_TS = 0.0
 
+# Тикер акции → код фьючерса в option-calc (по данным /assets).
+# Для тикеров, которых здесь нет, код фьючерса СОВПАДАЕТ с тикером.
+_SHARE_TO_FUTURE_ALIAS = {
+    "GAZP":  "GAZR",
+    "SBER":  "SBRF",
+    "SBERP": "SBPR",
+    "MTSS":  "MTSI",
+    "SNGS":  "SNGR",
+    "SNGSP": "SNGP",
+    "TRNFP": "TRNF",
+}
+
+# UI-категория → список (asset_type, asset_subtype) для поиска в справочнике
+_UI_TO_ASSET_TYPES = {
+    "Акция":   [("share",     None)],
+    "Фьючерс": [("futures",   None)],
+    "Индекс":  [("index",     None), ("futures", "index")],
+    "Валюта":  [("currency",  None), ("futures", "currency")],
+    "Товар":   [("commodity", None), ("futures", "commodity")],
+}
+
+
+def _load_option_calc_assets():
+    """Справочник активов option-calc с TTL 6 часов."""
+    global _OPTION_CALC_ASSETS, _OPTION_CALC_ASSETS_TS
+    now = time.time()
+    if _OPTION_CALC_ASSETS is not None and (now - _OPTION_CALC_ASSETS_TS) < 21600:
+        return _OPTION_CALC_ASSETS
+    data = iss_get_json(f"{API_BASE_URL}/assets", timeout=15)
+    if isinstance(data, list):
+        _OPTION_CALC_ASSETS = data
+        _OPTION_CALC_ASSETS_TS = now
+    return _OPTION_CALC_ASSETS or []
+
+
+def resolve_option_calc_code(asset_input: str, asset_type_ui: str):
+    """Возвращает (asset_code, asset_type), реально поддерживаемые option-calc."""
+    ticker = (asset_input or "").strip().upper()
+    fallback = (ticker, ASSET_TYPE_MAP.get(asset_type_ui, "futures"))
+    if not ticker:
+        return fallback
+
+    assets = _load_option_calc_assets()
+    if not assets:
+        return fallback
+
+    # Индексный алиас: RTSI → RTS
+    if asset_type_ui == "Индекс" and ticker == "RTSI":
+        ticker = "RTS"
+
+    # Кандидаты кода актива
+    cand_codes = [ticker]
+    if asset_type_ui == "Фьючерс":
+        alias = _SHARE_TO_FUTURE_ALIAS.get(ticker)
+        if alias and alias != ticker:
+            cand_codes.append(alias)
+    for share, fut in _SHARE_TO_FUTURE_ALIAS.items():
+        if ticker == fut and share not in cand_codes:
+            cand_codes.append(share)
+
+    wanted = _UI_TO_ASSET_TYPES.get(asset_type_ui, [("futures", None)])
+
+    # 1) Точное совпадение (code + asset_type + asset_subtype)
+    supported = {
+        (a.get("asset_code"), a.get("asset_type"), a.get("asset_subtype"))
+        for a in assets
+    }
+    for code in cand_codes:
+        for atype, sub in wanted:
+            if (code, atype, sub) in supported:
+                return code, atype
+
+    # 2) Мягкое совпадение (без subtype)
+    for code in cand_codes:
+        for atype, _sub in wanted:
+            for a in assets:
+                if a.get("asset_code") == code and a.get("asset_type") == atype:
+                    return code, atype
+
+    return fallback
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
@@ -1022,29 +1105,23 @@ def get_alert_assets_list():
 
 
 # ================= MOEX API: опционы =================
-@st.cache_data(ttl=600, show_spinner=False)
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
-    moex_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
-    s_upper = (asset_input or "").strip().upper()
-    if asset_type_ui == "Индекс":
-        idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
-        return idx_map.get(s_upper, s_upper), moex_type
-    # ISS option-calc для фьючерсных опционов использует ИСХОДНЫЙ тикер
-    # базового актива (GAZP, SBER, LKOH…), НЕ код фьючерса (GZ, SR…).
-    return s_upper, moex_type
+    """Резолвит (asset_code, asset_type) через живой справочник option-calc."""
+    return resolve_option_calc_code(asset_input, asset_type_ui)
 
 
 def _asset_code_candidates(asset: str, asset_type_ui: str):
-    """Список кодов актива для попытки обращения к ISS (в порядке приоритета)."""
+    """Кандидаты кода актива для попытки обращения к ISS."""
     s_upper = (asset or "").strip().upper()
-    if asset_type_ui == "Индекс":
-        idx_map = {"RTS": "RTSI", "MIX": "IMOEX"}
-        return [idx_map.get(s_upper, s_upper)]
+    code, _ = resolve_option_calc_code(asset, asset_type_ui)
+    cands = [code] if code else []
+    if s_upper and s_upper not in cands:
+        cands.append(s_upper)
     if asset_type_ui == "Фьючерс":
-        primary = s_upper
-        alt = _FUTURES_UNDERLYING_CODE.get(s_upper, s_upper)
-        return [primary, alt] if alt != primary else [primary]
-    return [s_upper]
+        alias = _SHARE_TO_FUTURE_ALIAS.get(s_upper)
+        if alias and alias not in cands:
+            cands.append(alias)
+    return cands or [s_upper]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1069,7 +1146,6 @@ def fetch_optionseries(asset: str, asset_type_ui: str):
         if series:
             return series
     return []
-    return series
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -2159,7 +2235,7 @@ def _fetch_board_nocache(asset: str, asset_type_ui: str, series_code: str):
             data = iss_get_json(url, params={'asset_type': at}, timeout=15)
             if data is not None:
                 return data
-        return None
+    return None
 def _strike_eq(a, b) -> bool:
     """Устойчивое сравнение страйков (int/float/str/numpy)."""
     try:
@@ -3840,11 +3916,11 @@ def _render_position_tab():
     if _pos_asset_for_refresh and _pos_atype_for_refresh:
         # Принудительно сбрасываем кэш — нужны свежие данные с правильным asset_code
         for _fn in (fetch_optionboard, fetch_optionseries,
-                    get_asset_code_and_type, fetch_series_info):
+                    fetch_series_info):
             try:
                 _fn.clear()
             except Exception:
-                passs
+                pass
 
         _live_board = None
         if _pos_series_for_refresh:
