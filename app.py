@@ -3660,6 +3660,48 @@ def _render_position_tab():
                                     st.rerun()
 
     # ==================================================================
+    # АВТООБНОВЛЕНИЕ ТЕОРЕТИЧЕСКИХ ЦЕН (live-подтяжка с MOEX)
+    # ==================================================================
+    _pos_board_cache = {}
+    for _p in st.session_state.positions:
+        if _p.get("Тип инструмента") != "Опцион":
+            continue
+        _pa = _p.get("_asset") or st.session_state.get("pos_asset", "")
+        _pt = _p.get("_atype") or st.session_state.get("pos_category", "")
+        _ps = _p.get("_series_code") or st.session_state.get("pos_series_code", "")
+        if not (_pa and _pt and _ps):
+            continue
+        _bk = (_pa, _pt, _ps)
+        if _bk not in _pos_board_cache:
+            try:
+                _pos_board_cache[_bk] = fetch_optionboard(_pa, _pt, _ps)
+            except Exception:
+                _pos_board_cache[_bk] = None
+        _b = _pos_board_cache[_bk]
+        if not _b:
+            continue
+        _side_key = "call" if _p.get("Опцион") == "Call" else "put"
+        _side_list = _b.get(_side_key) or []
+        _match = next((x for x in _side_list
+                       if x.get("strike") == _p.get("Страйк")), None)
+        if _match:
+            _p["Теор.цена"] = float(_match.get("theorprice") or 0)
+            _p["Дельта"] = _match.get("delta")
+            _p["Гамма"]  = _match.get("gamma")
+            _p["Вега"]   = _match.get("vega")
+            _p["Тета"]   = _match.get("theta")
+            _p["Ро"]     = _match.get("rho")
+            _p["_vol"]   = float(_match.get("volatility") or 20.0)
+
+    # Пересохраняем кэш на диск — теперь с актуальными теор. ценами
+    if "positions_cache" in st.session_state:
+        _cur_key_now = st.session_state.get("_pos_active_key")
+        if _cur_key_now:
+            st.session_state.positions_cache[_cur_key_now] = \
+                list(st.session_state.positions)
+            _save_cache(st.session_state.positions_cache)
+
+    # ==================================================================
     # ТЕКУЩИЕ ПОЗИЦИИ
     # ==================================================================
     st.markdown("---")
@@ -4205,7 +4247,9 @@ def _render_position_tab():
                 _range_pts.append(F_current)
             s_min = min(_range_pts) * 0.85
             s_max = max(_range_pts) * 1.15
-            S_arr = np.linspace(s_min, s_max, 500)
+            _step_pf = 0.2
+            _n_pts_pf = max(200, int((s_max - s_min) / _step_pf) + 1)
+            S_arr = np.linspace(s_min, s_max, _n_pts_pf)
 
             def _payoff_at_expiry(S_vals, positions_subset):
                 return compute_payoff(positions_subset, S_vals,
