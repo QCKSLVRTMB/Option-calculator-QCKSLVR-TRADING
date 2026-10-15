@@ -42,6 +42,39 @@ st.markdown("""
 .pos-row-wrap [data-testid="stHorizontalBlock"]:last-child {
     border-bottom: none;
 }
+
+/* ============ Sticky tabs: закрепление панели вкладок при скролле ============ */
+div[data-testid="stTabs"] > div[data-baseweb="tab-list"] {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 999 !important;
+    background-color: #ffffff !important;
+    border-bottom: 1px solid #e6edf4 !important;
+    padding-top: 6px !important;
+    padding-bottom: 4px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+/* Скрываем hover-обводку снизу, чтобы не мешала */
+div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button {
+    background-color: transparent !important;
+}
+
+/* ============ Крупный текст вкладок ============ */
+div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button,
+div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button p,
+div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button div,
+div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button span {
+    font-size: 1.05rem !important;
+    font-weight: 600 !important;
+    letter-spacing: .01em !important;
+    line-height: 1.2 !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+}
+/* Немного увеличим отступы между вкладками */
+div[data-testid="stTabs"] > div[data-baseweb="tab-list"] {
+    gap: 8px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
