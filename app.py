@@ -422,50 +422,46 @@ def _load_option_calc_assets():
 
 
 def resolve_option_calc_code(asset_input: str, asset_type_ui: str):
-    """Возвращает (asset_code, asset_type), реально поддерживаемые option-calc."""
+    """Возвращает (asset_code, asset_type), реально поддерживаемые option-calc.
+    Работает ДАЖЕ ЕСЛИ /assets недоступен — за счёт статического alias-словаря.
+    """
     ticker = (asset_input or "").strip().upper()
-    fallback = (ticker, ASSET_TYPE_MAP.get(asset_type_ui, "futures"))
+    moex_type = ASSET_TYPE_MAP.get(asset_type_ui, "futures")
     if not ticker:
-        return fallback
+        return ticker, moex_type
 
-    assets = _load_option_calc_assets()
-    if not assets:
-        return fallback
-
-    # Индексный алиас: RTSI → RTS
+    # Индексный алиас
     if asset_type_ui == "Индекс" and ticker == "RTSI":
         ticker = "RTS"
 
-    # Кандидаты кода актива
-    cand_codes = [ticker]
+    # 🔑 ГЛАВНОЕ: alias применяется СРАЗУ — до обращения к /assets
     if asset_type_ui == "Фьючерс":
         alias = _SHARE_TO_FUTURE_ALIAS.get(ticker)
-        if alias and alias != ticker:
-            cand_codes.append(alias)
-    for share, fut in _SHARE_TO_FUTURE_ALIAS.items():
-        if ticker == fut and share not in cand_codes:
-            cand_codes.append(share)
+        if alias:
+            ticker = alias
 
-    wanted = _UI_TO_ASSET_TYPES.get(asset_type_ui, [("futures", None)])
-
-    # 1) Точное совпадение (code + asset_type + asset_subtype)
-    supported = {
-        (a.get("asset_code"), a.get("asset_type"), a.get("asset_subtype"))
-        for a in assets
-    }
-    for code in cand_codes:
+    # Пытаемся подтвердить через живой справочник (необязательный шаг)
+    assets = _load_option_calc_assets()
+    if assets:
+        wanted = _UI_TO_ASSET_TYPES.get(asset_type_ui, [(moex_type, None)])
+        supported = {
+            (a.get("asset_code"), a.get("asset_type"), a.get("asset_subtype"))
+            for a in assets
+        }
+        # Точное совпадение
         for atype, sub in wanted:
-            if (code, atype, sub) in supported:
-                return code, atype
-
-    # 2) Мягкое совпадение (без subtype)
-    for code in cand_codes:
+            if (ticker, atype, sub) in supported:
+                return ticker, atype
+        # Мягкое совпадение
         for atype, _sub in wanted:
             for a in assets:
-                if a.get("asset_code") == code and a.get("asset_type") == atype:
-                    return code, atype
+                if a.get("asset_code") == ticker and a.get("asset_type") == atype:
+                    return ticker, atype
+        # Даже если в справочнике не нашли — всё равно возвращаем
+        # первый тип из wanted (лучше попытаться, чем не пытаться вообще)
 
-    return fallback
+    # Никакой зависимости от /assets — возвращаем с уже применённым alias
+    return ticker, moex_type
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
@@ -2223,9 +2219,11 @@ def _fetch_board_nocache(asset: str, asset_type_ui: str, series_code: str):
     if not (asset and asset_type_ui and series_code):
         return None
     base_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
+    # Тот же порядок типов, что и в «раннем» рабочем коде
+    type_order = [base_type, 'futures', 'share', 'index', 'currency', 'commodity']
     tried = []
     for asset_code in _asset_code_candidates(asset, asset_type_ui):
-        for at in [base_type, 'share', 'futures', 'index', 'currency', 'commodity']:
+        for at in type_order:
             key = (asset_code, at)
             if key in tried:
                 continue
@@ -3490,7 +3488,7 @@ def _render_position_tab():
         _p_str = f"{_price:.4f}".replace('.', ',')
         return f"{_sign}{_letter}{_k_str} {_p_str}"
 
-    # ---------- ПРАВАЯ КОЛОНКА: добавление позиции ----------
+        # ---------- ПРАВАЯ КОЛОНКА: добавление позиции ----------
     with col_add:
         st.markdown("#### Добавить позицию")
 
@@ -3502,40 +3500,86 @@ def _render_position_tab():
         _series_now = st.session_state.get("pos_series_code", "")
         _expiry_now = st.session_state.get("pos_expiry", "")
 
-        if not (_asset_now_all and _atype_now_all and _series_now):
-            st.warning("Сначала выберите актив и серию в блоке выше.")
+        # ----- Проверяем только актив и категорию (серия больше не обязательна) -----
+        if not (_asset_now_all and _atype_now_all):
+            st.warning("Сначала выберите базовый актив и категорию в блоке выше.")
         else:
-            _all_series = fetch_all_series_for_asset(_asset_now_all, _atype_now_all)
-            if not _all_series:
-                _all_series = st.session_state.get("pos_series_list", [])
-
-            _series_labels = [format_series_label(s["expiry"]) for s in _all_series]
-            _series_by_label = {lab: s for lab, s in zip(_series_labels, _all_series)}
-
-            _default_series_idx = 0
-            for i, s in enumerate(_all_series):
-                if s.get("code") == _series_now:
-                    _default_series_idx = i
-                    break
-
+            # ----- Загружаем серии (со страховкой через fetch_all_series_for_asset) -----
+            _all_series = []
             try:
-                board = fetch_optionboard(_asset_now_all, _atype_now_all, _series_now)
-            except Exception as e:
-                st.error(f"Не удалось загрузить доску: {e}")
-                board = None
+                _all_series = fetch_all_series_for_asset(_asset_now_all, _atype_now_all) or []
+            except Exception:
+                _all_series = []
+            if not _all_series:
+                _all_series = st.session_state.get("pos_series_list", []) or []
 
-            if board:
-                calls = board.get('call') or []
-                puts = board.get('put') or []
-                central = board.get('central_strike')
-                c_map = {c['strike']: c for c in calls if c.get('strike') is not None}
-                p_map = {p['strike']: p for p in puts if p.get('strike') is not None}
-                all_strikes = sorted(set(c_map.keys()) | set(p_map.keys()))
-                asset_type_ui_now = _atype_now_all
-                asset_now = _asset_now_all
+            if not _all_series:
+                # ----- Нет серий — показываем осмысленную ошибку с подсказкой -----
+                st.error(
+                    f"⚠ Не удалось получить опционные серии "
+                    f"для **{_asset_now_all}** ({_atype_now_all})."
+                )
+                try:
+                    _iss_code_dbg, _iss_type_dbg = get_asset_code_and_type(
+                        _asset_now_all, _atype_now_all)
+                    st.caption(
+                        f"🔗 В ISS отправлялся запрос: код **`{_iss_code_dbg}`**, "
+                        f"тип **`{_iss_type_dbg}`**"
+                    )
+                    if (_atype_now_all == "Фьючерс"
+                            and _iss_code_dbg == _asset_now_all.upper()):
+                        st.info(
+                            "💡 Похоже, для этого тикера alias не задан. "
+                            "Попробуйте ввести код фьючерса напрямую: "
+                            "**GAZR** (для Газпрома), **SBRF** (Сбер), "
+                            "**SBPR** (Сбер-п), **MTSI** (МТС), "
+                            "**SNGR** / **SNGP** (Сургут), **TRNF** (Транснефть)."
+                        )
+                except Exception:
+                    pass
+            else:
+                # ----- Авто-выбор первой серии, если ещё не выбрана -----
+                if not _series_now:
+                    _first = sorted(_all_series, key=lambda x: x.get("expiry", ""))[0]
+                    st.session_state.pos_series_code = _first["code"]
+                    st.session_state.pos_expiry = _first["expiry"]
+                    _series_now = _first["code"]
+                    _expiry_now = _first["expiry"]
 
-                with st.container(border=True), st.form(
-                        "add_position_form", clear_on_submit=False):
+                # ----- Формируем лейблы и дефолтный индекс -----
+                _series_labels = [format_series_label(s["expiry"]) for s in _all_series]
+                _series_by_label = {lab: s for lab, s in zip(_series_labels, _all_series)}
+
+                _default_series_idx = 0
+                for i, s in enumerate(_all_series):
+                    if s.get("code") == _series_now:
+                        _default_series_idx = i
+                        break
+
+                # ----- Грузим доску по текущей серии -----
+                try:
+                    board = fetch_optionboard(_asset_now_all, _atype_now_all, _series_now)
+                except Exception as e:
+                    st.error(
+                        f"Не удалось загрузить доску опционов "
+                        f"для серии `{_series_now}`: {e}"
+                    )
+                    board = None
+
+                if board:
+                    calls = board.get('call') or []
+                    puts = board.get('put') or []
+                    central = board.get('central_strike')
+                    c_map = {c['strike']: c for c in calls if c.get('strike') is not None}
+                    p_map = {p['strike']: p for p in puts if p.get('strike') is not None}
+                    all_strikes = sorted(set(c_map.keys()) | set(p_map.keys()))
+                    asset_type_ui_now = _atype_now_all
+                    asset_now = _asset_now_all
+
+                    with st.container(border=True), st.form(
+                            "add_position_form", clear_on_submit=False):
+                        # ↓↓↓ ВНУТРЕННОСТЬ ФОРМЫ ОСТАЁТСЯ БЕЗ ИЗМЕНЕНИЙ ↓↓↓
+                        # ... весь существующий код формы: _f1c1, _f1c2, _f2c1, _f2c2, ...
                     _f1c1, _f1c2 = st.columns(2)
                     with _f1c1:
                         _instr_options = ["Опцион"]
