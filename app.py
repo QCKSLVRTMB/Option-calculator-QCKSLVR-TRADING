@@ -2102,7 +2102,22 @@ def find_alert_full_info(ticker: str, category: str = None):
     except Exception:
         return None
 
+def _strike_eq(a, b) -> bool:
+    """Устойчивое сравнение страйков (int/float/str/numpy)."""
+    try:
+        return abs(float(a) - float(b)) < 0.001
+    except (TypeError, ValueError):
+        return False
 
+
+def _find_board_row(board, side_key: str, strike):
+    """Ищет строку в board['call'|'put'] по страйку (устойчиво к типам)."""
+    if not board or strike is None:
+        return None
+    for row in (board.get(side_key) or []):
+        if _strike_eq(row.get("strike"), strike):
+            return row
+    return None
 def _get_board_for_analytics(asset, atype, series):
     if not (asset and atype and series):
         return None
@@ -3741,6 +3756,69 @@ def _render_position_tab():
         if _ck:
             st.session_state.positions_cache[_ck] = list(st.session_state.positions)
             _save_cache(st.session_state.positions_cache)
+
+    # ==================================================================
+    # АВТООБНОВЛЕНИЕ ТЕОР. ЦЕН, ГРЕКОВ и IV из ЖИВОЙ ДОСКИ MOEX
+    # ==================================================================
+    _pos_series_for_refresh = st.session_state.get("pos_series_code", "")
+    _pos_asset_for_refresh = st.session_state.get("pos_asset", "")
+    _pos_atype_for_refresh = st.session_state.get("pos_category", "")
+
+    if _pos_asset_for_refresh and _pos_atype_for_refresh:
+        # Принудительно сбрасываем кэш fetch_optionboard — нужны свежие данные
+        try:
+            fetch_optionboard.clear()
+        except Exception:
+            pass
+
+        _live_board = None
+        if _pos_series_for_refresh:
+            try:
+                _live_board = fetch_optionboard(
+                    _pos_asset_for_refresh,
+                    _pos_atype_for_refresh,
+                    _pos_series_for_refresh)
+            except Exception:
+                _live_board = None
+
+        if _live_board:
+            for _lp in st.session_state.positions:
+                if _lp.get("Тип инструмента") != "Опцион":
+                    continue
+                _side_key = "call" if _lp.get("Опцион") == "Call" else "put"
+                _row = _find_board_row(_live_board, _side_key, _lp.get("Страйк"))
+                if not _row:
+                    continue
+                # теоретическая цена
+                _th = _row.get("theorprice")
+                if _th is not None:
+                    try:
+                        _th_f = float(_th)
+                        if _th_f > 0:
+                            _lp["Теор.цена"] = _th_f
+                    except (TypeError, ValueError):
+                        pass
+                # греки
+                _lp["Дельта"] = _row.get("delta")
+                _lp["Гамма"]  = _row.get("gamma")
+                _lp["Вега"]   = _row.get("vega")
+                _lp["Тета"]   = _row.get("theta")
+                _lp["Ро"]     = _row.get("rho")
+                # IV (для what-if, payoff)
+                _iv = _row.get("volatility")
+                if _iv is not None:
+                    try:
+                        _lp["_vol"] = float(_iv)
+                    except (TypeError, ValueError):
+                        pass
+
+            # Обновляем кэш на диске
+            if "positions_cache" in st.session_state:
+                _ck_ref = st.session_state.get("_pos_active_key")
+                if _ck_ref:
+                    st.session_state.positions_cache[_ck_ref] = \
+                        list(st.session_state.positions)
+                    _save_cache(st.session_state.positions_cache)
 
     # ==================================================================
     # ТЕКУЩИЕ ПОЗИЦИИ
