@@ -86,10 +86,14 @@ ASSET_TYPE_MAP = {
     'Товар': 'commodity', 'Индекс': 'index',
 }
 
-DEFAULT_COMM_OPTIONS_PCT = 3.0
-DEFAULT_COMM_OPTIONS_MIN = 0.02
-DEFAULT_COMM_FUTURES_PCT = 0.1
-DEFAULT_COMM_STOCKS_PCT  = 0.3
+# ================= Комиссии (тариф Т-Банк «Инвестор») =================
+DEFAULT_COMM_OPTIONS_PCT = 3.0    # Опционы: 3% от премии
+DEFAULT_COMM_OPTIONS_MIN = 0.02   # Опционы: минимум 0.02 ₽ за контракт
+DEFAULT_COMM_FUTURES_PCT = 0.1    # Фьючерсы: 0.1% от стоимости
+DEFAULT_COMM_STOCKS_PCT  = 0.3    # Акции/облигации/ETF/ДР: 0.3%
+DEFAULT_COMM_METALS_PCT  = 1.9    # Драг. металлы (спот): 1.9%
+DEFAULT_COMM_CURRENCY_PCT = 0.9   # Валюта (спот): 0.9%
+DEFAULT_COMM_MIN_OTHER   = 0.01   # Общий минимум для акций/фьючерсов
 
 HTML_PLACEHOLDER = "/*__INJECT_PLACEHOLDER__*/{}"
 
@@ -495,17 +499,38 @@ def calc_commission(premium, instrument_type="Опцион",
                     comm_options_pct=3.0,
                     comm_futures_pct=0.1,
                     comm_stocks_pct=0.3):
+    """
+    Расчёт комиссии брокера (тариф Т-Банк «Инвестор»).
+
+    Правила:
+      • Опционы: 3% от премии, минимум 0.02 ₽/контракт
+      • Фьючерсы: 0.1% от стоимости контракта, минимум 0.01 ₽
+      • Акции/облигации/ETF/ДР: 0.3% от суммы, минимум 0.01 ₽
+      • Драг. металлы (спот): 1.9% от суммы, минимум 0.01 ₽
+      • Валюта (спот): 0.9% от суммы, минимум 0.01 ₽
+      • Итоговая комиссия округляется до 2 знаков
+    """
     if premium is None or premium <= 0:
         return 0.0
-    t = (instrument_type or "").strip().lower()
-    if t in ("опцион", "option"):
-        return max((comm_options_pct / 100.0) * premium, min_comm_options)
-    if t in ("фьючерс", "futures"):
-        return (comm_futures_pct / 100.0) * premium
-    if t in ("акция", "stock", "share", "облигация", "etf", "bond"):
-        return (comm_stocks_pct / 100.0) * premium
-    return 0.0
 
+    t = (instrument_type or "").strip().lower()
+    _MIN_OTHER = 0.01
+
+    if t in ("опцион", "option"):
+        _c = max((comm_options_pct / 100.0) * premium, min_comm_options)
+    elif t in ("фьючерс", "futures"):
+        _c = max((comm_futures_pct / 100.0) * premium, _MIN_OTHER)
+    elif t in ("акция", "stock", "share", "облигация", "etf", "bond"):
+        _c = max((comm_stocks_pct / 100.0) * premium, _MIN_OTHER)
+    elif t in ("металл", "metal", "драгметалл", "золото", "серебро"):
+        _c = max(0.019 * premium, _MIN_OTHER)
+    elif t in ("валюта", "currency", "валютный"):
+        _c = max(0.009 * premium, _MIN_OTHER)
+    else:
+        _c = 0.0
+
+    # Округление до 2 знаков (правило п.1 тарифа)
+    return round(_c, 2)
 
 def _calc_comm_ui(premium, instr_type="Опцион"):
     cop = st.session_state.get("cop_inp", DEFAULT_COMM_OPTIONS_PCT)
@@ -3818,7 +3843,7 @@ def _render_position_tab():
 
                 with row[18]:
                     st.markdown(f"<div style='padding-top:6px; {gray}; font-size:.78rem;'>"
-                                f"{_com:.4f}</div>", unsafe_allow_html=True)
+                                f"{_com:.2f}</div>", unsafe_allow_html=True)
 
             st.markdown("<hr style='margin:4px 0 4px 0; border:none; "
                         "border-top:1px solid #e6edf4;'>", unsafe_allow_html=True)
@@ -3920,7 +3945,7 @@ def _render_position_tab():
                                                     _side_from_qty(_q))),
                     "Страйк": p.get("Страйк", "—"), "Эксп.": p.get("Эксп.", "—"),
                     "Тикер": p.get("Тикер", "—"), "Кол-во": _q, "Цена": _pr,
-                    "Комиссия": _c, "Эфф. цена": _pr + _c, "Теор.цена": _th,
+                    "Комиссия": round(_c, 2), "Эфф. цена": round(_pr + _c, 4), "Теор.цена": _th,
                     "P&L": _pl, "Дельта": p.get("Дельта"), "Гамма": p.get("Гамма"),
                     "Вега": p.get("Вега"), "Тета": p.get("Тета"), "Ро": p.get("Ро"),
                 })
