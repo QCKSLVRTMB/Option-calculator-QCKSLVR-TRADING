@@ -2816,6 +2816,7 @@ def _render_position_tab():
                                     del st.session_state[k]
                             st.session_state.positions = _imported
 
+                            # --- Переключаем актив/категорию на данные из CSV ---
                             if _csv_asset:
                                 _canon = resolve_canonical_asset_code(
                                     _csv_asset, _csv_category or None)
@@ -2825,10 +2826,24 @@ def _render_position_tab():
                                     "Товар", "Индекс"):
                                 st.session_state.pos_category = _csv_category
 
+                            # --- Сброс кэша серий, чтобы подгрузились для нового актива ---
                             st.session_state.pos_series_list = []
                             st.session_state.pos_series_code = ""
                             st.session_state.pos_expiry = ""
                             st.session_state.pos_autoloaded_for = (None, None)
+
+                            # --- ГЛАВНОЕ: СБРОС ключей виджетов "Базовый актив" и "Категория БА" ---
+                            # Без этого Streamlit возьмёт СТАРЫЕ значения из session_state
+                            # и поля ввода НЕ перезапишутся данными из CSV
+                            for _wk in ("pos_asset_input", "pos_category_select"):
+                                if _wk in st.session_state:
+                                    del st.session_state[_wk]
+
+                            # --- Сброс связанных вкладок (What-if) ---
+                            # Что при смене актива параметры What-if пересоздались с нуля
+                            st.session_state["_wt_last_asset"] = None
+                            st.session_state["_current_market_price"] = None
+
                             st.rerun()
                         st.caption(f"Строк: {len(_imported)}")
                     except Exception as e:
