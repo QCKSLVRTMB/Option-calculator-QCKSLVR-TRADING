@@ -387,7 +387,7 @@ _UI_TO_ASSET_TYPES = {
 
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-    def _load_option_calc_assets():
+def _load_option_calc_assets():
     """Справочник активов option-calc с TTL 6 часов."""
     global _OPTION_CALC_ASSETS, _OPTION_CALC_ASSETS_TS
     now = time.time()
