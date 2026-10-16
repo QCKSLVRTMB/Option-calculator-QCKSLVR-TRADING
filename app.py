@@ -2890,16 +2890,44 @@ def _render_board_tab():
                     style = "background-color: #e3e7ec; font-weight: bold"
 
                 if highlight_on:
+                    # Границы ITM/OTM относительно центрального страйка.
+                    # ATM (strike == central) — разрешаем и Bid, и Offer.
+                    try:
+                        _c_val = float(central) if central is not None else None
+                    except (TypeError, ValueError):
+                        _c_val = None
+                    _is_atm = (_c_val is not None and abs(strike - _c_val) < 0.01)
+
                     if col in ("Call_Bid", "Put_Bid"):
-                        theor_col = ("Call_Theor" if col.startswith("Call_") else "Put_Theor")
-                        c = _bid_offer_color(row[col], row.get(theor_col), is_bid=True)
-                        if c:
-                            style = f"background-color: {c}; color: white; font-weight: 700"
+                        # Розовый (Bid) — только ITM:
+                        #   Call: strike < central
+                        #   Put:  strike > central
+                        if _c_val is None or _is_atm:
+                            _allow_bid = True
+                        elif col.startswith("Call_"):
+                            _allow_bid = strike < _c_val
+                        else:
+                            _allow_bid = strike > _c_val
+                        if _allow_bid:
+                            theor_col = ("Call_Theor" if col.startswith("Call_") else "Put_Theor")
+                            c = _bid_offer_color(row[col], row.get(theor_col), is_bid=True)
+                            if c:
+                                style = f"background-color: {c}; color: white; font-weight: 700"
                     elif col in ("Call_Offer", "Put_Offer"):
-                        theor_col = ("Call_Theor" if col.startswith("Call_") else "Put_Theor")
-                        c = _bid_offer_color(row[col], row.get(theor_col), is_bid=False)
-                        if c:
-                            style = f"background-color: {c}; color: white; font-weight: 700"
+                        # Фиолетовый (Offer) — только OTM:
+                        #   Call: strike > central
+                        #   Put:  strike < central
+                        if _c_val is None or _is_atm:
+                            _allow_offer = True
+                        elif col.startswith("Call_"):
+                            _allow_offer = strike > _c_val
+                        else:
+                            _allow_offer = strike < _c_val
+                        if _allow_offer:
+                            theor_col = ("Call_Theor" if col.startswith("Call_") else "Put_Theor")
+                            c = _bid_offer_color(row[col], row.get(theor_col), is_bid=False)
+                            if c:
+                                style = f"background-color: {c}; color: white; font-weight: 700"
                     elif col in ("Call_Delta", "Put_Delta"):
                         c = _delta_color(row[col])
                         if c:
