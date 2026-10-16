@@ -2775,6 +2775,20 @@ def _render_board_tab():
         c_map = {c['strike']: c for c in calls}
         p_map = {p['strike']: p for p in puts}
 
+        # --- Медианы по доске для относительных порогов греков ---
+        _all_gammas = []
+        _all_vegas  = []
+        for _k in strikes:
+            for _src in (c_map.get(_k, {}), p_map.get(_k, {})):
+                _g = _src.get("gamma")
+                _v = _src.get("vega")
+                if isinstance(_g, (int, float)) and _g > 0:
+                    _all_gammas.append(abs(float(_g)))
+                if isinstance(_v, (int, float)) and _v > 0:
+                    _all_vegas.append(abs(float(_v)))
+        _median_gamma = float(np.median(_all_gammas)) if _all_gammas else 0.0
+        _median_vega  = float(np.median(_all_vegas))  if _all_vegas  else 0.0
+
         def nearest_strike(level, strikes_list):
             if level is None or level <= 0 or not strikes_list:
                 return None
@@ -2847,6 +2861,85 @@ def _render_board_tab():
                 return "#fcff00"
             return "#ff0000"
 
+        # ============== НОВЫЙ ХЕЛПЕР: цвет для ячеек греков ==============
+        def _greek_signal_color(greek_name, row, side, buy_active, sell_active):
+            """
+            Возвращает цвет для ячейки грека или None.
+
+            Параметры:
+                greek_name: 'delta' | 'gamma' | 'vega' | 'theta'
+                row:        строка DataFrame (доска)
+                side:       'Call' | 'Put'
+                buy_active:  активен ли сигнал покупки в этой строке (Offer)
+                sell_active: активен ли сигнал продажи в этой строке (Bid)
+
+            Возвращает:
+                '#9c00ff' — фиолетовый (как Offer, сигнал покупки)
+                '#fb92f0' — розовый    (как Bid, сигнал продажи)
+                None      — без подсветки
+            """
+            _COL_BUY  = "#9c00ff"   # фиолетовый
+            _COL_SELL = "#fb92f0"   # розовый
+
+            _key_map = {
+                "delta": "Delta",
+                "gamma": "Gamma",
+                "vega":  "Vega",
+                "theta": "Theta",
+            }
+            _col_key = f"{side}_{_key_map.get(greek_name, '')}"
+            _v = row.get(_col_key)
+            if _v is None:
+                return None
+            try:
+                _va = abs(float(_v))
+            except (TypeError, ValueError):
+                return None
+
+            # --- Delta: покупка 0.20–0.45, продажа 0.45–0.70 ---
+            if greek_name == "delta":
+                if buy_active and 0.20 <= _va <= 0.45:
+                    return _COL_BUY
+                if sell_active and 0.45 <= _va <= 0.70:
+                    return _COL_SELL
+                return None
+
+            # --- Gamma: только покупка, если Γ ≥ 1.5× медианы ---
+            if greek_name == "gamma":
+                if buy_active and _median_gamma > 0 and _va >= 1.5 * _median_gamma:
+                    return _COL_BUY
+                return None
+
+            # --- Vega: покупка ν ≥ 1.2× медианы, продажа ν ≤ 0.8× медианы ---
+            if greek_name == "vega":
+                if _median_vega <= 0:
+                    return None
+                if buy_active and _va >= 1.2 * _median_vega:
+                    return _COL_BUY
+                if sell_active and _va <= 0.8 * _median_vega:
+                    return _COL_SELL
+                return None
+
+            # --- Theta: через отношение |θ|/|ν| ---
+            if greek_name == "theta":
+                _vv = row.get(f"{side}_Vega")
+                if _vv is None:
+                    return None
+                try:
+                    _vva = abs(float(_vv))
+                except (TypeError, ValueError):
+                    return None
+                if _vva < 1e-9:
+                    return None
+                _ratio = _va / _vva
+                if buy_active and _ratio <= 0.7:
+                    return _COL_BUY
+                if sell_active and _ratio >= 1.2:
+                    return _COL_SELL
+                return None
+
+            return None
+              
         def _bid_offer_color(price, theor, is_bid):
             if price is None or theor is None:
                 return None
@@ -2928,15 +3021,29 @@ def _render_board_tab():
                             c = _bid_offer_color(row[col], row.get(theor_col), is_bid=False)
                             if c:
                                 style = f"background-color: {c}; color: white; font-weight: 700"
-                    elif col in ("Call_Delta", "Put_Delta"):
-                        c = _delta_color(row[col])
-                        if c:
-                            style = f"background-color: {c}; font-weight: 600"
-                    elif col in ("Call_Theta", "Put_Theta"):
-                        vega_col = ("Call_Vega" if col.startswith("Call_") else "Put_Vega")
-                        c = _theta_color(row[col], row.get(vega_col))
-                        if c:
-                            style = f"background-color: {c}; font-weight: 600"
+                    elif col in ("Call_Delta", "Call_Gamma", "Call_Vega", "Call_Theta",
+                                 "Put_Delta",  "Put_Gamma",  "Put_Vega",  "Put_Theta"):
+                        _g_side = "Call" if col.startswith("Call_") else "Put"
+                        _g_name = col.split("_", 1)[1].lower()   # 'delta'|'gamma'|'vega'|'theta'
+
+                        if _g_side == "Call":
+                            _theor = row.get("Call_Theor")
+                            _bid_val = row.get("Call_Bid")
+                            _off_val = row.get("Call_Offer")
+                        else:
+                            _theor = row.get("Put_Theor")
+                            _bid_val = row.get("Put_Bid")
+                            _off_val = row.get("Put_Offer")
+
+                        _buy_a = (_off_val is not None
+                                  and _bid_offer_color(_off_val, _theor, is_bid=False) is not None)
+                        _sell_a = (_bid_val is not None
+                                   and _bid_offer_color(_bid_val, _theor, is_bid=True) is not None)
+
+                        if _buy_a or _sell_a:
+                            _gc = _greek_signal_color(_g_name, row, _g_side, _buy_a, _sell_a)
+                            if _gc:
+                                style = f"background-color: {_gc}; color: white; font-weight: 700"
 
                 styles.append(style)
             return styles
