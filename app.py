@@ -3075,11 +3075,6 @@ def _render_board_tab():
             c = c_map.get(k, {})
             p = p_map.get(k, {})
             iv = c.get('volatility') or p.get('volatility')
-            iv_f = float(iv) if iv is not None else None
-
-            _iv_rvi = classify_iv_vs_rvi(iv_f, _rvi_board_val) \
-                      if iv_f and _rvi_board_val else None
-
             rows.append({
                 "Call_Ticker": c.get('secid', '—'),
                 "Call_Rho":   c.get('rho'),
@@ -3093,9 +3088,6 @@ def _render_board_tab():
                 "Call_Bid":   c.get('bid'),
                 "Strike":     k,
                 "IV_%":       iv,
-                "IV_RVI_spread": _iv_rvi["spread"]     if _iv_rvi else None,
-                "IV_RVI_ratio":  _iv_rvi["ratio"]      if _iv_rvi else None,
-                "IV_RVI_zone":   _iv_rvi["zone_label"] if _iv_rvi else None,
                 "Put_Bid":    p.get('bid'),
                 "Put_Offer":  p.get('offer'),
                 "Put_Last":   p.get('last'),
@@ -3226,8 +3218,38 @@ def _render_board_tab():
                         style = "background-color: #9c00ff; color: white; font-weight: bold"
                     elif is_central:
                         style = "background-color: #e3e7ec; font-weight: bold"
-                elif col == "IV_%" and is_central:
-                    style = "background-color: #e3e7ec; font-weight: bold"
+                elif col == "IV_%":
+                    # Сначала проверяем «центральный страйк» — приоритет серому
+                    if is_central:
+                        style = "background-color: #e3e7ec; font-weight: bold"
+                    else:
+                        # Раскраска IV по зоне относительно RVI
+                        _iv_val = row.get("IV_%")
+                        if _iv_val is not None and _rvi_board_val:
+                            try:
+                                _iv_f = float(_iv_val)
+                                _zone = classify_iv_vs_rvi(_iv_f, _rvi_board_val)
+                            except (TypeError, ValueError):
+                                _zone = None
+                            if _zone:
+                                _zname = _zone.get("zone", "")
+                                if _zname == "very_high":
+                                    style = ("background-color: #d32f2f; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
+                                elif _zname == "high":
+                                    style = ("background-color: #e6a500; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
+                                elif _zname == "low":
+                                    style = ("background-color: #00a651; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
+                                elif _zname == "very_low":
+                                    style = ("background-color: #1e88e5; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
+                                # "normal" — без заливки
 
                 if highlight_on:
                     try:
@@ -3287,19 +3309,7 @@ def _render_board_tab():
                             _gc = _greek_signal_color(_g_name, row, _g_side, _buy_a, _sell_a)
                             if _gc:
                                 style = f"background-color: {_gc}; color: white; font-weight: 700"
-                    elif col == "IV_RVI_zone":
-                        _z = str(row[col] or "")
-                        if "Очень высокая" in _z:
-                            style = "background-color: #d32f2f; color: white; font-weight: 700; text-align: center;"
-                        elif "Повышенная" in _z:
-                            style = "background-color: #e6a500; color: white; font-weight: 700; text-align: center;"
-                        elif "Пониженная" in _z:
-                            style = "background-color: #00a651; color: white; font-weight: 700; text-align: center;"
-                        elif "Очень низкая" in _z:
-                            style = "background-color: #1e88e5; color: white; font-weight: 700; text-align: center;"
-                        elif "Норма" in _z:
-                            style = "text-align: center; color: #5a6b78;"
-
+                    
                 styles.append(style)
             return styles
 
@@ -3310,9 +3320,6 @@ def _render_board_tab():
             "Call_Theor": "Теор.Ц", "Call_Last": "Посл.Ц",
             "Call_Offer": "Offer", "Call_Bid": "Bid",
             "Strike": "Страйк", "IV_%": "IV%",
-            "IV_RVI_spread": "IV−RVI",
-            "IV_RVI_ratio":  "IV/RVI",
-            "IV_RVI_zone":   "Зона vs RVI",
             "Put_Bid": "Bid", "Put_Offer": "Offer",
             "Put_Last": "Посл.Ц", "Put_Theor": "Теор.Ц",
             "Put_Delta": "Дельта", "Put_Gamma": "Гамма",
@@ -3330,9 +3337,7 @@ def _render_board_tab():
 
         st.dataframe(
             df.style.apply(style_row, axis=1).format(
-                {"Strike": "{:.0f}", "IV_%": "{:.2f}",
-                 "IV_RVI_spread": "{:+.2f}",
-                 "IV_RVI_ratio":  "{:.2f}×"},
+                {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
                 precision=4, na_rep="—"),
             column_config=column_display,
             use_container_width=True, height=600)
