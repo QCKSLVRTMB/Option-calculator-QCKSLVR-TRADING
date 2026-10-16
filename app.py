@@ -3333,6 +3333,15 @@ def _render_position_tab():
                                     "Товар", "Индекс"):
                                 st.session_state.pos_category = _csv_category
 
+                            # 🔑 ФИКС: фиксируем активный ключ СРАЗУ,
+                            # чтобы на следующем rerun не сработал swap кэша
+                            # (_old_key == _new_key → позиции не перезапишутся)
+                            _new_key_csv = (f"{st.session_state.pos_asset}|"
+                                            f"{st.session_state.pos_category}")
+                            st.session_state["_pos_active_key"] = _new_key_csv
+                            st.session_state.positions_cache[_new_key_csv] = list(_imported)
+                            _save_cache(st.session_state.positions_cache)
+
                             st.session_state.pos_series_list = []
                             st.session_state.pos_series_code = ""
                             st.session_state.pos_expiry = ""
@@ -3485,14 +3494,39 @@ def _render_position_tab():
                         _default_series_idx = i
                         break
 
+                _board_load_err = None
                 try:
                     board = fetch_optionboard(_asset_now_all, _atype_now_all, _series_now)
                 except Exception as e:
-                    st.error(
-                        f"Не удалось загрузить доску опционов "
-                        f"для серии `{_series_now}`: {e}"
-                    )
+                    _board_load_err = str(e)
                     board = None
+
+                if _board_load_err:
+                    st.error(
+                        f"⚠ Не удалось загрузить доску для серии "
+                        f"**`{_series_now}`** (эксп. {_expiry_now})."
+                    )
+                    with st.expander("Подробнее", expanded=False):
+                        st.code(_board_load_err)
+                        st.caption(
+                            f"Актив: `{_asset_now_all}` · "
+                            f"Категория: `{_atype_now_all}` · "
+                            f"Серия: `{_series_now}`"
+                        )
+
+                    st.markdown("**Попробуйте выбрать другую серию:**")
+                    _fallback_label = st.selectbox(
+                        "Серия опционов",
+                        _series_labels,
+                        index=_default_series_idx,
+                        key="fallback_series_selector")
+                    if st.button("🔄 Переключиться на эту серию",
+                                  key="fallback_series_btn",
+                                  type="primary"):
+                        _fb = _series_by_label[_fallback_label]
+                        st.session_state.pos_series_code = _fb["code"]
+                        st.session_state.pos_expiry = _fb["expiry"]
+                        st.rerun()
 
                 if board:
                     calls = board.get('call') or []
