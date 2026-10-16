@@ -3099,7 +3099,6 @@ def _render_board_tab():
                 "Put_Rho":    p.get('rho'),
                 "Put_Ticker": p.get('secid', '—')})
         df = pd.DataFrame(rows)
-
         def _delta_color(delta):
             if delta is None or not isinstance(delta, (int, float)):
                 return None
@@ -3218,6 +3217,36 @@ def _render_board_tab():
                         style = "background-color: #9c00ff; color: white; font-weight: bold"
                     elif is_central:
                         style = "background-color: #e3e7ec; font-weight: bold"
+                elif col == "IV_%":
+                    # Сначала — центральный страйк (серый, приоритет)
+                    if is_central:
+                        style = "background-color: #e3e7ec; font-weight: bold"
+                    else:
+                        _iv_val = row.get("IV_%")
+                        if _iv_val is not None and _rvi_board_val:
+                            try:
+                                _iv_f = float(_iv_val)
+                                _zone = classify_iv_vs_rvi(_iv_f, _rvi_board_val)
+                            except (TypeError, ValueError):
+                                _zone = None
+                            if _zone:
+                                _zname = _zone.get("zone", "")
+                                if _zname == "very_high":
+                                    style = ("background-color: #d32f2f; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
+                                elif _zname == "high":
+                                    style = ("background-color: #e6a500; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
+                                elif _zname == "low":
+                                    style = ("background-color: #00a651; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
+                                elif _zname == "very_low":
+                                    style = ("background-color: #1e88e5; "
+                                             "color: white; font-weight: 700; "
+                                             "text-align: center;")
                 elif col == "IV_%":
                     # Сначала проверяем «центральный страйк» — приоритет серому
                     if is_central:
