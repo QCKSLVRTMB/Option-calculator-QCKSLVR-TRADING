@@ -2951,22 +2951,6 @@ def _render_board_tab():
     _board_buy_level = float(_board_levels["buy"] or 0) if _board_levels["found"] else 0.0
     _board_sell_level = float(_board_levels["sell"] or 0) if _board_levels["found"] else 0.0
 
-    # --- RVI-контекст для доски ---
-    _rvi_board_data = fetch_rvi_current()
-    _rvi_board_val = _rvi_board_data.get("value") if _rvi_board_data else None
-
-    if _rvi_board_val is not None:
-        _rvi_b_chg = _rvi_board_data.get("change") or 0.0
-        st.markdown(
-            f"<div style='background:#f0f4f8; border-radius:8px; "
-            f"padding:8px 14px; margin-bottom:10px; font-size:.9rem;'>"
-            f"📊 <b>RVI (рыночный фон):</b> "
-            f"<b>{_rvi_board_val:.2f}%</b> "
-            f"({_rvi_b_chg:+.2f} п.п.) — "
-            f"IV на доске сравнивается с этим уровнем"
-            f"</div>",
-            unsafe_allow_html=True)
-
     try:
         _board_for_price = fetch_optionboard(_board_asset, _board_cat,
                                               _active_series_code)
@@ -3099,6 +3083,7 @@ def _render_board_tab():
                 "Put_Rho":    p.get('rho'),
                 "Put_Ticker": p.get('secid', '—')})
         df = pd.DataFrame(rows)
+
         def _delta_color(delta):
             if delta is None or not isinstance(delta, (int, float)):
                 return None
@@ -3123,12 +3108,32 @@ def _render_board_tab():
                 return "#fcff00"
             return "#ff0000"
 
+        # ============== ХЕЛПЕР: цвет для ячеек греков ==============
         def _greek_signal_color(greek_name, row, side, buy_active, sell_active):
-            _COL_BUY  = "#9c00ff"
-            _COL_SELL = "#fb92f0"
+            """
+            Возвращает цвет для ячейки грека или None.
 
-            _key_map = {"delta": "Delta", "gamma": "Gamma",
-                        "vega": "Vega", "theta": "Theta"}
+            Параметры:
+                greek_name: 'delta' | 'gamma' | 'vega' | 'theta'
+                row:        строка DataFrame (доска)
+                side:       'Call' | 'Put'
+                buy_active:  активен ли сигнал покупки в этой строке (Offer)
+                sell_active: активен ли сигнал продажи в этой строке (Bid)
+
+            Возвращает:
+                '#9c00ff' — фиолетовый (как Offer, сигнал покупки)
+                '#fb92f0' — розовый    (как Bid, сигнал продажи)
+                None      — без подсветки
+            """
+            _COL_BUY  = "#9c00ff"   # фиолетовый
+            _COL_SELL = "#fb92f0"   # розовый
+
+            _key_map = {
+                "delta": "Delta",
+                "gamma": "Gamma",
+                "vega":  "Vega",
+                "theta": "Theta",
+            }
             _col_key = f"{side}_{_key_map.get(greek_name, '')}"
             _v = row.get(_col_key)
             if _v is None:
@@ -3138,6 +3143,7 @@ def _render_board_tab():
             except (TypeError, ValueError):
                 return None
 
+            # --- Delta: покупка 0.20–0.45, продажа 0.45–0.70 ---
             if greek_name == "delta":
                 if buy_active and 0.20 <= _va <= 0.45:
                     return _COL_BUY
@@ -3145,11 +3151,13 @@ def _render_board_tab():
                     return _COL_SELL
                 return None
 
+            # --- Gamma: только покупка, если Γ ≥ 1.5× медианы ---
             if greek_name == "gamma":
                 if buy_active and _median_gamma > 0 and _va >= 1.5 * _median_gamma:
                     return _COL_BUY
                 return None
 
+            # --- Vega: покупка ν ≥ 1.2× медианы, продажа ν ≤ 0.8× медианы ---
             if greek_name == "vega":
                 if _median_vega <= 0:
                     return None
@@ -3159,6 +3167,7 @@ def _render_board_tab():
                     return _COL_SELL
                 return None
 
+            # --- Theta: через отношение |θ|/|ν| ---
             if greek_name == "theta":
                 _vv = row.get(f"{side}_Vega")
                 if _vv is None:
@@ -3217,70 +3226,12 @@ def _render_board_tab():
                         style = "background-color: #9c00ff; color: white; font-weight: bold"
                     elif is_central:
                         style = "background-color: #e3e7ec; font-weight: bold"
-                elif col == "IV_%":
-                    # Сначала — центральный страйк (серый, приоритет)
-                    if is_central:
-                        style = "background-color: #e3e7ec; font-weight: bold"
-                    else:
-                        _iv_val = row.get("IV_%")
-                        if _iv_val is not None and _rvi_board_val:
-                            try:
-                                _iv_f = float(_iv_val)
-                                _zone = classify_iv_vs_rvi(_iv_f, _rvi_board_val)
-                            except (TypeError, ValueError):
-                                _zone = None
-                            if _zone:
-                                _zname = _zone.get("zone", "")
-                                if _zname == "very_high":
-                                    style = ("background-color: #d32f2f; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                                elif _zname == "high":
-                                    style = ("background-color: #e6a500; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                                elif _zname == "low":
-                                    style = ("background-color: #00a651; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                                elif _zname == "very_low":
-                                    style = ("background-color: #1e88e5; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                elif col == "IV_%":
-                    # Сначала проверяем «центральный страйк» — приоритет серому
-                    if is_central:
-                        style = "background-color: #e3e7ec; font-weight: bold"
-                    else:
-                        # Раскраска IV по зоне относительно RVI
-                        _iv_val = row.get("IV_%")
-                        if _iv_val is not None and _rvi_board_val:
-                            try:
-                                _iv_f = float(_iv_val)
-                                _zone = classify_iv_vs_rvi(_iv_f, _rvi_board_val)
-                            except (TypeError, ValueError):
-                                _zone = None
-                            if _zone:
-                                _zname = _zone.get("zone", "")
-                                if _zname == "very_high":
-                                    style = ("background-color: #d32f2f; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                                elif _zname == "high":
-                                    style = ("background-color: #e6a500; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                                elif _zname == "low":
-                                    style = ("background-color: #00a651; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                                elif _zname == "very_low":
-                                    style = ("background-color: #1e88e5; "
-                                             "color: white; font-weight: 700; "
-                                             "text-align: center;")
-                                # "normal" — без заливки
+                elif col == "IV_%" and is_central:
+                    style = "background-color: #e3e7ec; font-weight: bold"
 
                 if highlight_on:
+                    # Границы ITM/OTM относительно центрального страйка.
+                    # ATM (strike == central) — разрешаем и Bid, и Offer.
                     try:
                         _c_val = float(central) if central is not None else None
                     except (TypeError, ValueError):
@@ -3316,7 +3267,7 @@ def _render_board_tab():
                     elif col in ("Call_Delta", "Call_Gamma", "Call_Vega", "Call_Theta",
                                  "Put_Delta",  "Put_Gamma",  "Put_Vega",  "Put_Theta"):
                         _g_side = "Call" if col.startswith("Call_") else "Put"
-                        _g_name = col.split("_", 1)[1].lower()
+                        _g_name = col.split("_", 1)[1].lower()   # 'delta'|'gamma'|'vega'|'theta'
 
                         if _g_side == "Call":
                             _theor = row.get("Call_Theor")
@@ -3338,7 +3289,7 @@ def _render_board_tab():
                             _gc = _greek_signal_color(_g_name, row, _g_side, _buy_a, _sell_a)
                             if _gc:
                                 style = f"background-color: {_gc}; color: white; font-weight: 700"
-                    
+
                 styles.append(style)
             return styles
 
@@ -3386,13 +3337,6 @@ def _render_board_tab():
                 line=dict(color='#2c7da0', width=2),
                 fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
                 name='IV, %'))
-            if _rvi_board_val is not None:
-                fig.add_hline(
-                    y=_rvi_board_val,
-                    line=dict(color="#d32f2f", width=2, dash="dash"),
-                    annotation_text=f"RVI = {_rvi_board_val:.2f}%",
-                    annotation_position="top right",
-                    annotation_font_color="#d32f2f")
             fig.update_layout(
                 title="Улыбка волатильности",
                 xaxis_title="Страйк", yaxis_title="IV, %",
