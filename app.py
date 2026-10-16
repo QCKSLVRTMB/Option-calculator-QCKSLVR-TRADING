@@ -2992,13 +2992,11 @@ def _render_board_tab():
                     _is_atm = (_c_val is not None and abs(strike - _c_val) < 0.01)
 
                     if col in ("Call_Bid", "Put_Bid"):
-                        # Розовый (Bid) — только ITM:
-                        #   Call: strike < central
+                        # Розовый (Bid) — продажа ВЫШЕ центрального:
+                        #   Call: strike > central
                         #   Put:  strike > central
                         if _c_val is None or _is_atm:
                             _allow_bid = True
-                        elif col.startswith("Call_"):
-                            _allow_bid = strike < _c_val
                         else:
                             _allow_bid = strike > _c_val
                         if _allow_bid:
@@ -3007,13 +3005,11 @@ def _render_board_tab():
                             if c:
                                 style = f"background-color: {c}; color: white; font-weight: 700"
                     elif col in ("Call_Offer", "Put_Offer"):
-                        # Фиолетовый (Offer) — только OTM:
-                        #   Call: strike > central
+                        # Фиолетовый (Offer) — покупка НИЖЕ центрального:
+                        #   Call: strike < central
                         #   Put:  strike < central
                         if _c_val is None or _is_atm:
                             _allow_offer = True
-                        elif col.startswith("Call_"):
-                            _allow_offer = strike > _c_val
                         else:
                             _allow_offer = strike < _c_val
                         if _allow_offer:
