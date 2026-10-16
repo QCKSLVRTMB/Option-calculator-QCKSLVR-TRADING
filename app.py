@@ -3032,9 +3032,11 @@ def _render_board_tab():
                             _off_val = row.get("Put_Offer")
 
                         _buy_a = (_off_val is not None
-                                  and _bid_offer_color(_off_val, _theor, is_bid=False) is not None)
+                                  and _bid_offer_color(_off_val, _theor, is_bid=False) is not None
+                                  and (_c_val is None or _is_atm or strike < _c_val))
                         _sell_a = (_bid_val is not None
-                                   and _bid_offer_color(_bid_val, _theor, is_bid=True) is not None)
+                                   and _bid_offer_color(_bid_val, _theor, is_bid=True) is not None
+                                   and (_c_val is None or _is_atm or strike > _c_val))
 
                         if _buy_a or _sell_a:
                             _gc = _greek_signal_color(_g_name, row, _g_side, _buy_a, _sell_a)
