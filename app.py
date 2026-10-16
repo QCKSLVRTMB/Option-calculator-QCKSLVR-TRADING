@@ -23,9 +23,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-if "cache_cleared_v6" not in st.session_state:
+if "cache_cleared_v7" not in st.session_state:
     st.cache_data.clear()
-    st.session_state["cache_cleared_v6"] = True
+    st.session_state["cache_cleared_v7"] = True
 
 st.markdown("""
 <style>
@@ -384,57 +384,6 @@ _UI_TO_ASSET_TYPES = {
     "Товар":   [("commodity", None), ("futures", "commodity")],
 }
 
-
-def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
-    return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
-def _load_option_calc_assets():
-    """Справочник активов option-calc с TTL 6 часов."""
-    global _OPTION_CALC_ASSETS, _OPTION_CALC_ASSETS_TS
-    now = time.time()
-    if _OPTION_CALC_ASSETS is not None and (now - _OPTION_CALC_ASSETS_TS) < 21600:
-        return _OPTION_CALC_ASSETS
-    data = iss_get_json(f"{API_BASE_URL}/assets", timeout=15)
-    if isinstance(data, list):
-        _OPTION_CALC_ASSETS = data
-        _OPTION_CALC_ASSETS_TS = now
-    return _OPTION_CALC_ASSETS or []
-
-
-def resolve_option_calc_code(asset_input: str, asset_type_ui: str):
-    """Возвращает (asset_code, asset_type), реально поддерживаемые option-calc.
-    Работает ДАЖЕ ЕСЛИ /assets недоступен — за счёт статического alias-словаря.
-    """
-    ticker = (asset_input or "").strip().upper()
-    moex_type = ASSET_TYPE_MAP.get(asset_type_ui, "futures")
-    if not ticker:
-        return ticker, moex_type
-
-    if asset_type_ui == "Индекс" and ticker == "RTSI":
-        ticker = "RTS"
-
-    if asset_type_ui == "Фьючерс":
-        alias = _SHARE_TO_FUTURE_ALIAS.get(ticker)
-        if alias:
-            ticker = alias
-
-    assets = _load_option_calc_assets()
-    if assets:
-        wanted = _UI_TO_ASSET_TYPES.get(asset_type_ui, [(moex_type, None)])
-        supported = {
-            (a.get("asset_code"), a.get("asset_type"), a.get("asset_subtype"))
-            for a in assets
-        }
-        for atype, sub in wanted:
-            if (ticker, atype, sub) in supported:
-                return ticker, atype
-        for atype, _sub in wanted:
-            for a in assets:
-                if a.get("asset_code") == ticker and a.get("asset_type") == atype:
-                    return ticker, atype
-
-    return ticker, moex_type
-
-
 # ================= Предустановленные стратегии =================
 PREDEFINED_STRATEGIES = {
     "Long Call": {"category": "Одиночные", "description": "Покупка опциона Call — ставка на рост",
@@ -481,6 +430,8 @@ PREDEFINED_STRATEGIES = {
             {"label": "Sell Call (K3)", "option": "Call", "side": "Sell", "qty": 1, "strike_group": "K3"},
             {"label": "Buy Call (K4)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K4"}]},
 }
+def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
+    return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
 
 # ================= Устойчивый HTTP-клиент к ISS =================
@@ -555,6 +506,55 @@ def resolve_canonical_asset_code(user_input: str, asset_type_ui: str = None) -> 
             if code.upper() == s_upper:
                 return code
     return s_upper
+
+
+# ================= Резолвер кода актива для option-calc =================
+def _load_option_calc_assets():
+    """Справочник активов option-calc с TTL 6 часов."""
+    global _OPTION_CALC_ASSETS, _OPTION_CALC_ASSETS_TS
+    now = time.time()
+    if _OPTION_CALC_ASSETS is not None and (now - _OPTION_CALC_ASSETS_TS) < 21600:
+        return _OPTION_CALC_ASSETS
+    data = iss_get_json(f"{API_BASE_URL}/assets", timeout=15)
+    if isinstance(data, list):
+        _OPTION_CALC_ASSETS = data
+        _OPTION_CALC_ASSETS_TS = now
+    return _OPTION_CALC_ASSETS or []
+
+
+def resolve_option_calc_code(asset_input: str, asset_type_ui: str):
+    """Возвращает (asset_code, asset_type), реально поддерживаемые option-calc.
+    Работает ДАЖЕ ЕСЛИ /assets недоступен — за счёт статического alias-словаря.
+    """
+    ticker = (asset_input or "").strip().upper()
+    moex_type = ASSET_TYPE_MAP.get(asset_type_ui, "futures")
+    if not ticker:
+        return ticker, moex_type
+
+    if asset_type_ui == "Индекс" and ticker == "RTSI":
+        ticker = "RTS"
+
+    if asset_type_ui == "Фьючерс":
+        alias = _SHARE_TO_FUTURE_ALIAS.get(ticker)
+        if alias:
+            ticker = alias
+
+    assets = _load_option_calc_assets()
+    if assets:
+        wanted = _UI_TO_ASSET_TYPES.get(asset_type_ui, [(moex_type, None)])
+        supported = {
+            (a.get("asset_code"), a.get("asset_type"), a.get("asset_subtype"))
+            for a in assets
+        }
+        for atype, sub in wanted:
+            if (ticker, atype, sub) in supported:
+                return ticker, atype
+        for atype, _sub in wanted:
+            for a in assets:
+                if a.get("asset_code") == ticker and a.get("asset_type") == atype:
+                    return ticker, atype
+
+    return ticker, moex_type
 
 
 # ================= Комиссии =================
@@ -735,7 +735,162 @@ def get_risk_free_rate_for_expiry(expiry_str: str, current_str: str = None):
         return round(g_curve_yield(days / 365.0, params), 4)
     except Exception:
         return None
-        # ================= Цветовые маркеры дат =================
+
+
+# ================= RVI (Russian Volatility Index) =================
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_rvi_current():
+    url = "https://iss.moex.com/iss/engines/stock/markets/index/securities/RVI.json"
+    data = iss_get_json(url, params={"iss.meta": "off"}, timeout=15)
+    if data is None:
+        return {"value": None, "error": "Ошибка запроса ISS"}
+
+    result = {
+        "value": None, "open": None, "change": None, "change_pct": None,
+        "high": None, "low": None, "annual_high": None, "annual_low": None,
+        "update_time": None, "trade_date": None, "error": None,
+    }
+
+    sec = data.get("securities", {})
+    if sec.get("data"):
+        rd = dict(zip(sec["columns"], sec["data"][0]))
+        result["annual_high"] = rd.get("ANNUALHIGH")
+        result["annual_low"] = rd.get("ANNUALLOW")
+
+    md = data.get("marketdata", {})
+    if md.get("data"):
+        rd = dict(zip(md["columns"], md["data"][0]))
+        for key, rkey in [
+            ("LASTVALUE", "value"),
+            ("OPENVALUE", "open"),
+            ("LASTCHANGE", "change"),
+            ("LASTCHANGEPRC", "change_pct"),
+            ("HIGH", "high"),
+            ("LOW", "low"),
+            ("UPDATETIME", "update_time"),
+            ("TRADEDATE", "trade_date"),
+        ]:
+            v = rd.get(key)
+            if v is None or v == "":
+                continue
+            if rkey in ("update_time", "trade_date"):
+                result[rkey] = v
+            else:
+                try:
+                    result[rkey] = float(v)
+                except (TypeError, ValueError):
+                    pass
+
+    if result["value"] is None:
+        result["error"] = "RVI не найден в ответе ISS"
+
+    return result
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_rvi_history(days=365):
+    end = datetime.now()
+    start = end - timedelta(days=days)
+    url = ("https://iss.moex.com/iss/engines/stock/markets/index/"
+           "securities/RVI/candles.json")
+    params = {
+        "from": start.strftime("%Y-%m-%d"),
+        "till": end.strftime("%Y-%m-%d"),
+        "interval": 24,
+        "iss.meta": "off",
+    }
+    data = iss_get_json(url, params=params, timeout=20)
+    if data is None:
+        return pd.DataFrame()
+    cols = data.get("candles", {}).get("columns", [])
+    rows = data.get("candles", {}).get("data", [])
+    if not rows or not cols:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows, columns=cols)
+    df["begin"] = pd.to_datetime(df["begin"], errors="coerce")
+    df = df.dropna(subset=["begin", "close"])
+    df = df.sort_values("begin").reset_index(drop=True)
+    return df
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_rvi_stats(days=365):
+    df = fetch_rvi_history(days=days)
+    if df.empty:
+        return None
+    values = df["close"].values
+    current = values[-1] if len(values) > 0 else None
+    if current is None:
+        return None
+    return {
+        "min":        float(np.min(values)),
+        "max":        float(np.max(values)),
+        "mean":       float(np.mean(values)),
+        "median":     float(np.median(values)),
+        "current":    float(current),
+        "percentile": float(np.mean(values <= current) * 100),
+        "count":      len(values),
+    }
+
+
+def classify_iv_vs_rvi(iv, rvi):
+    if iv is None or rvi is None or rvi <= 0:
+        return None
+
+    spread = iv - rvi
+    ratio = iv / rvi
+
+    if ratio > 2.0:
+        zone, label, color = "very_high", "🔴 Очень высокая", "#d32f2f"
+        action = "Продавать волатильность (проверить новости!)"
+    elif ratio > 1.5:
+        zone, label, color = "high", "🟡 Повышенная", "#e6a500"
+        action = "Осторожно, проверить контекст"
+    elif ratio > 0.7:
+        zone, label, color = "normal", "⚪ Норма", "#7a7a7a"
+        action = "Направленные стратегии"
+    elif ratio > 0.5:
+        zone, label, color = "low", "🟢 Пониженная", "#00a651"
+        action = "Кандидат на покупку волатильности"
+    else:
+        zone, label, color = "very_low", "🔵 Очень низкая", "#1e88e5"
+        action = "Покупать волатильность (дёшево)"
+
+    return {
+        "spread":     round(spread, 2),
+        "ratio":      round(ratio, 3),
+        "zone":       zone,
+        "zone_label": label,
+        "zone_color": color,
+        "action":     action,
+    }
+
+
+def classify_strategy(total_gamma, total_theta, total_vega):
+    if total_gamma > 0 and total_theta < 0 and total_vega > 0:
+        return {
+            "class": "long_vol",
+            "label": "🟢 ПОКУПКА ВОЛАТИЛЬНОСТИ",
+            "color": "#00a651",
+            "description": "Платите временной распад, ждёте движения или роста IV",
+        }
+    elif total_gamma < 0 and total_theta > 0 and total_vega < 0:
+        return {
+            "class": "short_vol",
+            "label": "🔴 ПРОДАЖА ВОЛАТИЛЬНОСТИ",
+            "color": "#d32f2f",
+            "description": "Получаете премию за счёт распада, несёте риск движения и роста IV",
+        }
+    else:
+        return {
+            "class": "mixed",
+            "label": "⚪ СМЕШАННАЯ",
+            "color": "#7a7a7a",
+            "description": "Комбинированная стратегия (календарь, бабочка и т.п.)",
+        }
+
+
+# ================= Цветовые маркеры дат =================
 def expiry_marker(expiry_str: str) -> str:
     try:
         d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
@@ -1080,9 +1235,7 @@ def get_alert_assets_list():
         return items
     except Exception:
         return []
-
-
-# ================= MOEX API: опционы =================
+        # ================= MOEX API: опционы =================
 def get_asset_code_and_type(asset_input: str, asset_type_ui: str):
     """Резолвит (asset_code, asset_type) через живой справочник option-calc."""
     return resolve_option_calc_code(asset_input, asset_type_ui)
@@ -2078,6 +2231,70 @@ def _portfolio_value(positions, S_vals, days_forward, iv_pct, comm_func=None):
     return total
 
 
+def _portfolio_value_with_rvi(positions, S_vals, days_forward,
+                               iv_pct, rvi_shift, correlation,
+                               comm_func=None):
+    """
+    Аналог _portfolio_value, но с корректировкой IV каждой позиции
+    на изменение RVI: vol_adjusted = vol_base + rvi_shift × correlation.
+    """
+    S = np.asarray(S_vals, dtype=float)
+    total = np.zeros_like(S)
+    if days_forward is None:
+        days_forward = 0
+
+    for p in positions:
+        if not p.get("visible", True):
+            continue
+        qty = int(p.get("Кол-во", 0))
+        if qty == 0:
+            continue
+        entry = float(p.get("Цена", 0))
+        _instr = p.get("Тип инструмента", "Опцион")
+        com = comm_func(entry, _instr) if comm_func else 0.0
+
+        if _instr == "БА" or p.get("Опцион") == "БА":
+            total += (S - entry) * qty
+            continue
+
+        K = p.get("Страйк")
+        if K is None:
+            continue
+        K = float(K)
+
+        exp_str = p.get("Эксп.", "—")
+        leg_expiry = None
+        if exp_str and exp_str != "—":
+            try:
+                leg_expiry = datetime.strptime(exp_str, "%Y-%m-%d").date()
+            except Exception:
+                leg_expiry = None
+
+        r_leg = float(p.get("_r", 0.0) or 0.0)
+        q_leg = float(p.get("_q", 0.0) or 0.0)
+        vol_base = float(p.get("_vol", iv_pct or 20.0) or 20.0)
+        vol_adjusted = vol_base + rvi_shift * correlation
+        opt_type = "call" if p.get("Опцион") == "Call" else "put"
+
+        if leg_expiry is None:
+            price_now = np.maximum(0, S - K) if opt_type == "call" \
+                else np.maximum(0, K - S)
+        else:
+            days_left = (leg_expiry - date.today()).days - days_forward
+            if days_left <= 0:
+                price_now = np.maximum(0, S - K) if opt_type == "call" \
+                    else np.maximum(0, K - S)
+            else:
+                T_years = days_left / 365.0
+                price_now = np.array([
+                    _bs_price_np(s, K, T_years, r_leg, vol_adjusted, q_leg, opt_type)
+                    for s in S
+                ])
+
+        total += (price_now - entry - com) * qty
+    return total
+
+
 def _get_current_market_price_for_asset(asset, atype):
     if not (asset and atype):
         return None
@@ -2290,6 +2507,36 @@ def _save_cache(_cache: dict):
         return False
         # ================= UI =================
 st.title("MOEX Options & Black-Scholes")
+
+# ================= RVI HEADER =================
+_rvi_header = fetch_rvi_current()
+if _rvi_header and _rvi_header.get("value") is not None:
+    _rvi_v = _rvi_header["value"]
+    _rvi_chg = _rvi_header.get("change") or 0.0
+    _rvi_chg_pct = _rvi_header.get("change_pct") or 0.0
+
+    if _rvi_v < 20:
+        _rvi_color = "#00a651"
+        _rvi_icon = "🟢"
+    elif _rvi_v < 35:
+        _rvi_color = "#e6a500"
+        _rvi_icon = "🟡"
+    else:
+        _rvi_color = "#d32f2f"
+        _rvi_icon = "🔴"
+
+    st.markdown(
+        f"<div style='display:flex; align-items:center; gap:12px; "
+        f"padding:6px 14px; background:#f0f4f8; border-radius:8px; "
+        f"margin-bottom:12px; font-size:.9rem;'>"
+        f"<span style='font-weight:700; color:{_rvi_color};'>"
+        f"{_rvi_icon} RVI: {_rvi_v:.2f}%</span>"
+        f"<span style='color:{_rvi_color};'>"
+        f"({_rvi_chg:+.2f} п.п. / {_rvi_chg_pct:+.2f}%)</span>"
+        f"<span style='color:#5a6b78; font-size:.8rem;'>"
+        f"обновлено: {_rvi_header.get('update_time', '—')}</span>"
+        f"</div>",
+        unsafe_allow_html=True)
 
 
 def _safe_float_qp(key, default=0.0):
@@ -2704,6 +2951,22 @@ def _render_board_tab():
     _board_buy_level = float(_board_levels["buy"] or 0) if _board_levels["found"] else 0.0
     _board_sell_level = float(_board_levels["sell"] or 0) if _board_levels["found"] else 0.0
 
+    # --- RVI-контекст для доски ---
+    _rvi_board_data = fetch_rvi_current()
+    _rvi_board_val = _rvi_board_data.get("value") if _rvi_board_data else None
+
+    if _rvi_board_val is not None:
+        _rvi_b_chg = _rvi_board_data.get("change") or 0.0
+        st.markdown(
+            f"<div style='background:#f0f4f8; border-radius:8px; "
+            f"padding:8px 14px; margin-bottom:10px; font-size:.9rem;'>"
+            f"📊 <b>RVI (рыночный фон):</b> "
+            f"<b>{_rvi_board_val:.2f}%</b> "
+            f"({_rvi_b_chg:+.2f} п.п.) — "
+            f"IV на доске сравнивается с этим уровнем"
+            f"</div>",
+            unsafe_allow_html=True)
+
     try:
         _board_for_price = fetch_optionboard(_board_asset, _board_cat,
                                               _active_series_code)
@@ -2812,6 +3075,11 @@ def _render_board_tab():
             c = c_map.get(k, {})
             p = p_map.get(k, {})
             iv = c.get('volatility') or p.get('volatility')
+            iv_f = float(iv) if iv is not None else None
+
+            _iv_rvi = classify_iv_vs_rvi(iv_f, _rvi_board_val) \
+                      if iv_f and _rvi_board_val else None
+
             rows.append({
                 "Call_Ticker": c.get('secid', '—'),
                 "Call_Rho":   c.get('rho'),
@@ -2825,6 +3093,9 @@ def _render_board_tab():
                 "Call_Bid":   c.get('bid'),
                 "Strike":     k,
                 "IV_%":       iv,
+                "IV_RVI_spread": _iv_rvi["spread"]     if _iv_rvi else None,
+                "IV_RVI_ratio":  _iv_rvi["ratio"]      if _iv_rvi else None,
+                "IV_RVI_zone":   _iv_rvi["zone_label"] if _iv_rvi else None,
                 "Put_Bid":    p.get('bid'),
                 "Put_Offer":  p.get('offer'),
                 "Put_Last":   p.get('last'),
@@ -2861,32 +3132,12 @@ def _render_board_tab():
                 return "#fcff00"
             return "#ff0000"
 
-        # ============== НОВЫЙ ХЕЛПЕР: цвет для ячеек греков ==============
         def _greek_signal_color(greek_name, row, side, buy_active, sell_active):
-            """
-            Возвращает цвет для ячейки грека или None.
+            _COL_BUY  = "#9c00ff"
+            _COL_SELL = "#fb92f0"
 
-            Параметры:
-                greek_name: 'delta' | 'gamma' | 'vega' | 'theta'
-                row:        строка DataFrame (доска)
-                side:       'Call' | 'Put'
-                buy_active:  активен ли сигнал покупки в этой строке (Offer)
-                sell_active: активен ли сигнал продажи в этой строке (Bid)
-
-            Возвращает:
-                '#9c00ff' — фиолетовый (как Offer, сигнал покупки)
-                '#fb92f0' — розовый    (как Bid, сигнал продажи)
-                None      — без подсветки
-            """
-            _COL_BUY  = "#9c00ff"   # фиолетовый
-            _COL_SELL = "#fb92f0"   # розовый
-
-            _key_map = {
-                "delta": "Delta",
-                "gamma": "Gamma",
-                "vega":  "Vega",
-                "theta": "Theta",
-            }
+            _key_map = {"delta": "Delta", "gamma": "Gamma",
+                        "vega": "Vega", "theta": "Theta"}
             _col_key = f"{side}_{_key_map.get(greek_name, '')}"
             _v = row.get(_col_key)
             if _v is None:
@@ -2896,7 +3147,6 @@ def _render_board_tab():
             except (TypeError, ValueError):
                 return None
 
-            # --- Delta: покупка 0.20–0.45, продажа 0.45–0.70 ---
             if greek_name == "delta":
                 if buy_active and 0.20 <= _va <= 0.45:
                     return _COL_BUY
@@ -2904,13 +3154,11 @@ def _render_board_tab():
                     return _COL_SELL
                 return None
 
-            # --- Gamma: только покупка, если Γ ≥ 1.5× медианы ---
             if greek_name == "gamma":
                 if buy_active and _median_gamma > 0 and _va >= 1.5 * _median_gamma:
                     return _COL_BUY
                 return None
 
-            # --- Vega: покупка ν ≥ 1.2× медианы, продажа ν ≤ 0.8× медианы ---
             if greek_name == "vega":
                 if _median_vega <= 0:
                     return None
@@ -2920,7 +3168,6 @@ def _render_board_tab():
                     return _COL_SELL
                 return None
 
-            # --- Theta: через отношение |θ|/|ν| ---
             if greek_name == "theta":
                 _vv = row.get(f"{side}_Vega")
                 if _vv is None:
@@ -2939,7 +3186,7 @@ def _render_board_tab():
                 return None
 
             return None
-              
+
         def _bid_offer_color(price, theor, is_bid):
             if price is None or theor is None:
                 return None
@@ -2983,8 +3230,6 @@ def _render_board_tab():
                     style = "background-color: #e3e7ec; font-weight: bold"
 
                 if highlight_on:
-                    # Границы ITM/OTM относительно центрального страйка.
-                    # ATM (strike == central) — разрешаем и Bid, и Offer.
                     try:
                         _c_val = float(central) if central is not None else None
                     except (TypeError, ValueError):
@@ -3020,7 +3265,7 @@ def _render_board_tab():
                     elif col in ("Call_Delta", "Call_Gamma", "Call_Vega", "Call_Theta",
                                  "Put_Delta",  "Put_Gamma",  "Put_Vega",  "Put_Theta"):
                         _g_side = "Call" if col.startswith("Call_") else "Put"
-                        _g_name = col.split("_", 1)[1].lower()   # 'delta'|'gamma'|'vega'|'theta'
+                        _g_name = col.split("_", 1)[1].lower()
 
                         if _g_side == "Call":
                             _theor = row.get("Call_Theor")
@@ -3042,6 +3287,18 @@ def _render_board_tab():
                             _gc = _greek_signal_color(_g_name, row, _g_side, _buy_a, _sell_a)
                             if _gc:
                                 style = f"background-color: {_gc}; color: white; font-weight: 700"
+                    elif col == "IV_RVI_zone":
+                        _z = str(row[col] or "")
+                        if "Очень высокая" in _z:
+                            style = "background-color: #d32f2f; color: white; font-weight: 700; text-align: center;"
+                        elif "Повышенная" in _z:
+                            style = "background-color: #e6a500; color: white; font-weight: 700; text-align: center;"
+                        elif "Пониженная" in _z:
+                            style = "background-color: #00a651; color: white; font-weight: 700; text-align: center;"
+                        elif "Очень низкая" in _z:
+                            style = "background-color: #1e88e5; color: white; font-weight: 700; text-align: center;"
+                        elif "Норма" in _z:
+                            style = "text-align: center; color: #5a6b78;"
 
                 styles.append(style)
             return styles
@@ -3053,6 +3310,9 @@ def _render_board_tab():
             "Call_Theor": "Теор.Ц", "Call_Last": "Посл.Ц",
             "Call_Offer": "Offer", "Call_Bid": "Bid",
             "Strike": "Страйк", "IV_%": "IV%",
+            "IV_RVI_spread": "IV−RVI",
+            "IV_RVI_ratio":  "IV/RVI",
+            "IV_RVI_zone":   "Зона vs RVI",
             "Put_Bid": "Bid", "Put_Offer": "Offer",
             "Put_Last": "Посл.Ц", "Put_Theor": "Теор.Ц",
             "Put_Delta": "Дельта", "Put_Gamma": "Гамма",
@@ -3070,7 +3330,9 @@ def _render_board_tab():
 
         st.dataframe(
             df.style.apply(style_row, axis=1).format(
-                {"Strike": "{:.0f}", "IV_%": "{:.2f}"},
+                {"Strike": "{:.0f}", "IV_%": "{:.2f}",
+                 "IV_RVI_spread": "{:+.2f}",
+                 "IV_RVI_ratio":  "{:.2f}×"},
                 precision=4, na_rep="—"),
             column_config=column_display,
             use_container_width=True, height=600)
@@ -3090,6 +3352,13 @@ def _render_board_tab():
                 line=dict(color='#2c7da0', width=2),
                 fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
                 name='IV, %'))
+            if _rvi_board_val is not None:
+                fig.add_hline(
+                    y=_rvi_board_val,
+                    line=dict(color="#d32f2f", width=2, dash="dash"),
+                    annotation_text=f"RVI = {_rvi_board_val:.2f}%",
+                    annotation_position="top right",
+                    annotation_font_color="#d32f2f")
             fig.update_layout(
                 title="Улыбка волатильности",
                 xaxis_title="Страйк", yaxis_title="IV, %",
@@ -3466,9 +3735,6 @@ def _render_position_tab():
                                     "Товар", "Индекс"):
                                 st.session_state.pos_category = _csv_category
 
-                            # 🔑 ФИКС: фиксируем активный ключ СРАЗУ,
-                            # чтобы на следующем rerun не сработал swap кэша
-                            # (_old_key == _new_key → позиции не перезапишутся)
                             _new_key_csv = (f"{st.session_state.pos_asset}|"
                                             f"{st.session_state.pos_category}")
                             st.session_state["_pos_active_key"] = _new_key_csv
@@ -3961,7 +4227,7 @@ def _render_position_tab():
                                             st.rerun()
 
     # ==================================================================
-    # ЖИВОЕ ОБНОВЛЕНИЕ ТЕОР. ЦЕНЫ И ГРЕКОВ (единственный блок)
+    # ЖИВОЕ ОБНОВЛЕНИЕ ТЕОР. ЦЕНЫ И ГРЕКОВ
     # ==================================================================
     _pos_asset_r = st.session_state.get("pos_asset", "")
     _pos_atype_r = st.session_state.get("pos_category", "")
@@ -4434,7 +4700,7 @@ def _render_position_tab():
             st.rerun()
 
     # ==================================================================
-    # АНАЛИЗ ПОЗИЦИИ (ДЕБЕТ/КРЕДИТ, РИСК)
+    # АНАЛИЗ ПОЗИЦИИ (ДЕБЕТ/КРЕДИТ, РИСК, КЛАССИФИКАЦИЯ СТРАТЕГИИ)
     # ==================================================================
     if st.session_state.positions:
         _visible_positions = [p for p in st.session_state.positions
@@ -4582,6 +4848,62 @@ def _render_position_tab():
         elif _risk_value > risk_amount:
             st.error(f"⚠ Превышен допустимый риск: "
                      f"{_risk_value:,.2f} ₽ > {risk_amount:,.2f} ₽")
+
+        # ================= КЛАССИФИКАЦИЯ СТРАТЕГИИ =================
+        _cls_gamma = _cls_theta = _cls_vega = 0.0
+        for _cp in _visible_positions:
+            _cq = int(_cp.get("Кол-во", 0))
+            _cls_gamma += (_cp.get("Гамма") or 0) * _cq
+            _cls_theta += (_cp.get("Тета")  or 0) * _cq
+            _cls_vega  += (_cp.get("Вега")  or 0) * _cq
+
+        _strategy_cls = classify_strategy(_cls_gamma, _cls_theta, _cls_vega)
+
+        _rvi_strat_data = fetch_rvi_current()
+        _rvi_strat_val = _rvi_strat_data.get("value") if _rvi_strat_data else None
+
+        _panel_lines = [
+            f"<div style='padding:14px 18px; border-radius:12px; "
+            f"background:{_strategy_cls['color']}15; "
+            f"border-left:6px solid {_strategy_cls['color']}; margin:10px 0;'>",
+            f"<div style='font-size:1.05rem; font-weight:800; "
+            f"color:{_strategy_cls['color']};'>{_strategy_cls['label']}</div>",
+            f"<div style='font-size:.85rem; color:#5a6b78; margin-top:4px;'>"
+            f"Γ = {_cls_gamma:+.4f} · Θ = {_cls_theta:+.2f} · ν = {_cls_vega:+.2f}</div>",
+            f"<div style='font-size:.82rem; color:#333; margin-top:6px;'>"
+            f"{_strategy_cls['description']}</div>",
+        ]
+
+        if _rvi_strat_val is not None:
+            if _strategy_cls["class"] == "long_vol":
+                if _rvi_strat_val < 20:
+                    _panel_lines.append(
+                        f"<div style='margin-top:8px; padding:8px 12px; "
+                        f"background:#e8f5e9; border-radius:6px; font-size:.82rem;'>"
+                        f"📊 RVI = {_rvi_strat_val:.2f}% (низкий) — "
+                        f"✅ хороший момент для покупки ν</div>")
+                elif _rvi_strat_val > 40:
+                    _panel_lines.append(
+                        f"<div style='margin-top:8px; padding:8px 12px; "
+                        f"background:#fff3e0; border-radius:6px; font-size:.82rem;'>"
+                        f"📊 RVI = {_rvi_strat_val:.2f}% (высокий) — "
+                        f"⚠️ волатильность уже дорогая, покупка рискованна</div>")
+            elif _strategy_cls["class"] == "short_vol":
+                if _rvi_strat_val > 40:
+                    _panel_lines.append(
+                        f"<div style='margin-top:8px; padding:8px 12px; "
+                        f"background:#ffebee; border-radius:6px; font-size:.82rem;'>"
+                        f"📊 RVI = {_rvi_strat_val:.2f}% (высокий) — "
+                        f"⚠️ рынок в панике, продажа ν опасна</div>")
+                elif _rvi_strat_val < 20:
+                    _panel_lines.append(
+                        f"<div style='margin-top:8px; padding:8px 12px; "
+                        f"background:#e8f5e9; border-radius:6px; font-size:.82rem;'>"
+                        f"📊 RVI = {_rvi_strat_val:.2f}% (низкий) — "
+                        f"✅ хороший момент для продажи ν</div>")
+
+        _panel_lines.append("</div>")
+        st.markdown("".join(_panel_lines), unsafe_allow_html=True)
 
     # ==================================================================
     # ГРАФИК ПРОФИЛЯ ПОЗИЦИИ
@@ -4897,6 +5219,9 @@ def _render_whatif_tab():
 
     st.markdown("---")
 
+    # ============================================================
+    # Параметры сценария
+    # ============================================================
     _wt_exp_dates = []
     for _p in positions:
         _e = _p.get("Эксп.", "—")
@@ -5105,15 +5430,53 @@ def _render_whatif_tab():
                   use_container_width=True,
                   help="Сбросить дату на сегодня")
 
+    # ================= RVI SCENARIO =================
+    st.markdown("---")
+    st.markdown("### Рыночный сценарий (RVI)")
+
+    _rvi_wt_data = fetch_rvi_current()
+    _rvi_base = (_rvi_wt_data.get("value")
+                 if _rvi_wt_data and _rvi_wt_data.get("value") is not None
+                 else 30.0)
+    _rvi_base_is_fallback = not (_rvi_wt_data and _rvi_wt_data.get("value") is not None)
+
+    _wt_rvi_c1, _wt_rvi_c2 = st.columns(2)
+    with _wt_rvi_c1:
+        _rvi_shift = st.slider(
+            "Изменение RVI, п.п.",
+            min_value=-30.0, max_value=30.0, value=0.0, step=1.0,
+            key="whatif_rvi_shift",
+            help="Имитация рыночного стресса: +10 п.п. = паника, "
+                 "−10 п.п. = успокоение")
+    with _wt_rvi_c2:
+        _rvi_correlation = st.slider(
+            "Корреляция IV с RVI",
+            min_value=0.0, max_value=1.0, value=0.7, step=0.05,
+            key="whatif_rvi_correlation",
+            help="Насколько сильно IV вашего инструмента следует за RVI. "
+                 "0 = независимо, 1 = полностью коррелировано")
+
+    _rvi_scenario = _rvi_base + _rvi_shift
+
+    _rvi_baseline_note = " (fallback, ISS недоступен)" if _rvi_base_is_fallback else ""
+    st.caption(
+        f"📊 RVI: **{_rvi_base:.2f}%**{_rvi_baseline_note} → "
+        f"сценарий: **{_rvi_scenario:.2f}%** "
+        f"({_rvi_shift:+.1f} п.п.) · "
+        f"корреляция IV-RVI: **{_rvi_correlation:.2f}**"
+    )
+
+    st.markdown("---")
+
+    # ============================================================
+    # Расчёт
+    # ============================================================
     new_price = float(st.session_state.wt_price_abs)
     new_iv = float(st.session_state.wt_iv_abs)
     days_shift = (st.session_state.wt_scenario_date - date.today()).days
     price_shift_pct = ((new_price / current_price - 1) * 100
                        if current_price > 0 else 0.0)
     iv_shift_pp = new_iv - base_iv
-
-    st.caption("💡 Поле ввода = точное значение, слайдер = быстрая подстройка. "
-               "Кнопка 🔄 сбрасывает конкретный параметр.")
 
     comm_func = _calc_comm_ui
 
@@ -5122,6 +5485,15 @@ def _render_whatif_tab():
     pnl_new = _portfolio_value(
         positions, np.array([new_price]), days_shift, new_iv, comm_func)[0]
     pnl_delta = pnl_new - pnl_now
+
+    # --- P&L с учётом RVI ---
+    _pnl_now_rvi = _portfolio_value_with_rvi(
+        positions, np.array([current_price]), 0,
+        base_iv, 0.0, _rvi_correlation, comm_func)[0]
+    _pnl_new_rvi = _portfolio_value_with_rvi(
+        positions, np.array([new_price]), days_shift,
+        base_iv, _rvi_shift, _rvi_correlation, comm_func)[0]
+    _pnl_delta_rvi = _pnl_new_rvi - _pnl_now_rvi
 
     st.markdown("### Результат сценария")
     _m1, _m2, _m3, _m4 = st.columns(4)
@@ -5135,6 +5507,19 @@ def _render_whatif_tab():
     with _m4:
         st.metric("P&L по сценарию", f"{pnl_new:+,.2f} ₽",
                   delta=f"{pnl_delta:+,.2f} ₽")
+
+    _rvi_color_delta = "#00a651" if _pnl_delta_rvi >= 0 else "#d32f2f"
+    st.markdown(
+        f"<div style='background:#f0f4f8; border-radius:10px; "
+        f"padding:10px 16px; margin-top:10px; font-size:.9rem; "
+        f"display:flex; gap:24px; flex-wrap:wrap; align-items:center;'>"
+        f"<span style='font-weight:700;'>📊 С учётом RVI "
+        f"({_rvi_shift:+.1f} п.п. × {_rvi_correlation:.2f}):</span>"
+        f"<span>P&L по сценарию: <b>{_pnl_new_rvi:+,.2f} ₽</b></span>"
+        f"<span style='color:{_rvi_color_delta};'>"
+        f"Дельта: <b>{_pnl_delta_rvi:+,.2f} ₽</b></span>"
+        f"</div>",
+        unsafe_allow_html=True)
 
     _tot_delta = _tot_gamma = _tot_vega = _tot_theta = 0.0
     for p in positions:
@@ -5159,6 +5544,7 @@ def _render_whatif_tab():
 
     st.markdown("---")
 
+    # ---------- Профиль P&L на сценарий ----------
     st.markdown("### Профиль P&L на выбранный сценарий")
     _strikes_wa = sorted({float(p["Страйк"]) for p in positions
                            if p.get("Страйк") is not None})
@@ -5172,6 +5558,9 @@ def _render_whatif_tab():
         positions, S_wa, 0, base_iv, comm_func)
     pnl_scen_curve = _portfolio_value(
         positions, S_wa, days_shift, new_iv, comm_func)
+    pnl_rvi_curve = _portfolio_value_with_rvi(
+        positions, S_wa, days_shift, base_iv,
+        _rvi_shift, _rvi_correlation, comm_func)
 
     fig_wa = go.Figure()
     fig_wa.add_trace(go.Scatter(
@@ -5184,6 +5573,12 @@ def _render_whatif_tab():
         name=f"Сценарий (ΔS={price_shift_pct:+.1f}%, ΔIV={iv_shift_pp:+.1f}пп, +{days_shift}д)",
         line=dict(color="#1e5a7a", width=3),
         hovertemplate="S: %{x:.2f}<br>P&L: %{y:+,.2f} ₽<extra></extra>"))
+    if abs(_rvi_shift) > 0.01:
+        fig_wa.add_trace(go.Scatter(
+            x=S_wa, y=pnl_rvi_curve, mode="lines",
+            name=f"RVI-сценарий (ΔRVI={_rvi_shift:+.1f}пп, corr={_rvi_correlation:.2f})",
+            line=dict(color="#9c27b0", width=2, dash="dash"),
+            hovertemplate="S: %{x:.2f}<br>P&L: %{y:+,.2f} ₽<extra></extra>"))
     fig_wa.add_hline(y=0, line_dash="dot", line_color="#7f9bb3", line_width=1)
     fig_wa.add_vline(x=current_price, line_dash="dash",
                      line_color="#1e88e5", line_width=1.5,
@@ -5217,6 +5612,7 @@ def _render_whatif_tab():
 
     st.markdown("---")
 
+    # ---------- Тепловая карта P&L ----------
     st.markdown("### Тепловая карта P&L (цена БА × IV)")
     _h_c1, _h_c2 = st.columns(2)
     with _h_c1:
@@ -5509,6 +5905,31 @@ def _render_heatmap_tab():
         margin=dict(l=20, r=20, t=60, b=20))
     st.plotly_chart(fig_hm, use_container_width=True)
 
+    # ================= RVI CONTEXT =================
+    _rvi_hm_data = fetch_rvi_current()
+    _rvi_hm = _rvi_hm_data.get("value") if _rvi_hm_data else None
+
+    if _rvi_hm is not None and not _df_hm.empty:
+        _hm_avg_iv = float(_df_hm["iv"].mean())
+        _hm_ratio = _hm_avg_iv / _rvi_hm if _rvi_hm > 0 else None
+        _hm_zone = classify_iv_vs_rvi(_hm_avg_iv, _rvi_hm)
+
+        _hm_zone_label = _hm_zone["zone_label"] if _hm_zone else "—"
+        _hm_zone_color = _hm_zone["zone_color"] if _hm_zone else "#7a7a7a"
+
+        _ratio_str = f"{_hm_ratio:.2f}×" if _hm_ratio is not None else "—"
+        st.markdown(
+            f"<div style='background:#f0f4f8; border-radius:8px; "
+            f"padding:10px 14px; margin:10px 0; font-size:.9rem; "
+            f"display:flex; gap:24px; flex-wrap:wrap; align-items:center;'>"
+            f"<span>📊 <b>RVI:</b> {_rvi_hm:.2f}%</span>"
+            f"<span><b>Средняя IV на доске:</b> {_hm_avg_iv:.2f}%</span>"
+            f"<span><b>Ratio:</b> {_ratio_str}</span>"
+            f"<span style='color:{_hm_zone_color}; font-weight:700;'>"
+            f"{_hm_zone_label}</span>"
+            f"</div>",
+            unsafe_allow_html=True)
+
     st.markdown("---")
     st.markdown("### Сводные метрики по сериям")
 
@@ -5648,6 +6069,32 @@ def _render_ivrank_tab():
             st.success(f"✓ IV около средней HV (дифференциал "
                         f"**{_iv_hv_spread:+.2f} п.п.**) — "
                         f"явного преимущества нет.")
+
+    # ================= RVI-БЕНЧМАРК =================
+    _rvi_rank_data = fetch_rvi_current()
+    _rvi_rank = _rvi_rank_data.get("value") if _rvi_rank_data else None
+
+    if _rvi_rank is not None:
+        st.markdown("### 1b) IV vs RVI (рыночный фон)")
+        _col_r1, _col_r2, _col_r3 = st.columns(3)
+        with _col_r1:
+            st.metric("RVI (рынок)", f"{_rvi_rank:.2f}%")
+        with _col_r2:
+            st.metric("IV инструмента", f"{_current_iv:.2f}%")
+        with _col_r3:
+            _spread_rvi = _current_iv - _rvi_rank
+            _ratio_rvi = (_current_iv / _rvi_rank) if _rvi_rank > 0 else 0.0
+            st.metric("Спред / Ratio",
+                      f"{_spread_rvi:+.2f} п.п. / {_ratio_rvi:.2f}×")
+
+        _zone_rvi = classify_iv_vs_rvi(_current_iv, _rvi_rank)
+        if _zone_rvi:
+            st.markdown(
+                f"<div style='padding:10px 14px; border-radius:8px; "
+                f"background:{_zone_rvi['zone_color']}20; "
+                f"border-left:4px solid {_zone_rvi['zone_color']}; margin:8px 0;'>"
+                f"<b>{_zone_rvi['zone_label']}</b> — {_zone_rvi['action']}</div>",
+                unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -6709,6 +7156,45 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
             f"<div style='font-size:.8rem; color:#5a6b78; margin-top:4px;'>"
             f"avg_win / avg_loss</div>"
             f"</div>", unsafe_allow_html=True)
+
+    # ================= RVI-ПОПРАВКА К КЕЛЛИ =================
+    _rvi_kelly_data = fetch_rvi_current()
+    _rvi_kelly = _rvi_kelly_data.get("value") if _rvi_kelly_data else None
+
+    if _rvi_kelly is not None and _f_full is not None:
+        _rvi_factor = max(0.3, 1.0 - _rvi_kelly / 100.0)
+
+        _f_full_rvi    = _f_full    * _rvi_factor
+        _f_half_rvi    = _f_half    * _rvi_factor
+        _f_quarter_rvi = _f_quarter * _rvi_factor
+
+        st.markdown("---")
+        st.markdown("### RVI-поправка")
+        st.markdown(
+            f"<div style='padding:14px 18px; border-radius:12px; "
+            f"background:#fff3e0; border-left:6px solid #e6a500; margin:10px 0;'>"
+            f"<div style='font-size:.9rem; font-weight:700; color:#e6a500;'>"
+            f"📊 RVI = {_rvi_kelly:.2f}%</div>"
+            f"<div style='font-size:.82rem; color:#5a6b78; margin-top:4px;'>"
+            f"Множитель: ×{_rvi_factor:.2f} "
+            f"(снижение доли из-за корреляции сделок)</div>"
+            f"</div>",
+            unsafe_allow_html=True)
+
+        _rk1, _rk2, _rk3 = st.columns(3)
+        with _rk1:
+            st.metric("Полный Келли (RVI)", f"{_f_full_rvi*100:+.2f} %",
+                      delta=f"{_f_full_rvi*_deposit:+,.2f} ₽")
+        with _rk2:
+            st.metric("½ Келли (RVI)", f"{_f_half_rvi*100:+.2f} %",
+                      delta=f"{_f_half_rvi*_deposit:+,.2f} ₽")
+        with _rk3:
+            st.metric("¼ Келли (RVI)", f"{_f_quarter_rvi*100:+.2f} %",
+                      delta=f"{_f_quarter_rvi*_deposit:+,.2f} ₽")
+
+        st.caption(
+            "Формула: f_RVI = f_Келли × max(0.3, 1 − RVI/100). "
+            "При высоком RVI сделки коррелированы — размер ставки снижается.")
 
     st.markdown("---")
     if _f_full <= 0:
