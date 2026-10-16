@@ -2947,6 +2947,43 @@ def _render_board_tab():
     st.markdown(f"### Доска опционов — **{_board_asset}** "
                 f"(дата исполнения: {format_series_label(_active_expiry)})")
 
+    # --- RVI-контекст + легенда окраски IV ---
+    _rvi_board_data = fetch_rvi_current()
+    _rvi_board_val = _rvi_board_data.get("value") if _rvi_board_data else None
+
+    if _rvi_board_val is not None:
+        _rvi_b_chg = _rvi_board_data.get("change") or 0.0
+        st.markdown(
+            f"<div style='background:#f0f4f8; border-radius:8px; "
+            f"padding:8px 14px; margin-bottom:6px; font-size:.9rem;'>"
+            f"📊 <b>RVI (рыночный фон):</b> "
+            f"<b>{_rvi_board_val:.2f}%</b> "
+            f"({_rvi_b_chg:+.2f} п.п.) — "
+            f"IV на доске сравнивается с этим уровнем"
+            f"</div>",
+            unsafe_allow_html=True)
+
+        # --- Легенда окраски текста IV ---
+        st.markdown(
+            "<div style='background:#ffffff; border:1px solid #cfdfe9; "
+            "border-radius:8px; padding:8px 14px; margin-bottom:12px; "
+            "font-size:.82rem; display:flex; gap:18px; flex-wrap:wrap; "
+            "align-items:center;'>"
+            "<span style='color:#4a6f8a; font-weight:700;'>"
+            "Легенда IV (IV / RVI):</span>"
+            "<span><b style='color:#d32f2f;'>&gt; 2.0</b> "
+            "<span style='color:#5a6b78;'>— продавать волатильность</span></span>"
+            "<span><b style='color:#e6a500;'>1.5 … 2.0</b> "
+            "<span style='color:#5a6b78;'>— осторожно</span></span>"
+            "<span><b style='color:#7a7a7a;'>0.7 … 1.5</b> "
+            "<span style='color:#5a6b78;'>— норма</span></span>"
+            "<span><b style='color:#00a651;'>0.5 … 0.7</b> "
+            "<span style='color:#5a6b78;'>— покупать волатильность</span></span>"
+            "<span><b style='color:#1e88e5;'>&lt; 0.5</b> "
+            "<span style='color:#5a6b78;'>— покупать (дёшево)</span></span>"
+            "</div>",
+            unsafe_allow_html=True)
+
     _board_levels = find_alert_levels(_board_asset, category=_board_cat)
     _board_buy_level = float(_board_levels["buy"] or 0) if _board_levels["found"] else 0.0
     _board_sell_level = float(_board_levels["sell"] or 0) if _board_levels["found"] else 0.0
@@ -3216,9 +3253,9 @@ def _render_board_tab():
             for col in row.index:
                 style = ""
                 if col.startswith("Call_"):
-                    style = f"background-color: {call_bg}"
+                    style = f"background-color: {call_bg};"
                 elif col.startswith("Put_"):
-                    style = f"background-color: {put_bg}"
+                    style = f"background-color: {put_bg};"
                 if col == "Strike":
                     if is_sell_strike:
                         style = "background-color: #fb92f0; color: white; font-weight: bold"
@@ -3226,8 +3263,24 @@ def _render_board_tab():
                         style = "background-color: #9c00ff; color: white; font-weight: bold"
                     elif is_central:
                         style = "background-color: #e3e7ec; font-weight: bold"
-                elif col == "IV_%" and is_central:
-                    style = "background-color: #e3e7ec; font-weight: bold"
+                elif col == "IV_%":
+                    if is_central:
+                        style = "background-color: #e3e7ec; font-weight: bold"
+                    else:
+                        # style уже содержит background-color из call_bg/put_bg
+                        _iv_val = row.get("IV_%")
+                        if _iv_val is not None and _rvi_board_val:
+                            try:
+                                _iv_f = float(_iv_val)
+                                _zone = classify_iv_vs_rvi(_iv_f, _rvi_board_val)
+                            except (TypeError, ValueError):
+                                _zone = None
+                            if _zone and _zone.get("zone") != "normal":
+                                _zcolor = _zone.get("zone_color", "")
+                                if _zcolor:
+                                    style = (style
+                                             + f" color: {_zcolor};"
+                                             + " font-weight: 700;")
 
                 if highlight_on:
                     # Границы ITM/OTM относительно центрального страйка.
@@ -3337,6 +3390,13 @@ def _render_board_tab():
                 line=dict(color='#2c7da0', width=2),
                 fill='tozeroy', fillcolor='rgba(44,125,160,0.1)',
                 name='IV, %'))
+            if _rvi_board_val is not None:
+                fig.add_hline(
+                    y=_rvi_board_val,
+                    line=dict(color="#d32f2f", width=2, dash="dash"),
+                    annotation_text=f"RVI = {_rvi_board_val:.2f}%",
+                    annotation_position="top right",
+                    annotation_font_color="#d32f2f")
             fig.update_layout(
                 title="Улыбка волатильности",
                 xaxis_title="Страйк", yaxis_title="IV, %",
