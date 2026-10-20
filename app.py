@@ -2039,43 +2039,58 @@ def _render_alert_card(r: dict):
         _cur_buy = _cur_checks.get("buy")
         _cur_sell = _cur_checks.get("sell")
 
-        _buy_opts = ["—", "1 → +C", "2 → −P"]
+        _buy_opts = ["—", "1", "2"]
         _buy_idx = 0
         if _cur_buy == "1":
             _buy_idx = 1
         elif _cur_buy == "2":
             _buy_idx = 2
 
-        _sell_opts = ["—", "3 → −C", "4 → +P"]
+        _sell_opts = ["—", "3", "4"]
         _sell_idx = 0
         if _cur_sell == "3":
             _sell_idx = 1
         elif _cur_sell == "4":
             _sell_idx = 2
 
+        _opt_labels = {
+            "—": "—",
+            "1": "**1** покупка :green-background[**CALL**]",
+            "2": "**2** продажа :red-background[**PUT**]",
+            "3": "**3** продажа :green-background[**CALL**]",
+            "4": "**4** покупка :red-background[**PUT**]",
+        }
+
+        def _fmt_opt(v):
+            return _opt_labels.get(v, v)
+
         _cc1, _cc2 = st.columns(2)
         with _cc1:
             _buy_choice = st.radio(
-                f"На покупках ({_lvl_buy:.0f})",
+                "buy_group",
                 _buy_opts,
                 index=_buy_idx,
                 key=f"_alert_buy_check_{_checks_key}",
-                horizontal=True)
+                horizontal=True,
+                format_func=_fmt_opt,
+                label_visibility="collapsed")
         with _cc2:
             _sell_choice = st.radio(
-                f"На продажах ({_lvl_sell:.0f})",
+                "sell_group",
                 _sell_opts,
                 index=_sell_idx,
                 key=f"_alert_sell_check_{_checks_key}",
-                horizontal=True)
+                horizontal=True,
+                format_func=_fmt_opt,
+                label_visibility="collapsed")
 
         _new_checks = st.session_state.get("_alert_checks", {})
         if _checks_key not in _new_checks:
             _new_checks[_checks_key] = {}
         _new_checks[_checks_key]["buy"] = (
-            {"—": None, "1 → +C": "1", "2 → −P": "2"}.get(_buy_choice))
+            None if _buy_choice == "—" else _buy_choice)
         _new_checks[_checks_key]["sell"] = (
-            {"—": None, "3 → −C": "3", "4 → +P": "4"}.get(_sell_choice))
+            None if _sell_choice == "—" else _sell_choice)
         st.session_state["_alert_checks"] = _new_checks
 
         st.markdown(
