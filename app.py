@@ -5775,7 +5775,7 @@ def _render_position_tab():
         if opt_type == "call":
             return S * math.exp(-q * T) * _norm_cdf_py(d1) \
                    - K * math.exp(-r * T) * _norm_cdf_py(d2)
-                return K * math.exp(-r * T) * _norm_cdf_py(-d2) \
+        return K * math.exp(-r * T) * _norm_cdf_py(-d2) \
                - S * math.exp(-q * T) * _norm_cdf_py(-d1)
 
     def _sync_qty_to_position(key, pos_id):
