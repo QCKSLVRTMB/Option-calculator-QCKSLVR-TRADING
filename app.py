@@ -3470,6 +3470,66 @@ def _render_board_tab():
 # ============ ВКЛАДКА 3: ПОЗИЦИЯ ==================================
 # ==================================================================
 @st.fragment
+# ================= Валидация опционной ноги (A5) =================
+def _validate_options_leg(side, opt_type, strike, expiry_str, qty,
+                           current_price):
+    """Валидация опционной ноги по чек-листу (пп. 3.2, 3.4, 4.3).
+
+    Возвращает (errors: list[str], warnings: list[str]).
+    Применяется только для опционов (вызывающий код проверяет тип).
+    """
+    errors, warnings = [], []
+
+    # --- 4.3: чётность и минимум 2 ---
+    try:
+        _q = int(qty)
+    except (TypeError, ValueError):
+        _q = 0
+    if _q < 2:
+        errors.append(f"п.4.3: минимум 2 контракта (введено {_q})")
+    elif _q % 2 != 0:
+        errors.append(f"п.4.3: чётное количество (введено {_q})")
+
+    # --- 3.2 и 3.4 — только для покупки ---
+    if side == "Buy":
+        # 3.2: OTM относительно текущей цены
+        _k = None
+        if strike is not None:
+            try:
+                _k = float(strike)
+            except (TypeError, ValueError):
+                _k = None
+
+        if _k is not None:
+            if current_price is None:
+                warnings.append(
+                    "п.3.2: OTM не проверен — нет текущей цены БА")
+            else:
+                _cp = float(current_price)
+                if opt_type == "Call" and _k <= _cp:
+                    errors.append(
+                        f"п.3.2: Buy Call {_k:g} ≤ цена {_cp:.2f} — не OTM")
+                elif opt_type == "Put" and _k >= _cp:
+                    errors.append(
+                        f"п.3.2: Buy Put {_k:g} ≥ цена {_cp:.2f} — не OTM")
+
+        # 3.4: ≥ 20 рабочих дней до экспирации
+        if expiry_str and expiry_str not in ("—", ""):
+            try:
+                _exp_d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+                _today = date.today()
+                if _exp_d < _today:
+                    errors.append("п.3.4: экспирация в прошлом")
+                else:
+                    _bus = int(np.busday_count(_today, _exp_d))
+                    if _bus < 20:
+                        errors.append(
+                            f"п.3.4: {_bus} раб. дн. до экспирации < 20")
+            except Exception:
+                warnings.append(
+                    "п.3.4: не удалось разобрать дату экспирации")
+
+    return errors, warnings
 def _render_position_tab():
     st.header("Управление позицией")
 
@@ -3932,6 +3992,29 @@ def _render_position_tab():
     with col_add:
         st.markdown("#### Добавить позицию")
 
+        # --- flash: плашки нарушений и сообщение о добавлении ---
+        _flash = st.session_state.pop("_position_add_flash", None)
+        if _flash:
+            if _flash.get("errors"):
+                st.markdown(
+                    "<div style='padding:10px 14px; border-radius:8px; "
+                    "background:#ffebee; border-left:4px solid #d32f2f; "
+                    "font-size:.85rem; color:#8b1e1e; margin-bottom:8px;'>"
+                    "<b>⛔ Позиция добавлена с нарушениями чек-листа:</b><br>"
+                    + "<br>".join(f"• {_e}" for _e in _flash["errors"])
+                    + "</div>",
+                    unsafe_allow_html=True)
+            if _flash.get("warnings"):
+                st.markdown(
+                    "<div style='padding:8px 12px; border-radius:8px; "
+                    "background:#fff3e0; border-left:4px solid #e6a500; "
+                    "font-size:.82rem; color:#8a6500; margin-bottom:8px;'>"
+                    + "<br>".join(f"⚠ {_w}" for _w in _flash["warnings"])
+                    + "</div>",
+                    unsafe_allow_html=True)
+            if _flash.get("message"):
+                st.success(_flash["message"])
+
         if "positions" not in st.session_state:
             st.session_state.positions = []
 
@@ -4288,6 +4371,19 @@ def _render_position_tab():
                                         if final_pos_price is None or final_pos_price <= 0:
                                             st.error("Укажите цену > 0 или включите авто-цену.")
                                         else:
+                                            # ======== ВАЛИДАЦИЯ ПО ЧЕК-ЛИСТУ (A5) ========
+                                            _cp_leg = _get_current_market_price_for_asset(
+                                                asset_now, asset_type_ui_now)
+                                            _errs, _warns = _validate_options_leg(
+                                                side=side,
+                                                opt_type=opt_type,
+                                                strike=chosen_strike,
+                                                expiry_str=expiry_now_form,
+                                                qty=int(qty_input),
+                                                current_price=_cp_leg,
+                                            )
+                                            # ======== /ВАЛИДАЦИЯ ========
+
                                             signed_qty = int(qty_input) if side == "Buy" \
                                                          else -int(qty_input)
                                             st.session_state.positions.append({
@@ -4317,11 +4413,19 @@ def _render_position_tab():
                                                 "_asset": asset_now,
                                                 "_atype": asset_type_ui_now,
                                             })
-                                            st.success(f"Добавлено: {side_ui} {opt_type} "
-                                                       f"{chosen_strike} × {qty_input} "
-                                                       f"[{expiry_now_form}]"
-                                                       f"{_src_label} "
-                                                       f"по {final_pos_price:.4f} ₽")
+
+                                            # Сохраняем flash — покажем после rerun
+                                            _success_msg = (f"Добавлено: {side_ui} "
+                                                            f"{opt_type} "
+                                                            f"{chosen_strike} × {qty_input} "
+                                                            f"[{expiry_now_form}]"
+                                                            f"{_src_label} "
+                                                            f"по {final_pos_price:.4f} ₽")
+                                            st.session_state["_position_add_flash"] = {
+                                                "errors": _errs,
+                                                "warnings": _warns,
+                                                "message": _success_msg,
+                                            }
                                             st.rerun()
 
     # ==================================================================
