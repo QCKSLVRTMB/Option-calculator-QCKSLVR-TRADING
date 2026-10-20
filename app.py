@@ -969,8 +969,6 @@ def _normalize_alerts_df(_xls: pd.DataFrame):
             _col_map[c] = "Волна"
         elif c_str == "тенденция":
             _col_map[c] = "Тенденция"
-        elif c_str in ("сила", "strength"):
-            _col_map[c] = "Сила"
         elif c_str in ("тф уровня", "tf уровня", "tf", "timeframe"):
             _col_map[c] = "ТФ уровня"
         elif "покуп" in c_str or "bid" in c_str:
@@ -985,7 +983,7 @@ def _normalize_alerts_df(_xls: pd.DataFrame):
     _xls["Уровень покупок"] = pd.to_numeric(_xls["Уровень покупок"], errors="coerce")
     _xls["Уровень продаж"] = pd.to_numeric(_xls["Уровень продаж"], errors="coerce")
     _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок", "Уровень продаж"])
-    for _opt_col in ("Тренд", "Волна", "Тенденция", "Сила", "ТФ уровня"):
+    for _opt_col in ("Тренд", "Волна", "Тенденция", "ТФ уровня"):
         if _opt_col not in _xls.columns:
             _xls[_opt_col] = ""
         else:
@@ -2035,10 +2033,11 @@ def _render_alert_card(r: dict):
                 _lvl_buy_chk, _lvl_sell_chk, _strikes_for_range)
 
             _sugg_card = _suggest_strategy(
+                buy_check=_cur_checks.get("buy"),
+                sell_check=_cur_checks.get("sell"),
                 trend=r.get("trend", ""),
                 wave=r.get("wave", ""),
                 tendency=r.get("tendency", ""),
-                strength=r.get("strength", ""),
                 range_strikes=_range_strikes_card,
                 iv_zone=None,
                 skew_type=None)
@@ -2551,7 +2550,6 @@ def find_alert_full_info(ticker: str, category: str = None):
             "trend": str(row.get("Тренд", "")).strip(),
             "wave": str(row.get("Волна", "")).strip(),
             "tendency": str(row.get("Тенденция", "")).strip(),
-            "strength": str(row.get("Сила", "")).strip(),
             "tf_level": str(row.get("ТФ уровня", "")).strip(),
         }
     except Exception:
@@ -2939,9 +2937,13 @@ def _calc_range_strikes(lvl_buy, lvl_sell, strikes):
 
 
 # ================= G4: рекомендация конструкции =================
-def _suggest_strategy(trend, wave, tendency, strength, range_strikes,
-                      iv_zone=None, skew_type=None):
-    """Возвращает dict с рекомендованной конструкцией."""
+def _suggest_strategy(buy_check, sell_check, trend, wave, tendency,
+                      range_strikes, iv_zone=None, skew_type=None):
+    """Рекомендация конструкции по выбранным чек-боксам.
+
+    buy_check:  "1" (сильный отскок) | "2" (слабый рост) | None
+    sell_check: "4" (сильное падение) | "3" (слабое падение) | None
+    """
     result = {
         "side": None,
         "strategy": None,
@@ -2950,119 +2952,88 @@ def _suggest_strategy(trend, wave, tendency, strength, range_strikes,
         "confidence": "low",
     }
 
+    # Приоритет 1: чек-бокс 1 — сильный отскок вверх
+    if buy_check == "1":
+        result["side"] = "CALL"
+        if iv_zone == "high":
+            result["strategy"] = "Bull Call Spread"
+            result["direction_ui"] = "бычий Call-спред (защита при высокой IV)"
+        elif skew_type == "forward":
+            result["strategy"] = "Ratio Call Spread"
+            result["direction_ui"] = "пропорциональный Call-спред (прямой skew)"
+        else:
+            result["strategy"] = "Bull Call Spread"
+            result["direction_ui"] = "бычий Call-спред"
+        result["rationale"] = "чек-бокс 1: сильный отскок от уровня покупок"
+        result["confidence"] = "high"
+        return result
+
+    # Чек-бокс 2 — слабый медленный рост
+    if buy_check == "2":
+        result["side"] = "CALL"
+        result["strategy"] = "Bull Put Spread"
+        result["direction_ui"] = "бычий Put-спред"
+        result["rationale"] = "чек-бокс 2: слабый медленный рост от уровня покупок"
+        result["confidence"] = "high"
+        return result
+
+    # Чек-бокс 4 — сильное падение
+    if sell_check == "4":
+        result["side"] = "PUT"
+        if iv_zone == "high":
+            result["strategy"] = "Bear Put Spread"
+            result["direction_ui"] = "медвежий Put-спред (защита при высокой IV)"
+        elif skew_type == "reverse":
+            result["strategy"] = "Ratio Put Spread"
+            result["direction_ui"] = "пропорциональный Put-спред (обратный skew)"
+        else:
+            result["strategy"] = "Bear Put Spread"
+            result["direction_ui"] = "медвежий Put-спред"
+        result["rationale"] = "чек-бокс 4: сильное падение от уровня продаж"
+        result["confidence"] = "high"
+        return result
+
+    # Чек-бокс 3 — слабое медленное падение
+    if sell_check == "3":
+        result["side"] = "PUT"
+        result["strategy"] = "Bear Call Spread"
+        result["direction_ui"] = "медвежий Call-спред"
+        result["rationale"] = "чек-бокс 3: слабое медленное падение от уровня продаж"
+        result["confidence"] = "high"
+        return result
+
+    # Fallback: по trend/wave/tendency
     t = (trend or "").strip().lower()
     w = (wave or "").strip().lower()
     te = (tendency or "").strip().lower()
-    s = (strength or "").strip().lower()
-    s_norm = s if s in ("strong", "weak") else None
 
     if not (t and w and te):
         return result
 
     if t == w == te == "вверх":
-        side = "CALL"
+        result["side"] = "CALL"
+        result["strategy"] = "Bull Call Spread"
+        result["direction_ui"] = "бычий Call-спред"
+        result["rationale"] = "восходящий тренд (чек-бокс не выбран)"
+        result["confidence"] = "medium"
     elif t == w == te == "вниз":
-        side = "PUT"
+        result["side"] = "PUT"
+        result["strategy"] = "Bear Put Spread"
+        result["direction_ui"] = "медвежий Put-спред"
+        result["rationale"] = "нисходящий тренд (чек-бокс не выбран)"
+        result["confidence"] = "medium"
     elif "рейндж" in (t, w, te):
-        side = "RANGE"
-    else:
-        return result
-
-    result["side"] = side
-
-    # RANGE
-    if side == "RANGE":
+        result["side"] = "RANGE"
         if range_strikes is not None and range_strikes > 1:
             result["strategy"] = "Long Straddle"
             result["direction_ui"] = "Long Straddle"
             result["rationale"] = (
-                f"Рейндж, диапазон {range_strikes:.1f} страйка — "
-                f"покупка волатильности")
-            result["confidence"] = "medium"
+                f"рейндж {range_strikes:.1f} стр — покупка волатильности")
         else:
             result["strategy"] = "Short Strangle"
             result["direction_ui"] = "Short Strangle"
             _rs = f" ({range_strikes:.1f} стр.)" if range_strikes else ""
-            result["rationale"] = (
-                f"Рейндж, узкий диапазон{_rs} — продажа волатильности")
-            result["confidence"] = "medium"
-        return result
-
-    # buy/sell
-    if range_strikes is None:
-        mode = "buy" if s_norm == "strong" else "sell"
-    elif range_strikes < 1:
-        mode = "sell"
-    else:
-        mode = "buy"
-
-    # Конструкция
-    if side == "CALL":
-        if mode == "buy":
-            if s_norm == "weak":
-                strategy = "Ratio Call Spread"
-                ui = "пропорциональный Call-спред"
-            else:
-                strategy = "Bull Call Spread"
-                ui = "бычий Call-спред"
-        else:
-            if s_norm == "weak":
-                strategy = "Short Call"
-                ui = "продажа Call"
-            else:
-                strategy = "Bull Put Spread"
-                ui = "бычий Put-спред"
-    else:
-        if mode == "buy":
-            if s_norm == "weak":
-                strategy = "Ratio Put Spread"
-                ui = "пропорциональный Put-спред"
-            else:
-                strategy = "Bear Put Spread"
-                ui = "медвежий Put-спред"
-        else:
-            if s_norm == "weak":
-                strategy = "Short Put"
-                ui = "продажа Put"
-            else:
-                strategy = "Bear Call Spread"
-                ui = "медвежий Call-спред"
-
-    # Skew
-    if skew_type == "forward" and side == "CALL" and mode == "buy" and s_norm != "weak":
-        strategy = "Ratio Call Spread"
-        ui = "пропорциональный Call-спред (по skew)"
-    elif skew_type == "reverse" and side == "PUT" and mode == "buy" and s_norm != "weak":
-        strategy = "Ratio Put Spread"
-        ui = "пропорциональный Put-спред (по skew)"
-
-    # IV high → защита
-    if iv_zone == "high" and strategy in ("Short Call", "Short Put"):
-        strategy = "Iron Condor"
-        ui = "Iron Condor (защита при высокой IV)"
-
-    result["strategy"] = strategy
-    result["direction_ui"] = ui
-
-    rationale = []
-    if s_norm == "strong":
-        rationale.append("сильный игрок слева")
-    elif s_norm == "weak":
-        rationale.append("слабый игрок слева")
-    if range_strikes is not None:
-        rationale.append(f"диапазон {range_strikes:.1f} страйка")
-    if iv_zone:
-        _iv_map = {"low": "низкая IV", "mid": "средняя IV", "high": "высокая IV"}
-        rationale.append(_iv_map.get(iv_zone, ""))
-    if skew_type:
-        _sk_map = {"forward": "прямой skew", "reverse": "обратный skew",
-                   "flat": "плоский skew"}
-        rationale.append(_sk_map.get(skew_type, ""))
-    result["rationale"] = ", ".join(p for p in rationale if p)
-
-    if side and strategy and s_norm:
-        result["confidence"] = "high"
-    elif side and strategy:
+            result["rationale"] = f"рейндж узкий{_rs} — продажа волатильности"
         result["confidence"] = "medium"
 
     return result
@@ -3082,6 +3053,14 @@ def _suggestion_legs(strategy_name, alert_targets):
     K_sp = ss.get("put")
 
     q2 = 2
+
+    # Для спредов — убедиться, что страйки разные и в правильном порядке
+    if strategy_name in ("Bull Call Spread", "Bear Call Spread"):
+        if K_bc is not None and K_sc is not None and K_bc >= K_sc:
+            K_bc, K_sc = K_sc, K_bc
+    if strategy_name in ("Bull Put Spread", "Bear Put Spread"):
+        if K_bp is not None and K_sp is not None and K_bp >= K_sp:
+            K_bp, K_sp = K_sp, K_bp
 
     if strategy_name == "Bull Call Spread":
         return [
@@ -3605,11 +3584,13 @@ def _render_calc_tab():
                 _levels.get("buy"), _levels.get("sell"), _strikes_calc)
 
             _alert_info_calc = find_alert_full_info(_asset_canon, _asset_type_ui)
+            _checks_calc = get_alert_checks(_asset_canon, _asset_type_ui)
             _sugg_calc = _suggest_strategy(
+                buy_check=_checks_calc.get("buy"),
+                sell_check=_checks_calc.get("sell"),
                 trend=(_alert_info_calc or {}).get("trend", ""),
                 wave=(_alert_info_calc or {}).get("wave", ""),
                 tendency=(_alert_info_calc or {}).get("tendency", ""),
-                strength=(_alert_info_calc or {}).get("strength", ""),
                 range_strikes=_range_strikes_calc,
                 iv_zone=None, skew_type=None)
 
@@ -3921,11 +3902,13 @@ def _render_board_tab():
             _range_strikes_sugg = _calc_range_strikes(
                 _lvl_sugg.get("buy"), _lvl_sugg.get("sell"), _strikes_sugg)
             _alert_info_sugg = find_alert_full_info(_board_asset, _board_cat)
+            _checks_board = get_alert_checks(_board_asset, _board_cat)
             _sugg_board = _suggest_strategy(
+                buy_check=_checks_board.get("buy"),
+                sell_check=_checks_board.get("sell"),
                 trend=(_alert_info_sugg or {}).get("trend", ""),
                 wave=(_alert_info_sugg or {}).get("wave", ""),
                 tendency=(_alert_info_sugg or {}).get("tendency", ""),
-                strength=(_alert_info_sugg or {}).get("strength", ""),
                 range_strikes=_range_strikes_sugg,
                 iv_zone=None, skew_type=None)
 
@@ -4546,11 +4529,13 @@ def _render_position_tab():
                 _range_strikes_pos = _calc_range_strikes(
                     _lvl_pos.get("buy"), _lvl_pos.get("sell"), _strikes_pos)
 
+                _checks_pos = get_alert_checks(_pos_asset, _pos_cat)
                 _sugg_pos = _suggest_strategy(
+                    buy_check=_checks_pos.get("buy"),
+                    sell_check=_checks_pos.get("sell"),
                     trend=(_alert_info_pos or {}).get("trend", ""),
                     wave=(_alert_info_pos or {}).get("wave", ""),
                     tendency=(_alert_info_pos or {}).get("tendency", ""),
-                    strength=(_alert_info_pos or {}).get("strength", ""),
                     range_strikes=_range_strikes_pos,
                     iv_zone=None, skew_type=None)
 
