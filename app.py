@@ -2085,7 +2085,7 @@ def _render_alert_card(r: dict):
         _new_checks[_checks_key]["buy"] = (
             {"—": None, "1 → +C": "1", "2 → −P": "2"}.get(_buy_choice))
         _new_checks[_checks_key]["sell"] = (
-            {"—": None, "3 → −C", "4 → +P"}.get(_sell_choice))
+            {"—": None, "3 → −C": "3", "4 → +P": "4"}.get(_sell_choice))
         st.session_state["_alert_checks"] = _new_checks
 
         st.markdown(
