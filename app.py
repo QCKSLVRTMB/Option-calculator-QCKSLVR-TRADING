@@ -910,9 +910,7 @@ def format_series_label(expiry_str: str) -> str:
         return f"{prefix}{d.strftime('%d.%m.%Y')}"
     except Exception:
         return f"{expiry_str}"
-
-
-# ================= LAST-цена БА с ISS =================
+        # ================= LAST-цена БА с ISS =================
 @st.cache_data(ttl=10, show_spinner=False)
 def fetch_last_price_from_iss(secid: str, asset_type_ui: str):
     if not secid:
@@ -971,6 +969,10 @@ def _normalize_alerts_df(_xls: pd.DataFrame):
             _col_map[c] = "Волна"
         elif c_str == "тенденция":
             _col_map[c] = "Тенденция"
+        elif c_str in ("сила", "strength"):
+            _col_map[c] = "Сила"
+        elif c_str in ("тф уровня", "tf уровня", "tf", "timeframe"):
+            _col_map[c] = "ТФ уровня"
         elif "покуп" in c_str or "bid" in c_str:
             _col_map[c] = "Уровень покупок"
         elif "продаж" in c_str or "ask" in c_str:
@@ -983,7 +985,7 @@ def _normalize_alerts_df(_xls: pd.DataFrame):
     _xls["Уровень покупок"] = pd.to_numeric(_xls["Уровень покупок"], errors="coerce")
     _xls["Уровень продаж"] = pd.to_numeric(_xls["Уровень продаж"], errors="coerce")
     _xls = _xls.dropna(subset=["Тикер БА", "Уровень покупок", "Уровень продаж"])
-    for _opt_col in ("Тренд", "Волна", "Тенденция"):
+    for _opt_col in ("Тренд", "Волна", "Тенденция", "Сила", "ТФ уровня"):
         if _opt_col not in _xls.columns:
             _xls[_opt_col] = ""
         else:
@@ -2012,6 +2014,52 @@ def _render_alert_card(r: dict):
                 f"{_prox_bar_html(_prox_sell, '#d81b60')}"
                 f"</div>", unsafe_allow_html=True)
 
+        # --- G4: мини-бейдж рекомендованной конструкции ---
+        try:
+            _lvl_buy_chk = _lvl_buy
+            _lvl_sell_chk = _lvl_sell
+            _strikes_for_range = []
+            try:
+                _b_chk = fetch_optionboard(r["ticker"], _category,
+                                            r.get("_series_code", ""))
+                if _b_chk:
+                    _strikes_for_range = sorted({
+                        float(x["strike"]) for side_key in ("call", "put")
+                        for x in (_b_chk.get(side_key) or [])
+                        if x.get("strike") is not None
+                    })
+            except Exception:
+                _strikes_for_range = []
+
+            _range_strikes_card = _calc_range_strikes(
+                _lvl_buy_chk, _lvl_sell_chk, _strikes_for_range)
+
+            _sugg_card = _suggest_strategy(
+                trend=r.get("trend", ""),
+                wave=r.get("wave", ""),
+                tendency=r.get("tendency", ""),
+                strength=r.get("strength", ""),
+                range_strikes=_range_strikes_card,
+                iv_zone=None,
+                skew_type=None)
+
+            if _sugg_card.get("strategy"):
+                _conf_color = {"high": "#00a651",
+                               "medium": "#e6a500",
+                               "low": "#7a7a7a"}.get(
+                    _sugg_card["confidence"], "#7a7a7a")
+                st.markdown(
+                    f"<div style='margin-top:6px; padding:4px 8px; "
+                    f"border-radius:6px; background:#f0f4f8; "
+                    f"border-left:3px solid {_conf_color}; "
+                    f"font-size:.7rem; color:#2c506d;'>"
+                    f"<b>Рекомендация:</b> {_sugg_card['direction_ui']}"
+                    f"<span style='color:#5a6b78;'> — "
+                    f"{_sugg_card['rationale']}</span></div>",
+                    unsafe_allow_html=True)
+        except Exception:
+            pass
+
         _vol_badges = []
         if _high_vol:
             _vol_badges.append(
@@ -2503,6 +2551,8 @@ def find_alert_full_info(ticker: str, category: str = None):
             "trend": str(row.get("Тренд", "")).strip(),
             "wave": str(row.get("Волна", "")).strip(),
             "tendency": str(row.get("Тенденция", "")).strip(),
+            "strength": str(row.get("Сила", "")).strip(),
+            "tf_level": str(row.get("ТФ уровня", "")).strip(),
         }
     except Exception:
         return None
@@ -2832,6 +2882,355 @@ def _validate_options_leg(side, opt_type, strike, expiry_str, qty,
                 warnings.append("Не удалось разобрать дату экспирации")
 
     return errors, warnings
+
+
+# ================= G3: расчёт r/q для конкретной ноги =================
+def _compute_r_q_for_leg(asset, atype, expiry_str):
+    """Возвращает (r_pct, q_pct) для конкретной опционной ноги.
+    r — из G-кривой ОФЗ, q — из дивидендов smart-lab (только для акций)."""
+    r_val = 0.0
+    q_val = 0.0
+    if expiry_str and expiry_str not in ("—", ""):
+        try:
+            _r = get_risk_free_rate_for_expiry(expiry_str)
+            if _r is not None:
+                r_val = float(_r)
+        except Exception:
+            r_val = 0.0
+    if atype == "Акция" and asset:
+        try:
+            _q_frac, _, _ = get_dividend_yield_for_ticker(asset, expiry_str)
+            if _q_frac is not None:
+                q_val = float(_q_frac) * 100.0
+        except Exception:
+            q_val = 0.0
+    return r_val, q_val
+
+
+def _migrate_positions_r_q(positions):
+    """Обновляет _r / _q у существующих опционных позиций."""
+    for p in positions:
+        if p.get("Тип инструмента") != "Опцион":
+            continue
+        _exp = p.get("Эксп.", "")
+        if not _exp or _exp == "—":
+            continue
+        _r_new, _q_new = _compute_r_q_for_leg(
+            p.get("_asset", ""), p.get("_atype", ""), _exp)
+        p["_r"] = float(_r_new)
+        p["_q"] = float(_q_new)
+    return positions
+
+
+# ================= G4: расчёт ширины диапазона в страйках =================
+def _calc_range_strikes(lvl_buy, lvl_sell, strikes):
+    """Сколько страйков между уровнями покупки/продажи."""
+    if (lvl_buy is None or lvl_sell is None
+            or not strikes or len(strikes) < 2):
+        return None
+    try:
+        steps = np.diff(sorted(float(s) for s in strikes))
+        step_median = float(np.median(steps))
+        if step_median <= 0:
+            return None
+        return abs(float(lvl_sell) - float(lvl_buy)) / step_median
+    except Exception:
+        return None
+
+
+# ================= G4: рекомендация конструкции =================
+def _suggest_strategy(trend, wave, tendency, strength, range_strikes,
+                      iv_zone=None, skew_type=None):
+    """Возвращает dict с рекомендованной конструкцией."""
+    result = {
+        "side": None,
+        "strategy": None,
+        "direction_ui": "—",
+        "rationale": "",
+        "confidence": "low",
+    }
+
+    t = (trend or "").strip().lower()
+    w = (wave or "").strip().lower()
+    te = (tendency or "").strip().lower()
+    s = (strength or "").strip().lower()
+    s_norm = s if s in ("strong", "weak") else None
+
+    if not (t and w and te):
+        return result
+
+    if t == w == te == "вверх":
+        side = "CALL"
+    elif t == w == te == "вниз":
+        side = "PUT"
+    elif "рейндж" in (t, w, te):
+        side = "RANGE"
+    else:
+        return result
+
+    result["side"] = side
+
+    # RANGE
+    if side == "RANGE":
+        if range_strikes is not None and range_strikes > 1:
+            result["strategy"] = "Long Straddle"
+            result["direction_ui"] = "Long Straddle"
+            result["rationale"] = (
+                f"Рейндж, диапазон {range_strikes:.1f} страйка — "
+                f"покупка волатильности")
+            result["confidence"] = "medium"
+        else:
+            result["strategy"] = "Short Strangle"
+            result["direction_ui"] = "Short Strangle"
+            _rs = f" ({range_strikes:.1f} стр.)" if range_strikes else ""
+            result["rationale"] = (
+                f"Рейндж, узкий диапазон{_rs} — продажа волатильности")
+            result["confidence"] = "medium"
+        return result
+
+    # buy/sell
+    if range_strikes is None:
+        mode = "buy" if s_norm == "strong" else "sell"
+    elif range_strikes < 1:
+        mode = "sell"
+    else:
+        mode = "buy"
+
+    # Конструкция
+    if side == "CALL":
+        if mode == "buy":
+            if s_norm == "weak":
+                strategy = "Ratio Call Spread"
+                ui = "пропорциональный Call-спред"
+            else:
+                strategy = "Bull Call Spread"
+                ui = "бычий Call-спред"
+        else:
+            if s_norm == "weak":
+                strategy = "Short Call"
+                ui = "продажа Call"
+            else:
+                strategy = "Bull Put Spread"
+                ui = "бычий Put-спред"
+    else:
+        if mode == "buy":
+            if s_norm == "weak":
+                strategy = "Ratio Put Spread"
+                ui = "пропорциональный Put-спред"
+            else:
+                strategy = "Bear Put Spread"
+                ui = "медвежий Put-спред"
+        else:
+            if s_norm == "weak":
+                strategy = "Short Put"
+                ui = "продажа Put"
+            else:
+                strategy = "Bear Call Spread"
+                ui = "медвежий Call-спред"
+
+    # Skew
+    if skew_type == "forward" and side == "CALL" and mode == "buy" and s_norm != "weak":
+        strategy = "Ratio Call Spread"
+        ui = "пропорциональный Call-спред (по skew)"
+    elif skew_type == "reverse" and side == "PUT" and mode == "buy" and s_norm != "weak":
+        strategy = "Ratio Put Spread"
+        ui = "пропорциональный Put-спред (по skew)"
+
+    # IV high → защита
+    if iv_zone == "high" and strategy in ("Short Call", "Short Put"):
+        strategy = "Iron Condor"
+        ui = "Iron Condor (защита при высокой IV)"
+
+    result["strategy"] = strategy
+    result["direction_ui"] = ui
+
+    rationale = []
+    if s_norm == "strong":
+        rationale.append("сильный игрок слева")
+    elif s_norm == "weak":
+        rationale.append("слабый игрок слева")
+    if range_strikes is not None:
+        rationale.append(f"диапазон {range_strikes:.1f} страйка")
+    if iv_zone:
+        _iv_map = {"low": "низкая IV", "mid": "средняя IV", "high": "высокая IV"}
+        rationale.append(_iv_map.get(iv_zone, ""))
+    if skew_type:
+        _sk_map = {"forward": "прямой skew", "reverse": "обратный skew",
+                   "flat": "плоский skew"}
+        rationale.append(_sk_map.get(skew_type, ""))
+    result["rationale"] = ", ".join(p for p in rationale if p)
+
+    if side and strategy and s_norm:
+        result["confidence"] = "high"
+    elif side and strategy:
+        result["confidence"] = "medium"
+
+    return result
+
+
+def _suggestion_legs(strategy_name, alert_targets):
+    """Возвращает список ног для рекомендованной стратегии:
+    [{option, side, strike, qty, label}, ...]."""
+    if not alert_targets or not strategy_name:
+        return []
+
+    sb = alert_targets.get("strikes_buy") or {}
+    ss = alert_targets.get("strikes_sell") or {}
+    K_bc = sb.get("call")
+    K_bp = sb.get("put")
+    K_sc = ss.get("call")
+    K_sp = ss.get("put")
+
+    q2 = 2
+
+    if strategy_name == "Bull Call Spread":
+        return [
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call (низ)"},
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call (верх)"},
+        ]
+    if strategy_name == "Bear Put Spread":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put (верх)"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put (низ)"},
+        ]
+    if strategy_name == "Ratio Call Spread":
+        return [
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call"},
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2 * 2,
+             "label": "Sell Call ×2"},
+        ]
+    if strategy_name == "Ratio Put Spread":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2 * 2,
+             "label": "Sell Put ×2"},
+        ]
+    if strategy_name == "Short Call":
+        return [
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call"},
+        ]
+    if strategy_name == "Short Put":
+        return [
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put"},
+        ]
+    if strategy_name == "Bull Put Spread":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put (низ)"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put (верх)"},
+        ]
+    if strategy_name == "Bear Call Spread":
+        return [
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call (низ)"},
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call (верх)"},
+        ]
+    if strategy_name in ("Long Straddle", "Short Straddle"):
+        _side = "Buy" if strategy_name == "Long Straddle" else "Sell"
+        _k = K_bc or K_sc or K_bp or K_sp
+        return [
+            {"option": "Call", "side": _side, "strike": _k, "qty": q2,
+             "label": f"{_side} Call"},
+            {"option": "Put", "side": _side, "strike": _k, "qty": q2,
+             "label": f"{_side} Put"},
+        ]
+    if strategy_name == "Short Strangle":
+        return [
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put"},
+        ]
+    if strategy_name == "Iron Condor":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put (крыло)"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put"},
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call"},
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call (крыло)"},
+        ]
+    return []
+
+
+def _apply_suggested_strategy(strategy_name, asset, atype, series_code,
+                               expiry_str, alert_targets, board):
+    """Создаёт позиции по рекомендованным ногам и возвращает их список."""
+    legs = _suggestion_legs(strategy_name, alert_targets)
+    if not legs or not board:
+        return []
+
+    _calls = board.get("call") or []
+    _puts = board.get("put") or []
+    _c_map = {c.get("strike"): c for c in _calls if c.get("strike") is not None}
+    _p_map = {p.get("strike"): p for p in _puts if p.get("strike") is not None}
+
+    _r_leg, _q_leg = _compute_r_q_for_leg(asset, atype, expiry_str)
+
+    created = []
+    for leg in legs:
+        _opt = leg["option"]
+        _side = leg["side"]
+        _k = leg["strike"]
+        _qty = int(leg["qty"])
+        if _k is None:
+            continue
+        _src = _c_map if _opt == "Call" else _p_map
+        _row = _src.get(_k, {})
+        _price = 0.0
+        _v = _row.get("offer") if _side == "Buy" else _row.get("bid")
+        if _v is None or _v <= 0:
+            _v = _row.get("theorprice")
+        if _v is None or _v <= 0:
+            _v = _row.get("last")
+        try:
+            _price = float(_v) if _v and _v > 0 else 0.0
+        except Exception:
+            _price = 0.0
+        if _price <= 0:
+            continue
+
+        _signed = _qty if _side == "Buy" else -_qty
+        _pos = {
+            "_id": _new_position_id(),
+            "Конструкция": strategy_name,
+            "Тип инструмента": "Опцион",
+            "Опцион": _opt,
+            "Направление": _side,
+            "Страйк": _k,
+            "Эксп.": expiry_str,
+            "Тикер": _row.get("secid", "—"),
+            "Кол-во": _signed,
+            "Цена": float(_price),
+            "Теор.цена": None,
+            "Дельта": _row.get("delta"),
+            "Гамма": _row.get("gamma"),
+            "Вега": _row.get("vega"),
+            "Тета": _row.get("theta"),
+            "Ро": _row.get("rho"),
+            "visible": True,
+            "_vol": float(_row.get("volatility") or 20.0),
+            "_r": float(_r_leg),
+            "_q": float(_q_leg),
+            "_series_code": series_code,
+            "_asset": asset,
+            "_atype": atype,
+        }
+        created.append(_pos)
+
+    return created
 
 
 # ================= Плановая дата закрытия позиции =================
@@ -3194,6 +3593,52 @@ def _render_calc_tab():
         except Exception:
             _alert_targets = None
 
+    # G4: рекомендация для калькулятора
+    try:
+        if _board_calc and _levels.get("found"):
+            _strikes_calc = sorted({
+                float(x["strike"]) for side_key in ("call", "put")
+                for x in (_board_calc.get(side_key) or [])
+                if x.get("strike") is not None
+            })
+            _range_strikes_calc = _calc_range_strikes(
+                _levels.get("buy"), _levels.get("sell"), _strikes_calc)
+
+            _alert_info_calc = find_alert_full_info(_asset_canon, _asset_type_ui)
+            _sugg_calc = _suggest_strategy(
+                trend=(_alert_info_calc or {}).get("trend", ""),
+                wave=(_alert_info_calc or {}).get("wave", ""),
+                tendency=(_alert_info_calc or {}).get("tendency", ""),
+                strength=(_alert_info_calc or {}).get("strength", ""),
+                range_strikes=_range_strikes_calc,
+                iv_zone=None, skew_type=None)
+
+            if _sugg_calc.get("strategy"):
+                _at_calc = build_alert_targets(
+                    _asset_canon, _asset_type_ui,
+                    st.session_state.calc_selected_series,
+                    _board_calc, _levels,
+                    current_price=_current_price_for_targets)
+                _legs_preview_calc = _suggestion_legs(
+                    _sugg_calc["strategy"], _at_calc)
+                _legs_html = " · ".join(
+                    f"{leg['side']} {leg['option']} {leg['strike']}×{leg['qty']}"
+                    for leg in _legs_preview_calc
+                    if leg.get("strike") is not None)
+                st.markdown(
+                    f"<div style='padding:10px 14px; border-radius:8px; "
+                    f"background:#eef6fb; border-left:4px solid #1e88e5; "
+                    f"margin-top:6px; margin-bottom:6px; font-size:.85rem;'>"
+                    f"<b>Рекомендация:</b> {_sugg_calc['direction_ui']}<br>"
+                    f"<span style='color:#5a6b78; font-size:.8rem;'>"
+                    f"{_sugg_calc['rationale']}</span><br>"
+                    f"<span style='font-family:Consolas,monospace; "
+                    f"font-size:.82rem; color:#1c5a7a;'>{_legs_html}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True)
+    except Exception:
+        pass
+
     _inject = {
         "strikes": [],
         "central_strike": None,
@@ -3453,6 +3898,70 @@ def _render_board_tab():
     st.markdown(f"### Доска опционов — {_board_asset} "
                 f"(дата исполнения: {format_series_label(_active_expiry)})")
 
+    # G4: включатель фильтра по рекомендованной конструкции
+    _sugg_board = None
+    _alert_targets_board = None
+    _board_for_sugg = None
+    try:
+        try:
+            _board_for_sugg = fetch_optionboard(
+                _board_asset, _board_cat, _active_series_code)
+        except Exception:
+            _board_for_sugg = None
+
+        if _board_for_sugg:
+            _strikes_sugg = sorted({
+                float(x["strike"]) for side_key in ("call", "put")
+                for x in (_board_for_sugg.get(side_key) or [])
+                if x.get("strike") is not None
+            })
+            _lvl_sugg = find_alert_levels(_board_asset, _board_cat)
+            _cp_sugg = _get_current_market_price_for_asset(
+                _board_asset, _board_cat)
+            _range_strikes_sugg = _calc_range_strikes(
+                _lvl_sugg.get("buy"), _lvl_sugg.get("sell"), _strikes_sugg)
+            _alert_info_sugg = find_alert_full_info(_board_asset, _board_cat)
+            _sugg_board = _suggest_strategy(
+                trend=(_alert_info_sugg or {}).get("trend", ""),
+                wave=(_alert_info_sugg or {}).get("wave", ""),
+                tendency=(_alert_info_sugg or {}).get("tendency", ""),
+                strength=(_alert_info_sugg or {}).get("strength", ""),
+                range_strikes=_range_strikes_sugg,
+                iv_zone=None, skew_type=None)
+
+            if _sugg_board.get("strategy"):
+                _alert_targets_board = build_alert_targets(
+                    _board_asset, _board_cat, _active_series_code,
+                    _board_for_sugg, _lvl_sugg, current_price=_cp_sugg)
+    except Exception:
+        _sugg_board = None
+
+    _filter_by_sugg = False
+    _sugg_strikes_set = set()
+    if _sugg_board and _sugg_board.get("strategy") and _alert_targets_board:
+        _legs_board = _suggestion_legs(
+            _sugg_board["strategy"], _alert_targets_board)
+        _sugg_strikes_set = {
+            leg["strike"] for leg in _legs_board
+            if leg.get("strike") is not None
+        }
+
+        _fc1, _fc2 = st.columns([3, 2])
+        with _fc1:
+            st.markdown(
+                f"<div style='padding:10px 14px; border-radius:8px; "
+                f"background:#eef6fb; border-left:4px solid #1e88e5; "
+                f"font-size:.85rem;'>"
+                f"<b>Рекомендация:</b> {_sugg_board['direction_ui']}<br>"
+                f"<span style='color:#5a6b78; font-size:.8rem;'>"
+                f"{_sugg_board['rationale']}</span></div>",
+                unsafe_allow_html=True)
+        with _fc2:
+            _filter_by_sugg = st.toggle(
+                "Показать только страйки под конструкцию",
+                value=False,
+                key="board_filter_by_sugg")
+
     _rvi_board_data = fetch_rvi_current()
     _rvi_board_val = _rvi_board_data.get("value") if _rvi_board_data else None
 
@@ -3623,6 +4132,12 @@ def _render_board_tab():
                 "Put_Rho":    p.get('rho'),
                 "Put_Ticker": p.get('secid', '—')})
         df = pd.DataFrame(rows)
+
+        if _filter_by_sugg and _sugg_strikes_set:
+            df = df[df["Strike"].isin(_sugg_strikes_set)].reset_index(drop=True)
+            if df.empty:
+                st.warning("Под рекомендованную конструкцию не найдено страйков")
+                st.stop()
 
         def _greek_signal_color(greek_name, row, side, buy_active, sell_active):
             _COL_BUY  = "#9c00ff"
@@ -3992,6 +4507,115 @@ def _render_position_tab():
             or _pos_cat != st.session_state.pos_category):
         st.session_state.pos_asset = _pos_asset
         st.session_state.pos_category = _pos_cat
+
+    # G3: обновление _r / _q для существующих позиций (один раз за сессию)
+    if st.session_state.get("_g3_migrated") is not True:
+        try:
+            if st.session_state.get("positions"):
+                _migrate_positions_r_q(st.session_state.positions)
+                _ck_mig = st.session_state.get("_pos_active_key")
+                if _ck_mig:
+                    st.session_state.positions_cache[_ck_mig] = list(
+                        st.session_state.positions)
+                    _save_cache(st.session_state.positions_cache)
+            st.session_state["_g3_migrated"] = True
+        except Exception:
+            pass
+
+    # G4: баннер рекомендованной конструкции с кнопкой «Применить»
+    _sugg_pos = None
+    _alert_targets_pos = None
+    _board_pos = None
+    try:
+        if _pos_asset and _pos_cat and st.session_state.get("pos_series_code"):
+            try:
+                _board_pos = fetch_optionboard(
+                    _pos_asset, _pos_cat,
+                    st.session_state.pos_series_code)
+            except Exception:
+                _board_pos = None
+
+            if _board_pos:
+                _strikes_pos = sorted({
+                    float(x["strike"]) for side_key in ("call", "put")
+                    for x in (_board_pos.get(side_key) or [])
+                    if x.get("strike") is not None
+                })
+                _lvl_pos = find_alert_levels(_pos_asset, _pos_cat)
+                _cp_pos = _get_current_market_price_for_asset(_pos_asset, _pos_cat)
+                _range_strikes_pos = _calc_range_strikes(
+                    _lvl_pos.get("buy"), _lvl_pos.get("sell"), _strikes_pos)
+
+                _sugg_pos = _suggest_strategy(
+                    trend=(_alert_info_pos or {}).get("trend", ""),
+                    wave=(_alert_info_pos or {}).get("wave", ""),
+                    tendency=(_alert_info_pos or {}).get("tendency", ""),
+                    strength=(_alert_info_pos or {}).get("strength", ""),
+                    range_strikes=_range_strikes_pos,
+                    iv_zone=None, skew_type=None)
+
+                if _sugg_pos.get("strategy"):
+                    _alert_targets_pos = build_alert_targets(
+                        _pos_asset, _pos_cat,
+                        st.session_state.pos_series_code,
+                        _board_pos, _lvl_pos, current_price=_cp_pos)
+
+                if _sugg_pos.get("strategy") and _alert_targets_pos:
+                    _sugg_color = {"high": "#00a651",
+                                   "medium": "#e6a500",
+                                   "low": "#7a7a7a"}.get(
+                        _sugg_pos["confidence"], "#7a7a7a")
+                    _legs_preview = _suggestion_legs(
+                        _sugg_pos["strategy"], _alert_targets_pos)
+                    _legs_lines = "".join(
+                        f"<div style='font-size:.82rem; color:#333;'>"
+                        f"• {leg['label']}: {leg['side']} {leg['option']} "
+                        f"{leg['strike']} × {leg['qty']}</div>"
+                        for leg in _legs_preview
+                        if leg.get("strike") is not None)
+                    st.markdown(
+                        f"<div style='padding:12px 16px; border-radius:10px; "
+                        f"background:{_sugg_color}15; "
+                        f"border-left:6px solid {_sugg_color}; "
+                        f"margin-top:8px; margin-bottom:8px;'>"
+                        f"<div style='font-size:1rem; font-weight:800; "
+                        f"color:{_sugg_color};'>"
+                        f"Рекомендация: {_sugg_pos['direction_ui']}</div>"
+                        f"<div style='font-size:.82rem; color:#5a6b78; "
+                        f"margin-top:4px;'>{_sugg_pos['rationale']}</div>"
+                        f"<div style='margin-top:6px;'>{_legs_lines}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True)
+
+                    if st.button(
+                            f"Применить конструкцию: {_sugg_pos['strategy']}",
+                            type="primary",
+                            use_container_width=True,
+                            key="apply_sugg_strategy_btn"):
+                        _created = _apply_suggested_strategy(
+                            _sugg_pos["strategy"],
+                            _pos_asset, _pos_cat,
+                            st.session_state.pos_series_code,
+                            st.session_state.pos_expiry,
+                            _alert_targets_pos, _board_pos)
+                        if _created:
+                            for _np in _created:
+                                st.session_state.positions.append(_np)
+                            _ck_pos = st.session_state.get("_pos_active_key")
+                            if _ck_pos:
+                                st.session_state.positions_cache[_ck_pos] = list(
+                                    st.session_state.positions)
+                                _save_cache(st.session_state.positions_cache)
+                            st.success(
+                                f"Добавлено ног: {len(_created)} "
+                                f"({_sugg_pos['strategy']})")
+                            st.rerun()
+                        else:
+                            st.warning(
+                                "Не удалось создать позиции — "
+                                "проверьте доску/страйки")
+    except Exception:
+        _sugg_pos = None
 
     try:
         _iss_code_disp, _iss_type_disp = get_asset_code_and_type(
@@ -4753,6 +5377,11 @@ def _render_position_tab():
                                         qty=int(qty_input),
                                         current_price=_cp_leg)
 
+                                    # G3: r/q для конкретной ноги
+                                    _r_leg_add, _q_leg_add = _compute_r_q_for_leg(
+                                        asset_now, asset_type_ui_now,
+                                        expiry_now_form)
+
                                     signed_qty = (int(qty_input) if side == "Buy"
                                                   else -int(qty_input))
                                     st.session_state.positions.append({
@@ -4774,10 +5403,8 @@ def _render_position_tab():
                                         "Ро":     ref.get('rho'),
                                         "visible": True,
                                         "_vol": float(ref.get('volatility') or 20.0),
-                                        "_r": float(st.session_state.get(
-                                            "_calc_riskfree", 0.0) or 0.0),
-                                        "_q": float(st.session_state.get(
-                                            "_calc_dividend", 0.0) or 0.0),
+                                        "_r": float(_r_leg_add),
+                                        "_q": float(_q_leg_add),
                                         "_series_code": _sel_series_code,
                                         "_asset": asset_now,
                                         "_atype": asset_type_ui_now,
@@ -4795,7 +5422,8 @@ def _render_position_tab():
                                         "message": _success_msg,
                                     }
                                     st.rerun()
-                                        # ==================================================================
+
+    # ==================================================================
     # ЖИВОЕ ОБНОВЛЕНИЕ ТЕОР. ЦЕНЫ И ГРЕКОВ
     # ==================================================================
     _pos_asset_r = st.session_state.get("pos_asset", "")
@@ -7178,7 +7806,9 @@ def _render_skew_tab():
             height=min(120 + 35 * len(_df_show_sk), 500))
 
     st.caption("Критерий наличия наклона: σ/μ ≥ 15%.")
-    # ==================================================================
+
+
+# ==================================================================
 # ============ ВКЛАДКА 8: ЖУРНАЛ ==================================
 # ==================================================================
 @st.fragment
@@ -7783,7 +8413,9 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
         st.caption(f"Итоговая экспозиция при {_n_sim} сделках: "
                    f"{(1 - _capital) * 100:.2f}% "
                    f"= {(1 - _capital) * _deposit:,.2f} ₽")
-        # ==================================================================
+
+
+# ==================================================================
 # ============ ВКЛАДКА 10: ОПОВЕЩЕНИЯ =============================
 # ==================================================================
 @st.fragment
@@ -7953,6 +8585,8 @@ def _render_alerts_tab():
                     "trend": str(_row.get("Тренд", "")).strip(),
                     "wave": str(_row.get("Волна", "")).strip(),
                     "tendency": str(_row.get("Тенденция", "")).strip(),
+                    "strength": str(_row.get("Сила", "")).strip(),
+                    "tf_level": str(_row.get("ТФ уровня", "")).strip(),
                     "at_buy_today": bool(_vol_an.get("at_buy_today")),
                     "at_sell_today": bool(_vol_an.get("at_sell_today")),
                     "high_volume": bool(_vol_an.get("high_volume")),
