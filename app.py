@@ -1442,17 +1442,36 @@ def fetch_volatility_graph(asset: str, series_code: str, asset_type_ui: str):
     return data if data is not None else []
 
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_series_overview(asset: str, asset_type_ui: str):
     series_list = fetch_optionseries(asset, asset_type_ui)
     if not series_list:
         return pd.DataFrame()
+
+    _today = date.today()
+
+    def _fetch_one(_s):
+        try:
+            return _s, fetch_series_info(asset, asset_type_ui, _s["code"])
+        except Exception:
+            return _s, None
+
+    # Параллельная загрузка (4 воркера) — экономит 5–15 секунд
+    _results = {}
+    with ThreadPoolExecutor(max_workers=4) as _ex:
+        _futs = [_ex.submit(_fetch_one, _s) for _s in series_list]
+        for _f in as_completed(_futs):
+            _s, _info = _f.result()
+            if _info:
+                _results[_s["code"]] = (_s, _info)
+
     rows = []
-    today = date.today()
-    for s in series_list:
-        info = fetch_series_info(asset, asset_type_ui, s["code"])
-        if not info:
+    for _s in sorted(series_list, key=lambda x: x.get("expiry", "")):
+        if _s["code"] not in _results:
             continue
+        _, info = _results[_s["code"]]
         call_info = info.get("Опционы Call", {}) or {}
         put_info  = info.get("Опционы Put",  {}) or {}
         vol_rub   = (float(call_info.get("Объем (руб.)", 0) or 0)
@@ -1470,10 +1489,10 @@ def fetch_series_overview(asset: str, asset_type_ui: str):
             "QUARTERLY": "Q", "Q": "Q", "КВАРТАЛЬНАЯ": "Q",
         }
         series_type_short = _map_type.get(series_type, series_type[:1] or "—")
-        expiry = info.get("Дата исполнения", s.get("expiry", "—"))
+        expiry = info.get("Дата исполнения", _s.get("expiry", "—"))
         try:
             d = datetime.strptime(expiry, "%Y-%m-%d").date()
-            days_to = (d - today).days
+            days_to = (d - _today).days
             expiry_disp = f"{d.strftime('%Y-%m-%d')} ({days_to})"
         except Exception:
             days_to = None
@@ -1489,7 +1508,7 @@ def fetch_series_overview(asset: str, asset_type_ui: str):
             "Об.контр.":     vol_contr,
             "Откр.поз.":     oi,
             "Изменение, ₽":  oi_change,
-            "_series_code":  s["code"],
+            "_series_code":  _s["code"],
         })
     return pd.DataFrame(rows)
 
@@ -3842,19 +3861,47 @@ st.session_state["_calc_riskfree"]   = _safe_float_qp("rf_buy", 0.0)
 st.session_state["_calc_volatility"] = _safe_float_qp("vol_buy", 0.0)
 st.session_state["_calc_dividend"]   = _safe_float_qp("div_buy", 0.0)
 
-tab_calc, tab_board, tab_position, tab_whatif, tab_heatmap, \
-    tab_ivrank, tab_skew, tab_journal, tab_kelly, tab_alerts = st.tabs([
-        "Калькулятор",
-        "Доска опционов",
-        "Позиция",
-        "What-if симулятор",
-        "Heatmap IV",
-        "IV Rank / Децили",
-        "Детектор Skew",
-        "Журнал",
-        "Калькулятор Келли",
-        "Оповещения",
-    ])
+# ==================================================================
+# ЗАМАЗКА C-1: инициализация pos_* на модульном уровне.
+# Раньше это делалось внутри _render_position_tab, но с ленивыми
+# вкладками Позиция может не рендериться до того, как What-if /
+# Heatmap / IV Rank / Skew заглянут в эти ключи.
+# ==================================================================
+if "pos_asset" not in st.session_state:
+    st.session_state.pos_asset = st.session_state.get("board_asset", "SBER")
+if "pos_category" not in st.session_state:
+    st.session_state.pos_category = st.session_state.get("board_category", "Акция")
+if "positions_cache" not in st.session_state:
+    st.session_state.positions_cache = _load_cache()
+if "positions" not in st.session_state:
+    st.session_state.positions = []
+if "_pos_signature" not in st.session_state:
+    st.session_state["_pos_signature"] = None
+if "_g3_migrated" not in st.session_state:
+    st.session_state["_g3_migrated"] = False
+
+# ==================================================================
+# ЗАМЕНА st.tabs → радио-диспетчер (ленивый рендеринг)
+# ==================================================================
+_TAB_NAMES = [
+    "Калькулятор",
+    "Доска опционов",
+    "Позиция",
+    "What-if",
+    "Heatmap IV",
+    "IV Rank",
+    "Skew",
+    "Журнал",
+    "Келли",
+    "Оповещения",
+]
+_active_tab = st.radio(
+    "Раздел",
+    _TAB_NAMES,
+    horizontal=True,
+    key="main_nav",
+    label_visibility="collapsed",
+)
 
 
 # ==================================================================
@@ -5684,17 +5731,55 @@ def _render_position_tab():
         return K * math.exp(-r * T) * _norm_cdf_py(-d2) \
                - S * math.exp(-q * T) * _norm_cdf_py(-d1)
 
-    def _cb_qty_dec(key):
-        st.session_state[key] = int(st.session_state.get(key, 1)) - 1
+def _sync_qty_to_position(key, pos_id):
+    """Записывает session_state[key] в positions[...]['Кол-во']."""
+    try:
+        _new_val = int(st.session_state.get(key, 0))
+    except (TypeError, ValueError):
+        return
+    for _p in st.session_state.get("positions", []):
+        if _p.get("_id") == pos_id:
+            _p["Кол-во"] = _new_val
+            return
 
-    def _cb_qty_inc(key):
-        st.session_state[key] = int(st.session_state.get(key, 1)) + 1
 
-    def _cb_price_dec(key):
-        st.session_state[key] = round(float(st.session_state.get(key, 0.0)) - 0.01, 4)
+def _sync_price_to_position(key, pos_id):
+    """Записывает session_state[key] в positions[...]['Цена']."""
+    try:
+        _new_val = float(st.session_state.get(key, 0.0))
+    except (TypeError, ValueError):
+        return
+    if _new_val < 0:
+        _new_val = 0.0
+    for _p in st.session_state.get("positions", []):
+        if _p.get("_id") == pos_id:
+            _p["Цена"] = _new_val
+            return
 
-    def _cb_price_inc(key):
-        st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
+
+def _cb_qty_dec(key, pos_id):
+    st.session_state[key] = int(st.session_state.get(key, 1)) - 1
+    _sync_qty_to_position(key, pos_id)
+
+def _cb_qty_inc(key, pos_id):
+    st.session_state[key] = int(st.session_state.get(key, 1)) + 1
+    _sync_qty_to_position(key, pos_id)
+
+def _cb_price_dec(key, pos_id):
+    st.session_state[key] = round(max(0.0, float(st.session_state.get(key, 0.0)) - 0.01), 4)
+    _sync_price_to_position(key, pos_id)
+
+def _cb_price_inc(key, pos_id):
+    st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
+    _sync_price_to_position(key, pos_id)
+
+def _cb_qty_sync(key, pos_id):
+    """on_change number_input Кол-во."""
+    _sync_qty_to_position(key, pos_id)
+
+def _cb_price_sync(key, pos_id):
+    """on_change number_input Цена."""
+    _sync_price_to_position(key, pos_id)
 
     def _get_board_price(_strike, _opt_type, _side_internal, _c_map, _p_map):
         if _strike is None:
@@ -6442,14 +6527,16 @@ def _render_position_tab():
                         st.session_state[kq] = int(p.get("Кол-во", 1))
                     st.number_input(
                         "Кол-во", min_value=-10000, max_value=10000,
-                        step=1, key=kq)
+                        step=1, key=kq,
+                        on_change=_cb_qty_sync, args=(kq, _id))
                 with _m_price_col:
                     kp = f"price_{_id}"
                     if kp not in st.session_state:
                         st.session_state[kp] = float(p.get("Цена", 0.0))
                     st.number_input(
                         "Цена", min_value=0.0, step=0.01,
-                        format="%.4f", key=kp)
+                        format="%.4f", key=kp,
+                        on_change=_cb_price_sync, args=(kp, _id))
                 with _m_vis_col:
                     st.markdown("<div style='height:1.5rem;'></div>",
                                 unsafe_allow_html=True)
@@ -6604,15 +6691,16 @@ def _render_position_tab():
                     qc = st.columns([1, 3, 1])
                     with qc[0]:
                         st.button("➖", key=f"qm_{_id}",
-                                  on_click=_cb_qty_dec, args=(kq,),
+                                  on_click=_cb_qty_dec, args=(kq, _id),
                                   use_container_width=True)
                     with qc[1]:
                         st.number_input(
                             "qty", min_value=-10000, max_value=10000, step=1,
-                            key=kq, label_visibility="collapsed")
+                            key=kq, label_visibility="collapsed",
+                            on_change=_cb_qty_sync, args=(kq, _id))
                     with qc[2]:
                         st.button("➕", key=f"qp_{_id}",
-                                  on_click=_cb_qty_inc, args=(kq,),
+                                  on_click=_cb_qty_inc, args=(kq, _id),
                                   use_container_width=True)
 
                 with row[10]:
@@ -6622,16 +6710,17 @@ def _render_position_tab():
                     pc = st.columns([1, 3, 1])
                     with pc[0]:
                         st.button("➖", key=f"pm_{_id}",
-                                  on_click=_cb_price_dec, args=(kp,),
+                                  on_click=_cb_price_dec, args=(kp, _id),
                                   use_container_width=True)
                     with pc[1]:
                         st.number_input(
                             "price", min_value=0.0,
                             step=0.01, format="%.4f",
-                            key=kp, label_visibility="collapsed")
+                            key=kp, label_visibility="collapsed",
+                            on_change=_cb_price_sync, args=(kp, _id))
                     with pc[2]:
                         st.button("➕", key=f"pp_{_id}",
-                                  on_click=_cb_price_inc, args=(kp,),
+                                  on_click=_cb_price_inc, args=(kp, _id),
                                   use_container_width=True)
 
                 _theor = float(p.get("Теор.цена") or 0)
@@ -10113,32 +10202,23 @@ def _render_alerts_tab():
 # ==================================================================
 # ============ ВЫЗОВ РЕНДЕР-ФУНКЦИЙ ВНУТРИ st.tabs =================
 # ==================================================================
-with tab_calc:
+if _active_tab == "Калькулятор":
     _render_calc_tab()
-
-with tab_board:
+elif _active_tab == "Доска опционов":
     _render_board_tab()
-
-with tab_position:
+elif _active_tab == "Позиция":
     _render_position_tab()
-
-with tab_whatif:
+elif _active_tab == "What-if":
     _render_whatif_tab()
-
-with tab_heatmap:
+elif _active_tab == "Heatmap IV":
     _render_heatmap_tab()
-
-with tab_ivrank:
+elif _active_tab == "IV Rank":
     _render_ivrank_tab()
-
-with tab_skew:
+elif _active_tab == "Skew":
     _render_skew_tab()
-
-with tab_journal:
+elif _active_tab == "Журнал":
     _render_journal_tab()
-
-with tab_kelly:
+elif _active_tab == "Келли":
     _render_kelly_tab()
-
-with tab_alerts:
+elif _active_tab == "Оповещения":
     _render_alerts_tab()
