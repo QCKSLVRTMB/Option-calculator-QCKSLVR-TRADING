@@ -2034,7 +2034,7 @@ def _render_alert_card(r: dict):
                 "<div style='padding:3px 8px; border-radius:10px; "
                 "background:#ff6f00; color:#fff; font-size:.68rem; "
                 "font-weight:700; letter-spacing:.03em; display:inline-block;'>"
-                "⚡ ВСПЛЕСК H1</div>")
+                "⚡ ВСПЛЕСК ОБЪЁМА</div>")
         if _vol_badges:
             st.markdown(
                 f"<div style='margin-top:6px;'>{''.join(_vol_badges)}</div>",
@@ -2551,22 +2551,32 @@ def analyze_level_activity(secid, engine, market, buy_level, sell_level):
                     if not prev_h.empty:
                         out["prev_max_vol"] = float(prev_h["volume"].max())
 
+                    # ============================================================
+                    # Логика двух плашек объёма (пересмотрено):
+                    #   • ВСПЛЕСК ОБЪЁМА — сегодня был H1-бар, объём которого
+                    #     больше МАКСИМУМА всех H1-баров за 2 предыдущих
+                    #     торговых дня (пн–пт). Не зависит от того, на каком
+                    #     баре это случилось (на баре касания или нет).
+                    #   • ВЫСОКИЙ ОБЪЁМ — то же самое, но объём пришёл
+                    #     на ДРУГОМ баре, отличном от бара касания уровня
+                    #     (то есть отдельная волна объёма, не совпадающая
+                    #     с баром, где цена достигла уровня).
+                    # Оба требуют: в текущую сессию было касание уровня.
+                    # ============================================================
                     _at_any = out["at_buy_today"] or out["at_sell_today"]
                     if (_at_any
                             and out["today_max_vol"] is not None
                             and out["prev_max_vol"] is not None
                             and out["today_max_vol"] > out["prev_max_vol"]):
+                        # 1) Всплеск объёма — сам факт аномалии за день
+                        out["intraday_spike"] = True
+
+                        # 2) Высокий объём — объём пришёл на другом баре
                         level_bars = {i for i in (out["level_bar_idx_buy"],
                                                    out["level_bar_idx_sell"])
                                       if i is not None}
                         if out["volume_bar_idx"] not in level_bars:
                             out["high_volume"] = True
-
-                    if len(today_h) >= 3:
-                        last_v = float(today_h.iloc[-1]["volume"])
-                        prev_mean = float(today_h.iloc[:-1]["volume"].mean())
-                        if prev_mean > 0 and last_v > 2.0 * prev_mean:
-                            out["intraday_spike"] = True
 
     d_params = {"from": start.strftime("%Y-%m-%d"),
                 "till": end.strftime("%Y-%m-%d"),
