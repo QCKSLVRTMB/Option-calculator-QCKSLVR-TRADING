@@ -1937,10 +1937,13 @@ def _render_alert_card(r: dict) -> str:
 
     _buy_bg = "#0a8f3c" if _buy_active else "#e6e9ec"
     _buy_fg = "#ffffff" if _buy_active else "#5a6b78"
-    _sell_bg = "#0a8f3c" if _sell_active else "#e6e9ec"
+    _sell_bg = "#d32f2f" if _sell_active else "#e6e9ec"
     _sell_fg = "#ffffff" if _sell_active else "#5a6b78"
     _buy_mark = "✓" if _buy_active else "·"
     _sell_mark = "✓" if _sell_active else "·"
+
+    _lvl_buy_color  = "#9c00ff"   # фиолетовый — как Offer/покупка на доске
+    _lvl_sell_color = "#fb92f0"   # розовый   — как Bid/продажа на доске
 
     return f"""
     <div style="border:1px solid #cfd6dc; border-radius:8px; padding:10px 12px;
@@ -1961,7 +1964,8 @@ def _render_alert_card(r: dict) -> str:
           <div style="font-size:.6rem; color:#333; font-weight:700;
                       text-transform:uppercase; letter-spacing:.06em;">
             Покупка</div>
-          <div style="font-size:1.02rem; font-weight:700; color:#111;
+          <div style="font-size:1.02rem; font-weight:700;
+                      color:{_lvl_buy_color};
                       line-height:1.2; margin-top:2px;">{_lvl_buy:.2f}</div>
           <div style="font-size:.76rem; color:#333; margin-top:1px;">
             {_buy_dev_str}</div>
@@ -1971,7 +1975,8 @@ def _render_alert_card(r: dict) -> str:
           <div style="font-size:.6rem; color:#333; font-weight:700;
                       text-transform:uppercase; letter-spacing:.06em;">
             Продажа</div>
-          <div style="font-size:1.02rem; font-weight:700; color:#111;
+          <div style="font-size:1.02rem; font-weight:700;
+                      color:{_lvl_sell_color};
                       line-height:1.2; margin-top:2px;">{_lvl_sell:.2f}</div>
           <div style="font-size:.76rem; color:#333; margin-top:1px;">
             {_sell_dev_str}</div>
