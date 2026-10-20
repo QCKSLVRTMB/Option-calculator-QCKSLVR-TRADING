@@ -2035,7 +2035,8 @@ def _get_board_price_for(board_data, opt_type, strike, side):
         return None
 
 
-def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
+def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels,
+                        current_price=None):
     if not board_data:
         return None
     calls = board_data.get('call') or []
@@ -2048,10 +2049,42 @@ def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
     lvl_buy = levels.get("buy") if levels else None
     lvl_sell = levels.get("sell") if levels else None
 
-    K_buy_call  = _nearest_strike_above(all_strikes, lvl_buy)
-    K_buy_put   = _nearest_strike_below(all_strikes, lvl_buy)
-    K_sell_call = _nearest_strike_above(all_strikes, lvl_sell)
-    K_sell_put  = _nearest_strike_below(all_strikes, lvl_sell)
+    # ============================================================
+    # По чек-листу:
+    #   • Покупка — OTM относительно ТЕКУЩЕЙ цены (п. 3.2)
+    #   • Продажа — OTM относительно ЦЕЛЕВОЙ цены (п. 3.3, 3.5):
+    #       – Sell Call: страйк > lvl_sell (цель движения вверх)
+    #       – Sell Put:  страйк < lvl_buy  (цель движения вниз)
+    #   Пример: current=244, lvl_sell=266.70
+    #       → Buy Call 250 (OTM от 244, станет ITM на цели)
+    #       → Sell Call 270 (OTM от цели, сгорит в ноль на 266.70)
+    # ============================================================
+    if current_price is not None and current_price > 0:
+        _cp = float(current_price)
+
+        # Buy Call: ближайший страйк строго выше текущей цены
+        _bcands = [k for k in all_strikes if k > _cp]
+        K_buy_call = _bcands[0] if _bcands else all_strikes[-1]
+
+        # Buy Put: ближайший страйк строго ниже текущей цены
+        _bpcands = [k for k in all_strikes if k < _cp]
+        K_buy_put = _bpcands[-1] if _bpcands else all_strikes[0]
+
+        # Sell Call: ближайший страйк строго выше целевой цены (lvl_sell)
+        _sell_call_target = float(lvl_sell) if lvl_sell is not None else _cp
+        _scands = [k for k in all_strikes if k > _sell_call_target]
+        K_sell_call = _scands[0] if _scands else all_strikes[-1]
+
+        # Sell Put: ближайший страйк строго ниже целевой цены (lvl_buy)
+        _sell_put_target = float(lvl_buy) if lvl_buy is not None else _cp
+        _spcands = [k for k in all_strikes if k < _sell_put_target]
+        K_sell_put = _spcands[-1] if _spcands else all_strikes[0]
+    else:
+        # Fallback — если current_price не передан
+        K_buy_call  = _nearest_strike_above(all_strikes, lvl_buy)
+        K_buy_put   = _nearest_strike_below(all_strikes, lvl_buy)
+        K_sell_call = _nearest_strike_above(all_strikes, lvl_sell)
+        K_sell_put  = _nearest_strike_below(all_strikes, lvl_buy)  # fix: было lvl_sell
 
     def _price_for(strike, opt_type, side):
         if strike is None:
@@ -2065,6 +2098,7 @@ def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
         "series_code": series_code,
         "lvl_buy": lvl_buy,
         "lvl_sell": lvl_sell,
+        "current_price": current_price,
         "strikes_buy": {
             "call": K_buy_call,
             "put":  K_buy_put,
@@ -2082,7 +2116,6 @@ def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels):
             "put":  _price_for(K_sell_put,  'put',  'Buy'),
         },
     }
-
 
 # ================= postMessage-мост =================
 def _send_to_iframes(payload: dict, delays=(300, 1500)):
@@ -2681,12 +2714,30 @@ def _render_calc_tab():
         except Exception:
             _board_calc = None
 
+    # --- Получаем ТЕКУЩУЮ цену БА ДО построения targets.
+    # Нужна для правильной OTM-логики: покупка от текущей цены,
+    # продажа — от целевой (уровня).
+    _current_price_for_targets = None
+    try:
+        if _asset_type_ui in ("Фьючерс", "Валюта", "Товар"):
+            _eng_t, _mkt_t = "futures", "forts"
+        elif _asset_type_ui == "Индекс":
+            _eng_t, _mkt_t = "stock", "index"
+        else:
+            _eng_t, _mkt_t = "stock", "shares"
+        _secid_t = resolve_underlying_secid(_asset_canon, _asset_type_ui)
+        if _secid_t:
+            _current_price_for_targets = get_last_close_price(_secid_t, _eng_t, _mkt_t)
+    except Exception:
+        _current_price_for_targets = None
+
     _alert_targets = None
     if _board_calc is not None:
         try:
             _alert_targets = build_alert_targets(
                 _asset_canon, _asset_type_ui,
-                st.session_state.calc_selected_series, _board_calc, _levels)
+                st.session_state.calc_selected_series, _board_calc, _levels,
+                current_price=_current_price_for_targets)
         except Exception:
             _alert_targets = None
 
