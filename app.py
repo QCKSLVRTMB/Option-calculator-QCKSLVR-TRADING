@@ -1961,8 +1961,27 @@ def _render_alert_card(r: dict):
     _spike = r.get("intraday_spike", False)
 
     _checks_key = f"{_ticker.upper().strip()}|{_category.strip()}"
-    _cur_checks = st.session_state.get("_alert_checks", {}).get(
-        _checks_key, {"buy": None, "sell": None})
+    _all_checks_card = st.session_state.get("_alert_checks", {})
+    _stored_card = _all_checks_card.get(_checks_key) or {}
+
+    # Валидация: если уровни в листе изменились — сбрасываем выбор
+    _stored_buy_card = _stored_card.get("_lvl_buy")
+    _stored_sell_card = _stored_card.get("_lvl_sell")
+    _levels_changed_card = False
+    if _stored_buy_card is not None and _stored_sell_card is not None:
+        if (abs(float(_stored_buy_card) - float(_lvl_buy)) > 0.01
+                or abs(float(_stored_sell_card) - float(_lvl_sell)) > 0.01):
+            _levels_changed_card = True
+
+    if _levels_changed_card:
+        _all_checks_card[_checks_key] = {
+            "buy": None, "sell": None,
+            "_lvl_buy": _lvl_buy, "_lvl_sell": _lvl_sell,
+        }
+        st.session_state["_alert_checks"] = _all_checks_card
+        _cur_checks = {"buy": None, "sell": None}
+    else:
+        _cur_checks = _stored_card or {"buy": None, "sell": None}
 
     _price_str = f"{_last:,.2f} ₽" if _last else "— ₽"
     _buy_dev_str = f"{_buy_dev:+.2f} %" if _buy_dev is not None else "—"
@@ -2174,6 +2193,9 @@ def _render_alert_card(r: dict):
             None if _buy_choice == "—" else _buy_choice)
         _new_checks[_checks_key]["sell"] = (
             None if _sell_choice == "—" else _sell_choice)
+        # Снимок уровней на момент выбора
+        _new_checks[_checks_key]["_lvl_buy"] = _lvl_buy
+        _new_checks[_checks_key]["_lvl_sell"] = _lvl_sell
         st.session_state["_alert_checks"] = _new_checks
 
         st.markdown(
@@ -2711,12 +2733,50 @@ def _level_proximity(current_price, level, other_level):
 
 
 def get_alert_checks(ticker: str, category: str = None):
+    """Возвращает сохранённый выбор чек-боксов.
+    Если уровни в листе изменились с момента выбора — сбрасывает в None.
+    """
     if not ticker:
         return {"buy": None, "sell": None}
     key = f"{(ticker or '').upper().strip()}|{(category or '').strip()}"
-    return st.session_state.get("_alert_checks", {}).get(
-        key, {"buy": None, "sell": None})
+    _all_checks = st.session_state.get("_alert_checks", {})
+    _stored = _all_checks.get(key) or {}
+    if not _stored:
+        return {"buy": None, "sell": None}
 
+    # Валидация по актуальным уровням
+    _cur_levels = find_alert_levels(ticker, category)
+    if _cur_levels.get("found"):
+        _cur_buy = _cur_levels.get("buy")
+        _cur_sell = _cur_levels.get("sell")
+        _stored_buy = _stored.get("_lvl_buy")
+        _stored_sell = _stored.get("_lvl_sell")
+
+        # Если снимок уровней есть — сравниваем
+        if _stored_buy is not None and _stored_sell is not None \
+                and _cur_buy is not None and _cur_sell is not None:
+            _changed = (
+                abs(float(_stored_buy) - float(_cur_buy)) > 0.01
+                or abs(float(_stored_sell) - float(_cur_sell)) > 0.01
+            )
+            if _changed:
+                # Сбрасываем и запоминаем новые уровни
+                _all_checks[key] = {
+                    "buy": None, "sell": None,
+                    "_lvl_buy": _cur_buy, "_lvl_sell": _cur_sell,
+                }
+                st.session_state["_alert_checks"] = _all_checks
+                return {"buy": None, "sell": None}
+        elif _stored_buy is None and _stored_sell is None:
+            # Снимка не было — запоминаем текущие уровни, но выбор сохраняем
+            pass
+        else:
+            # Снимок был устаревший (старый формат) — подтягиваем текущие
+            _all_checks[key]["_lvl_buy"] = _cur_buy
+            _all_checks[key]["_lvl_sell"] = _cur_sell
+            st.session_state["_alert_checks"] = _all_checks
+
+    return {"buy": _stored.get("buy"), "sell": _stored.get("sell")}
 
 def get_alert_recommendation_text(ticker: str, category: str = None):
     checks = get_alert_checks(ticker, category)
