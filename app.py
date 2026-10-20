@@ -287,6 +287,7 @@ MOEX_INSTRUMENTS = {
         "SUGR":     ("Товар", "Сахар"),
     },
 }
+
 # ================= Тикеры TradingView =================
 TV_TICKER_MAP = {
     "Акция": {
@@ -451,6 +452,7 @@ PREDEFINED_STRATEGIES = {
             {"label": "Sell Call (K3)", "option": "Call", "side": "Sell", "qty": 1, "strike_group": "K3"},
             {"label": "Buy Call (K4)", "option": "Call", "side": "Buy", "qty": 1, "strike_group": "K4"}]},
 }
+
 def resolve_tv_ticker(asset_code: str, asset_type_ui: str):
     return TV_TICKER_MAP.get(asset_type_ui, {}).get(asset_code)
 
@@ -572,9 +574,7 @@ def resolve_option_calc_code(asset_input: str, asset_type_ui: str):
                     return ticker, atype
 
     return ticker, moex_type
-
-
-# ================= Комиссии =================
+    # ================= Комиссии =================
 def calc_commission(premium, instrument_type="Опцион",
                     min_comm_options=0.02,
                     comm_options_pct=3.0,
@@ -1549,7 +1549,32 @@ def get_last_close_price(secid: str, engine: str, market: str):
         return float(df.iloc[-1]["close"])
     except Exception:
         return None
-        # ================= Payoff-расчёты =================
+
+
+# ================= НОВОЕ (fix #6): кэш для «живых» досок в Позиции =================
+# Используется вместо прямого вызова _fetch_board_nocache при обновлении
+# теор. цены и греков. TTL 30 секунд — компромисс между свежестью и
+# нагрузкой на ISS.
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_board_cached_30s(asset: str, asset_type_ui: str, series_code: str):
+    if not (asset and asset_type_ui and series_code):
+        return None
+    base_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
+    type_order = [base_type, 'futures', 'share', 'index', 'currency', 'commodity']
+    tried = []
+    for asset_code in _asset_code_candidates(asset, asset_type_ui):
+        for at in type_order:
+            key = (asset_code, at)
+            if key in tried:
+                continue
+            tried.append(key)
+            url = (f"{API_BASE_URL}/assets/{asset_code}"
+                   f"/optionseries/{series_code}/optionboard")
+            data = iss_get_json(url, params={'asset_type': at}, timeout=15)
+            if data is not None:
+                return data
+    return None
+    # ================= Payoff-расчёты =================
 def _months_between(d1: date, d2: date) -> float:
     return max((d2 - d1).days, 0) / 365.0
 
@@ -1979,6 +2004,9 @@ def _render_alert_card(r: dict):
             "_lvl_buy": _lvl_buy, "_lvl_sell": _lvl_sell,
         }
         st.session_state["_alert_checks"] = _all_checks_card
+        # ВАЖНО: удаляем ключи radio-виджетов, чтобы сброс реально применился
+        st.session_state.pop(f"_alert_buy_check_{_checks_key}", None)
+        st.session_state.pop(f"_alert_sell_check_{_checks_key}", None)
         _cur_checks = {"buy": None, "sell": None}
     else:
         _cur_checks = _stored_card or {"buy": None, "sell": None}
@@ -2766,6 +2794,9 @@ def get_alert_checks(ticker: str, category: str = None):
                     "_lvl_buy": _cur_buy, "_lvl_sell": _cur_sell,
                 }
                 st.session_state["_alert_checks"] = _all_checks
+                # Удаляем ключи radio-виджетов для реального сброса
+                st.session_state.pop(f"_alert_buy_check_{key}", None)
+                st.session_state.pop(f"_alert_sell_check_{key}", None)
                 return {"buy": None, "sell": None}
         elif _stored_buy is None and _stored_sell is None:
             # Снимка не было — запоминаем текущие уровни, но выбор сохраняем
@@ -3323,10 +3354,10 @@ def _planned_close_date_str(expiry_str):
     if planned is None:
         return "—"
     return planned.strftime("%d.%m.%Y")
-
-
-# ================= Кэш позиций и доски =================
+    # ================= Кэш позиций и доски =================
 def _fetch_board_nocache(asset: str, asset_type_ui: str, series_code: str):
+    """Используется только при "живом" обновлении теор.цены и греков.
+    Обёрнута в @st.cache_data(ttl=30) через _fetch_board_cached_30s."""
     if not (asset and asset_type_ui and series_code):
         return None
     base_type = ASSET_TYPE_MAP.get(asset_type_ui, 'futures')
@@ -3445,6 +3476,27 @@ def _save_cache(_cache: dict):
         return True
     except Exception:
         return False
+
+
+def _positions_signature(positions):
+    """Хэш ключевых полей позиций — используется для избежания лишних
+    записей на диск (fix #4)."""
+    if not positions:
+        return ""
+    try:
+        _minimal = [
+            {k: p.get(k) for k in ("_id", "Кол-во", "Цена", "Теор.цена",
+                                    "Дельта", "Гамма", "Вега", "Тета",
+                                    "Ро", "visible")}
+            for p in positions
+        ]
+        return hashlib.md5(
+            json.dumps(_minimal, ensure_ascii=False,
+                       sort_keys=True, default=str).encode()
+        ).hexdigest()
+    except Exception:
+        return ""
+
 
 # ================= Хелперы для журнала =================
 def _journal_closed_sorted(rows):
@@ -3611,6 +3663,8 @@ def _journal_get_deposit():
         _cur = _init + _total_closed_pnl
 
     return _init, _cur, _mode
+
+
 # ================= Полный дамп кеша =================
 def _export_full_cache():
     """Собирает все данные приложения в JSON-строку."""
@@ -3729,6 +3783,14 @@ def _import_full_cache(json_str):
                 if _k_src in _settings:
                     st.session_state[_k_dst] = _settings[_k_src]
 
+        # ВАЖНО (fix #8): после импорта нужно пересчитать _r/_q для
+        # загруженных позиций. Сбрасываем флаг миграции.
+        st.session_state["_g3_migrated"] = False
+
+        # Сброс кэша сигнатуры позиций, чтобы первая запись после импорта
+        # произошла корректно.
+        st.session_state["_pos_signature"] = None
+
         st.session_state["_full_cache_loaded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return True, f"Загружено: {', '.join(_loaded) if _loaded else '—'}"
     except Exception as e:
@@ -3832,6 +3894,11 @@ def _render_calc_tab():
                     _tk_sel, _cat_sel = _parts
                     if (st.session_state.calc_asset_ticker != _tk_sel
                             or st.session_state.calc_asset_category != _cat_sel):
+                        # FIX #2: синхронизируем ключи виджетов, иначе
+                        # text_input с key= игнорирует value= и берёт старое
+                        # значение из session_state.
+                        st.session_state["calc_asset_input"] = _tk_sel
+                        st.session_state["calc_asset_type_select"] = _cat_sel
                         st.session_state.calc_asset_ticker = _tk_sel
                         st.session_state.calc_asset_category = _cat_sel
                         st.session_state.calc_series_list = []
@@ -3874,6 +3941,12 @@ def _render_calc_tab():
                 except Exception as e:
                     st.error(f"Ошибка загрузки серий: {e}")
                     st.session_state.calc_series_list = []
+        elif not _asset_canon:
+            # Пользователь очистил поле — сбрасываем выбранную серию
+            st.session_state.calc_series_list = []
+            st.session_state.calc_selected_series = ""
+            st.session_state.calc_selected_expiry = ""
+            st.session_state.calc_autoloaded_for = (None, None)
 
         if st.session_state.calc_series_list:
             _sorted_series = sorted(st.session_state.calc_series_list,
@@ -4019,10 +4092,12 @@ def _render_calc_tab():
                 if _p.get('strike') is not None:
                     _strikes_set.add(_p['strike'])
             for _k in sorted(_strikes_set):
+                # FIX #7: сравнение страйков через _strike_eq (защита от
+                # float-погрешности)
                 _c_iv = next((c.get('volatility') for c in _calls_inj
-                              if c.get('strike') == _k), None)
+                              if _strike_eq(c.get('strike'), _k)), None)
                 _p_iv = next((p.get('volatility') for p in _puts_inj
-                              if p.get('strike') == _k), None)
+                              if _strike_eq(p.get('strike'), _k)), None)
                 _iv = _c_iv or _p_iv
                 _k_val = float(_k)
                 _strikes_iv_inj.append({
@@ -4084,13 +4159,21 @@ def _render_calc_tab():
 
     if calc_html is not None:
         if HTML_PLACEHOLDER not in calc_html:
-            st.warning("В index.html не найден плейсхолдер.")
+            # FIX #8: явно гасим калькулятор, если плейсхолдер не найден,
+            # иначе iframe покажет «сырой» HTML с маркером в коде.
+            st.warning("В index.html не найден плейсхолдер — калькулятор отключён.")
+            calc_html = None
         else:
             _inject_json = json.dumps(_inject, ensure_ascii=False,
                                       default=str, sort_keys=True)
             _inject_hash = hashlib.md5(_inject_json.encode()).hexdigest()
             _cache_key = f"_calc_html_{_inject_hash}"
             if _cache_key not in st.session_state:
+                # Подчищаем старые ключи, чтобы не копить их в session_state
+                for _old_k in list(st.session_state.keys()):
+                    if (isinstance(_old_k, str) and _old_k.startswith("_calc_html_")
+                            and _old_k != _cache_key):
+                        st.session_state.pop(_old_k, None)
                 st.session_state[_cache_key] = calc_html.replace(
                     HTML_PLACEHOLDER, _inject_json.replace("</", "<\\/"))
             calc_html = st.session_state[_cache_key]
@@ -4174,7 +4257,8 @@ def _render_board_tab():
 
     if not st.session_state.board_series_list:
         st.info("Нет доступных серий.")
-        st.stop()
+        # FIX #1: return вместо st.stop() — не блокируем остальные вкладки
+        return
 
     st.markdown(f"### Все серии опционов {_board_asset} ({_board_cat.lower()})")
 
@@ -4236,7 +4320,8 @@ def _render_board_tab():
 
     if not _active_series_code:
         st.info("Выберите серию из таблицы выше.")
-        st.stop()
+        # FIX #1: return вместо st.stop()
+        return
 
     st.markdown(f"### Доска опционов — {_board_asset} "
                 f"(дата исполнения: {format_series_label(_active_expiry)})")
@@ -4484,7 +4569,8 @@ def _render_board_tab():
             df = df[df["Strike"].isin(_sugg_strikes_set)].reset_index(drop=True)
             if df.empty:
                 st.warning("Под рекомендованную конструкцию не найдено страйков")
-                st.stop()
+                # FIX #1: return вместо st.stop()
+                return
 
         def _greek_signal_color(greek_name, row, side, buy_active, sell_active):
             _COL_BUY  = "#9c00ff"
@@ -5209,6 +5295,8 @@ def _render_position_tab():
                                 st.session_state.positions_cache[_ck_pos] = list(
                                     st.session_state.positions)
                                 _save_cache(st.session_state.positions_cache)
+                                st.session_state["_pos_signature"] = \
+                                    _positions_signature(st.session_state.positions)
                             st.success(
                                 f"Добавлено ног: {len(_created)} "
                                 f"({_sugg_pos['strategy']})")
@@ -5238,6 +5326,8 @@ def _render_position_tab():
             st.session_state.positions_cache.setdefault(
                 _new_key, list(st.session_state.positions))
         _save_cache(st.session_state.positions_cache)
+        st.session_state["_pos_signature"] = \
+            _positions_signature(st.session_state.positions)
 
     elif _new_key != _old_key:
         st.session_state.positions_cache[_old_key] = list(
@@ -5249,19 +5339,30 @@ def _render_position_tab():
             if _k.startswith(("qty_", "price_", "qp_", "qm_",
                               "pp_", "pm_")):
                 del st.session_state[_k]
+        # FIX #6: при смене актива сбрасываем ключи формы, чтобы страйк
+        # и серия из старого актива не «залипали».
+        for _fk in ("form_series", "form_strike", "form_opt_type",
+                    "form_side", "form_qty", "form_price",
+                    "form_instrument_type", "form_futures_contract",
+                    "form_use_auto_price", "fallback_series_selector"):
+            st.session_state.pop(_fk, None)
         _save_cache(st.session_state.positions_cache)
-
-    if _new_key:
-        st.session_state.positions_cache[_new_key] = list(
-            st.session_state.positions)
-        _save_cache(st.session_state.positions_cache)
+        st.session_state["_pos_signature"] = \
+            _positions_signature(st.session_state.positions)
 
     if (_pos_asset != st.session_state.pos_asset
             or _pos_cat != st.session_state.pos_category):
         st.session_state.pos_asset = _pos_asset
         st.session_state.pos_category = _pos_cat
+        # FIX #6: также сбрасываем form_* при смене актива через input
+        for _fk in ("form_series", "form_strike", "form_opt_type",
+                    "form_side", "form_qty", "form_price",
+                    "form_instrument_type", "form_futures_contract",
+                    "form_use_auto_price", "fallback_series_selector"):
+            st.session_state.pop(_fk, None)
 
-    # G3: миграция r/q для существующих позиций (один раз за сессию)
+    # G3: миграция r/q для существующих позиций (один раз за сессию,
+    # а также принудительно после импорта полного кеша — fix #9).
     if st.session_state.get("_g3_migrated") is not True:
         try:
             if st.session_state.get("positions"):
@@ -5271,6 +5372,8 @@ def _render_position_tab():
                     st.session_state.positions_cache[_ck_mig] = list(
                         st.session_state.positions)
                     _save_cache(st.session_state.positions_cache)
+                    st.session_state["_pos_signature"] = \
+                        _positions_signature(st.session_state.positions)
             st.session_state["_g3_migrated"] = True
         except Exception:
             pass
@@ -5335,6 +5438,14 @@ def _render_position_tab():
                                                       "qp_", "qm_",
                                                       "pp_", "pm_")):
                                         del st.session_state[_k]
+                                for _fk in ("form_series", "form_strike",
+                                            "form_opt_type", "form_side",
+                                            "form_qty", "form_price",
+                                            "form_instrument_type",
+                                            "form_futures_contract",
+                                            "form_use_auto_price",
+                                            "fallback_series_selector"):
+                                    st.session_state.pop(_fk, None)
                                 st.session_state.pos_series_list = []
                                 st.session_state.pos_series_code = ""
                                 st.session_state.pos_expiry = ""
@@ -5346,6 +5457,8 @@ def _render_position_tab():
                                 st.session_state["_wt_last_asset"] = None
                                 st.session_state["_current_market_price"] = None
                                 _save_cache(st.session_state.positions_cache)
+                                st.session_state["_pos_signature"] = \
+                                    _positions_signature(st.session_state.positions)
                                 st.rerun()
                 with _cc3:
                     if not _is_current:
@@ -5365,6 +5478,8 @@ def _render_position_tab():
                     st.session_state.positions_cache[_new_key] = \
                         list(st.session_state.positions)
                     _ok = _save_cache(st.session_state.positions_cache)
+                    st.session_state["_pos_signature"] = \
+                        _positions_signature(st.session_state.positions)
                     if _ok:
                         st.success("Кэш записан на диск")
                     else:
@@ -5378,6 +5493,7 @@ def _render_position_tab():
                     st.session_state.positions_cache = {}
                     st.session_state.positions = []
                     _save_cache({})
+                    st.session_state["_pos_signature"] = ""
                     st.success("Кэш очищен")
                     st.rerun()
 
@@ -5517,12 +5633,22 @@ def _render_position_tab():
                             st.session_state.pos_expiry = ""
                             st.session_state.pos_autoloaded_for = (None, None)
 
-                            for _wk in ("pos_asset_input", "pos_category_select"):
+                            for _wk in ("pos_asset_input", "pos_category_select",
+                                        "form_series", "form_strike",
+                                        "form_opt_type", "form_side",
+                                        "form_qty", "form_price",
+                                        "form_instrument_type",
+                                        "form_futures_contract",
+                                        "form_use_auto_price",
+                                        "fallback_series_selector"):
                                 if _wk in st.session_state:
                                     del st.session_state[_wk]
 
                             st.session_state["_wt_last_asset"] = None
                             st.session_state["_current_market_price"] = None
+                            st.session_state["_g3_migrated"] = False
+                            st.session_state["_pos_signature"] = \
+                                _positions_signature(st.session_state.positions)
 
                             st.rerun()
                         st.caption(f"Строк: {len(_imported)}")
@@ -5713,6 +5839,10 @@ def _render_position_tab():
                         _fb = _series_by_label[_fallback_label]
                         st.session_state.pos_series_code = _fb["code"]
                         st.session_state.pos_expiry = _fb["expiry"]
+                        # Сбрасываем form_series — иначе он продолжит
+                        # показывать старую серию
+                        st.session_state.pop("form_series", None)
+                        st.session_state.pop("form_strike", None)
                         st.rerun()
 
                 if board:
@@ -6073,7 +6203,8 @@ def _render_position_tab():
                                         "message": _success_msg,
                                     }
                                     st.rerun()
-                                        # ==================================================================
+
+    # ==================================================================
     # ЖИВОЕ ОБНОВЛЕНИЕ ТЕОР. ЦЕНЫ И ГРЕКОВ
     # ==================================================================
     _pos_asset_r = st.session_state.get("pos_asset", "")
@@ -6091,7 +6222,10 @@ def _render_position_tab():
 
         _boards_live = {}
         for _s in _series_to_fetch:
-            _boards_live[_s] = _fetch_board_nocache(_pos_asset_r, _pos_atype_r, _s)
+            # FIX #5: используем кэшированную версию (TTL 30 сек) вместо
+            # _fetch_board_nocache — снижаем нагрузку на ISS.
+            _boards_live[_s] = _fetch_board_cached_30s(
+                _pos_asset_r, _pos_atype_r, _s)
 
         def _estimate_F(board):
             if not board:
@@ -6160,7 +6294,7 @@ def _render_position_tab():
                 _opp_side = "put" if _lp.get("Опцион") == "Call" else "call"
                 _opp_list = _b.get(_opp_side) or []
                 _opp = next((x for x in _opp_list
-                             if x.get("strike") == _lp.get("Страйк")), None)
+                             if _strike_eq(x.get("strike"), _lp.get("Страйк"))), None)
                 _th_opp = (_opp or {}).get("theorprice")
                 _k_f = float(_lp.get("Страйк") or 0)
                 _F = _estimate_F(_b)
@@ -6184,13 +6318,17 @@ def _render_position_tab():
                 else:
                     _lp["Теор.цена"] = None
 
+        # FIX #4: пишем на диск только если реально изменилась сигнатура
         _ck = st.session_state.get("_pos_active_key")
         if _ck:
-            st.session_state.positions_cache[_ck] = list(st.session_state.positions)
-            _ok_save = _save_cache(st.session_state.positions_cache)
-            if _ok_save:
-                st.session_state["_last_save_ts"] = datetime.now().strftime("%H:%M:%S")
-                st.session_state["_last_save_count"] = _updated
+            _new_sig = _positions_signature(st.session_state.positions)
+            if _new_sig != st.session_state.get("_pos_signature"):
+                st.session_state.positions_cache[_ck] = list(st.session_state.positions)
+                _ok_save = _save_cache(st.session_state.positions_cache)
+                if _ok_save:
+                    st.session_state["_last_save_ts"] = datetime.now().strftime("%H:%M:%S")
+                    st.session_state["_last_save_count"] = _updated
+                st.session_state["_pos_signature"] = _new_sig
 
     # ==================================================================
     # ТЕКУЩИЕ ПОЗИЦИИ
@@ -6698,6 +6836,8 @@ def _render_position_tab():
                     if isinstance(_restored, dict):
                         st.session_state.positions_cache = _restored
                         _save_cache(_restored)
+                        st.session_state["_g3_migrated"] = False
+                        st.session_state["_pos_signature"] = None
                         st.success(
                             f"Восстановлено активов: {len(_restored)}. "
                             f"Выберите нужный в блоке «Базовый актив»."
@@ -7343,11 +7483,16 @@ def _render_whatif_tab():
                      if current_price > 0 else 0.0)
         st.session_state.wt_price_pct = max(-50.0, min(50.0, _pct_calc))
         st.session_state.wt_price_ver += 1
+        # Чистим старый ключ виджета, чтобы не копились
+        st.session_state.pop(f"wt_p_abs_{_p_ver - 1}", None)
+        st.session_state.pop(f"wt_p_pct_{_p_ver - 1}", None)
         st.rerun()
     elif abs(_p_pct_val - st.session_state.wt_price_pct) > 1e-9:
         st.session_state.wt_price_pct = _p_pct_val
         st.session_state.wt_price_abs = current_price * (1 + _p_pct_val / 100.0)
         st.session_state.wt_price_ver += 1
+        st.session_state.pop(f"wt_p_abs_{_p_ver - 1}", None)
+        st.session_state.pop(f"wt_p_pct_{_p_ver - 1}", None)
         st.rerun()
 
     st.markdown(
@@ -7383,11 +7528,15 @@ def _render_whatif_tab():
         st.session_state.wt_iv_abs = max(0.1, _i_abs_val)
         st.session_state.wt_iv_pp = max(-30.0, min(30.0, _i_abs_val - base_iv))
         st.session_state.wt_iv_ver += 1
+        st.session_state.pop(f"wt_i_abs_{_i_ver - 1}", None)
+        st.session_state.pop(f"wt_i_pp_{_i_ver - 1}", None)
         st.rerun()
     elif abs(_i_pp_val - st.session_state.wt_iv_pp) > 1e-9:
         st.session_state.wt_iv_pp = _i_pp_val
         st.session_state.wt_iv_abs = max(0.1, base_iv + _i_pp_val)
         st.session_state.wt_iv_ver += 1
+        st.session_state.pop(f"wt_i_abs_{_i_ver - 1}", None)
+        st.session_state.pop(f"wt_i_pp_{_i_ver - 1}", None)
         st.rerun()
 
     st.markdown(
@@ -8610,7 +8759,7 @@ def _render_skew_tab():
             height=min(120 + 35 * len(_df_show_sk), 500))
 
     st.caption("Критерий наличия наклона: σ/μ ≥ 15%.")
-# ==================================================================
+    # ==================================================================
 # ============ ВКЛАДКА 8: ЖУРНАЛ ==================================
 # ==================================================================
 @st.fragment
@@ -9062,18 +9211,29 @@ def _render_journal_tab():
     st.markdown("---")
     st.markdown("### Список сделок")
 
-    # Обогащаем строки балансом и % от депозита
-    _rows_for_table = []
+    # FIX #10: корректный «Баланс после» и «% депо» при фильтре периода.
+    # Считаем бегущий баланс по ВСЕМ сделкам, но показываем только
+    # отфильтрованные. Это даёт корректное значение для сделок, попавших
+    # в фильтр, если до них уже были сделки вне фильтра.
+    _balance_by_id = {}
+    _pct_by_id = {}
     _running_balance = _init_dep
-    _closed_ids = {id(r) for r in _closed}
+    for r in _journal_closed_sorted(_rows_all):
+        _p = float(r.get("P&L") or 0.0)
+        _bal_before = _running_balance
+        _running_balance += _p
+        _rid = r.get("_id")
+        if _rid:
+            _balance_by_id[_rid] = _running_balance
+            _pct_by_id[_rid] = (_p / _bal_before * 100.0) if _bal_before > 0 else 0.0
+
+    _rows_for_table = []
     for r in _rows_filtered:
         _rr = dict(r)
-        _p = float(r.get("P&L") or 0)
+        _rid = r.get("_id")
         if r.get("Статус") in ("Закрыта", "Сгорел"):
-            _bal_before = _running_balance
-            _running_balance += _p
-            _rr["_balance"] = _running_balance
-            _rr["_pct_deposit"] = (_p / _bal_before * 100.0) if _bal_before > 0 else 0.0
+            _rr["_balance"] = _balance_by_id.get(_rid)
+            _rr["_pct_deposit"] = _pct_by_id.get(_rid)
         else:
             _rr["_balance"] = None
             _rr["_pct_deposit"] = None
@@ -9464,7 +9624,7 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
     st.info(f"Депозит берётся из: {_dep_src} — **{_deposit:,.2f} ₽**")
 
     # ==========================================================
-    # Блок 6: Диагностика качества статистики
+    # Диагностика качества статистики
     # Показывается только в режиме «Из журнала»
     # ==========================================================
     if _src == "Из журнала":
