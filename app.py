@@ -1935,6 +1935,7 @@ def _render_alert_card(r: dict) -> str:
     _buy_dev_str = f"{_buy_dev:+.2f} %" if _buy_dev is not None else "—"
     _sell_dev_str = f"{_sell_dev:+.2f} %" if _sell_dev is not None else "—"
 
+    # Бейджи срабатывания: покупка — зелёный, продажа — красный
     _buy_bg = "#0a8f3c" if _buy_active else "#e6e9ec"
     _buy_fg = "#ffffff" if _buy_active else "#5a6b78"
     _sell_bg = "#d32f2f" if _sell_active else "#e6e9ec"
@@ -1942,8 +1943,11 @@ def _render_alert_card(r: dict) -> str:
     _buy_mark = "✓" if _buy_active else "·"
     _sell_mark = "✓" if _sell_active else "·"
 
-    _lvl_buy_color  = "#9c00ff"   # фиолетовый — как Offer/покупка на доске
-    _lvl_sell_color = "#fb92f0"   # розовый   — как Bid/продажа на доске
+    # Фон карточек уровней: покупка — фиолетовый, продажа — розовый
+    _lvl_buy_bg      = "rgba(156, 0, 255, 0.15)"     # светло-фиолетовый
+    _lvl_buy_border  = "rgba(156, 0, 255, 0.45)"
+    _lvl_sell_bg     = "rgba(251, 146, 240, 0.30)"   # светло-розовый
+    _lvl_sell_border = "rgba(251, 146, 240, 0.65)"
 
     return f"""
     <div style="border:1px solid #cfd6dc; border-radius:8px; padding:10px 12px;
@@ -1959,24 +1963,24 @@ def _render_alert_card(r: dict) -> str:
         {_category}</div>
 
       <div style="display:flex; gap:6px; margin-top:10px;">
-        <div style="flex:1; background:#f2f4f6; border:1px solid #d8dee3;
+        <div style="flex:1; background:{_lvl_buy_bg};
+                    border:1px solid {_lvl_buy_border};
                     border-radius:6px; padding:7px 9px;">
           <div style="font-size:.6rem; color:#333; font-weight:700;
                       text-transform:uppercase; letter-spacing:.06em;">
             Покупка</div>
-          <div style="font-size:1.02rem; font-weight:700;
-                      color:{_lvl_buy_color};
+          <div style="font-size:1.02rem; font-weight:700; color:#111;
                       line-height:1.2; margin-top:2px;">{_lvl_buy:.2f}</div>
           <div style="font-size:.76rem; color:#333; margin-top:1px;">
             {_buy_dev_str}</div>
         </div>
-        <div style="flex:1; background:#f2f4f6; border:1px solid #d8dee3;
+        <div style="flex:1; background:{_lvl_sell_bg};
+                    border:1px solid {_lvl_sell_border};
                     border-radius:6px; padding:7px 9px;">
           <div style="font-size:.6rem; color:#333; font-weight:700;
                       text-transform:uppercase; letter-spacing:.06em;">
             Продажа</div>
-          <div style="font-size:1.02rem; font-weight:700;
-                      color:{_lvl_sell_color};
+          <div style="font-size:1.02rem; font-weight:700; color:#111;
                       line-height:1.2; margin-top:2px;">{_lvl_sell:.2f}</div>
           <div style="font-size:.76rem; color:#333; margin-top:1px;">
             {_sell_dev_str}</div>
