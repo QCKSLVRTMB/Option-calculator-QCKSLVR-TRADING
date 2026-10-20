@@ -3446,7 +3446,171 @@ def _save_cache(_cache: dict):
     except Exception:
         return False
 
+# ================= Хелперы для журнала =================
+def _journal_closed_sorted(rows):
+    """Возвращает закрытые сделки, отсортированные по дате закрытия
+    (или дате входа, если даты выхода нет)."""
+    if not rows:
+        return []
+    closed = [r for r in rows
+              if r.get("Статус") in ("Закрыта", "Сгорел")]
+    try:
+        closed_sorted = sorted(
+            closed,
+            key=lambda r: (str(r.get("Дата входа", "2000-01-01")),
+                            str(r.get("_id", "")))
+        )
+    except Exception:
+        closed_sorted = closed
+    return closed_sorted
 
+
+def _journal_equity_series(rows, initial_deposit):
+    """DataFrame: date, pnl, balance, peak, drawdown, drawdown_pct."""
+    closed = _journal_closed_sorted(rows)
+    if not closed:
+        return pd.DataFrame(
+            columns=["date", "pnl", "balance", "peak",
+                     "drawdown", "drawdown_pct"])
+
+    _balance = float(initial_deposit or 0.0)
+    _peak = _balance
+    _records = []
+    for r in closed:
+        _p = float(r.get("P&L") or 0.0)
+        _balance += _p
+        if _balance > _peak:
+            _peak = _balance
+        _dd = _balance - _peak
+        _dd_pct = (_dd / _peak * 100.0) if _peak > 0 else 0.0
+        _records.append({
+            "date": str(r.get("Дата входа", "")),
+            "pnl": _p,
+            "balance": _balance,
+            "peak": _peak,
+            "drawdown": _dd,
+            "drawdown_pct": _dd_pct,
+        })
+    return pd.DataFrame(_records)
+
+
+def _journal_max_drawdown(equity_df):
+    """Возвращает (abs_dd, pct_dd)."""
+    if equity_df is None or equity_df.empty:
+        return 0.0, 0.0
+    _min_dd = float(equity_df["drawdown"].min())
+    _min_dd_pct = float(equity_df["drawdown_pct"].min())
+    return abs(_min_dd), abs(_min_dd_pct)
+
+
+def _journal_profit_factor(closed):
+    """Profit Factor: число, '∞' или None."""
+    if not closed:
+        return None
+    _wins = sum((r.get("P&L") or 0) for r in closed
+                if (r.get("P&L") or 0) > 0)
+    _losses = abs(sum((r.get("P&L") or 0) for r in closed
+                      if (r.get("P&L") or 0) < 0))
+    if _losses > 0:
+        return _wins / _losses
+    if _wins > 0:
+        return float("inf")
+    return None
+
+
+def _journal_streaks(closed):
+    """Возвращает dict со streak-метриками."""
+    result = {
+        "max_wins": 0, "max_losses": 0,
+        "avg_wins": 0.0, "avg_losses": 0.0,
+        "current_type": None, "current_len": 0,
+    }
+    if not closed:
+        return result
+
+    _win_streaks = []
+    _loss_streaks = []
+    _cur = None
+    _cur_len = 0
+    for r in closed:
+        _p = r.get("P&L") or 0
+        _type = "win" if _p > 0 else ("loss" if _p < 0 else None)
+        if _type is None:
+            continue
+        if _type == _cur:
+            _cur_len += 1
+        else:
+            if _cur == "win" and _cur_len > 0:
+                _win_streaks.append(_cur_len)
+            elif _cur == "loss" and _cur_len > 0:
+                _loss_streaks.append(_cur_len)
+            _cur = _type
+            _cur_len = 1
+    if _cur == "win" and _cur_len > 0:
+        _win_streaks.append(_cur_len)
+    elif _cur == "loss" and _cur_len > 0:
+        _loss_streaks.append(_cur_len)
+
+    result["max_wins"] = max(_win_streaks) if _win_streaks else 0
+    result["max_losses"] = max(_loss_streaks) if _loss_streaks else 0
+    result["avg_wins"] = (sum(_win_streaks) / len(_win_streaks)
+                          if _win_streaks else 0.0)
+    result["avg_losses"] = (sum(_loss_streaks) / len(_loss_streaks)
+                            if _loss_streaks else 0.0)
+    result["current_type"] = _cur
+    result["current_len"] = _cur_len
+    return result
+
+
+def _journal_stats_by(closed, key):
+    """Группирует сделки по полю key, возвращает DataFrame."""
+    if not closed:
+        return pd.DataFrame()
+    groups = {}
+    for r in closed:
+        k = str(r.get(key, "—")).strip() or "—"
+        if k not in groups:
+            groups[k] = {"trades": 0, "wins": 0, "losses": 0,
+                          "pnl": 0.0}
+        g = groups[k]
+        g["trades"] += 1
+        p = r.get("P&L") or 0
+        g["pnl"] += p
+        if p > 0:
+            g["wins"] += 1
+        elif p < 0:
+            g["losses"] += 1
+    rows = []
+    for k, g in groups.items():
+        wr = (g["wins"] / g["trades"] * 100.0) if g["trades"] > 0 else 0.0
+        rows.append({
+            key: k,
+            "Сделок": g["trades"],
+            "Win-rate, %": round(wr, 1),
+            "P&L, ₽": round(g["pnl"], 2),
+        })
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values("P&L, ₽", ascending=False).reset_index(drop=True)
+    return df
+
+
+def _journal_get_deposit():
+    """Возвращает (initial_deposit, current_deposit, mode).
+    current_deposit = None → автоматически из P&L."""
+    _init = float(st.session_state.get("journal_initial_deposit", 100000.0) or 100000.0)
+    _mode = st.session_state.get("journal_deposit_mode", "auto")
+    _rows = st.session_state.get("journal_rows", [])
+    _closed = _journal_closed_sorted(_rows)
+    _total_closed_pnl = sum((r.get("P&L") or 0) for r in _closed)
+
+    if _mode == "manual":
+        _cur = float(st.session_state.get("journal_current_deposit_manual",
+                                           _init) or _init)
+    else:
+        _cur = _init + _total_closed_pnl
+
+    return _init, _cur, _mode
 # ================= Полный дамп кеша =================
 def _export_full_cache():
     """Собирает все данные приложения в JSON-строку."""
@@ -3460,7 +3624,7 @@ def _export_full_cache():
 
     _dump = {
         "_meta": {
-            "version": 1,
+            "version": 2,
             "exported_at": datetime.now().isoformat(),
             "app": "MOEX Options & Black-Scholes",
         },
@@ -3471,6 +3635,13 @@ def _export_full_cache():
         "iv_history": st.session_state.get("_iv_history", {}),
         "alert_checks": st.session_state.get("_alert_checks", {}),
         "alerts_snapshot": _alerts_snapshot,
+        "journal_deposit": {
+            "initial": float(st.session_state.get(
+                "journal_initial_deposit", 100000.0) or 100000.0),
+            "current_manual": st.session_state.get(
+                "journal_current_deposit_manual"),
+            "mode": st.session_state.get("journal_deposit_mode", "auto"),
+        },
         "settings": {
             "deposit": st.session_state.get("dep_inp", 100000.0),
             "risk_pct": st.session_state.get("rp_inp", 1.0),
@@ -3484,7 +3655,7 @@ def _export_full_cache():
 
 
 def _import_full_cache(json_str):
-    """Загружает полный дамп в session_state."""
+    """Загружает полный дамп в session_state. Поддерживает v1 и v2."""
     try:
         _data = json.loads(json_str)
     except Exception as e:
@@ -3494,7 +3665,7 @@ def _import_full_cache(json_str):
         return False, "Неверный формат файла (ожидался JSON-объект)"
 
     _ver = (_data.get("_meta") or {}).get("version", 0)
-    if _ver != 1:
+    if _ver not in (1, 2):
         return False, f"Неизвестная версия файла: {_ver}"
 
     _loaded = []
@@ -3522,6 +3693,27 @@ def _import_full_cache(json_str):
         if "alert_checks" in _data and isinstance(_data["alert_checks"], dict):
             st.session_state["_alert_checks"] = _data["alert_checks"]
             _loaded.append("alert_checks")
+
+        # Депозит журнала (v2+)
+        _dep = _data.get("journal_deposit") or {}
+        if isinstance(_dep, dict):
+            if "initial" in _dep:
+                try:
+                    st.session_state["journal_initial_deposit"] = float(_dep["initial"])
+                except (TypeError, ValueError):
+                    pass
+            if "current_manual" in _dep:
+                _cm = _dep["current_manual"]
+                if _cm is not None:
+                    try:
+                        st.session_state["journal_current_deposit_manual"] = float(_cm)
+                    except (TypeError, ValueError):
+                        st.session_state["journal_current_deposit_manual"] = None
+                else:
+                    st.session_state["journal_current_deposit_manual"] = None
+            if "mode" in _dep and _dep["mode"] in ("auto", "manual"):
+                st.session_state["journal_deposit_mode"] = _dep["mode"]
+            _loaded.append("journal_deposit")
 
         _settings = _data.get("settings") or {}
         if isinstance(_settings, dict):
@@ -8418,7 +8610,7 @@ def _render_skew_tab():
             height=min(120 + 35 * len(_df_show_sk), 500))
 
     st.caption("Критерий наличия наклона: σ/μ ≥ 15%.")
-    # ==================================================================
+# ==================================================================
 # ============ ВКЛАДКА 8: ЖУРНАЛ ==================================
 # ==================================================================
 @st.fragment
@@ -8431,7 +8623,83 @@ def _render_journal_tab():
         st.session_state.journal_rows = []
     if "journal_view_mode" not in st.session_state:
         st.session_state.journal_view_mode = "Таблица"
+    if "journal_initial_deposit" not in st.session_state:
+        st.session_state.journal_initial_deposit = 100000.0
+    if "journal_deposit_mode" not in st.session_state:
+        st.session_state.journal_deposit_mode = "auto"
+    if "journal_current_deposit_manual" not in st.session_state:
+        st.session_state.journal_current_deposit_manual = None
+    if "journal_period_filter" not in st.session_state:
+        st.session_state.journal_period_filter = "Всё время"
 
+    # ==========================================================
+    # ШАПКА: депозит + метрики баланса
+    # ==========================================================
+    _init_dep, _cur_dep, _dep_mode = _journal_get_deposit()
+
+    with st.container(border=True):
+        st.markdown("#### Депозит")
+        _dep_c1, _dep_c2, _dep_c3 = st.columns([2, 2, 2])
+        with _dep_c1:
+            _new_init = st.number_input(
+                "Начальный депозит, ₽",
+                min_value=0.0,
+                value=float(_init_dep),
+                step=1000.0,
+                format="%.0f",
+                key="journal_initial_deposit_inp")
+            if abs(_new_init - float(_init_dep)) > 0.01:
+                st.session_state.journal_initial_deposit = float(_new_init)
+                st.rerun()
+        with _dep_c2:
+            _mode_options = ["Авто (по P&L сделок)", "Вручную"]
+            _mode_idx = 0 if _dep_mode == "auto" else 1
+            _new_mode = st.selectbox(
+                "Режим",
+                _mode_options,
+                index=_mode_idx,
+                key="journal_deposit_mode_select")
+            _new_mode_key = "auto" if _new_mode.startswith("Авто") else "manual"
+            if _new_mode_key != _dep_mode:
+                st.session_state.journal_deposit_mode = _new_mode_key
+                st.rerun()
+        with _dep_c3:
+            if _dep_mode == "manual":
+                _cur_manual_val = (st.session_state.get(
+                    "journal_current_deposit_manual") or _init_dep)
+                _new_manual = st.number_input(
+                    "Текущий депозит, ₽",
+                    min_value=0.0,
+                    value=float(_cur_manual_val),
+                    step=1000.0,
+                    format="%.0f",
+                    key="journal_current_deposit_inp")
+                if abs(_new_manual - float(_cur_manual_val)) > 0.01:
+                    st.session_state.journal_current_deposit_manual = float(_new_manual)
+                    st.rerun()
+            else:
+                st.metric(
+                    "Текущий баланс (авто)",
+                    f"{_cur_dep:,.0f} ₽")
+
+        # Метрики прироста
+        _growth_abs = _cur_dep - _init_dep
+        _growth_pct = (_growth_abs / _init_dep * 100.0) if _init_dep > 0 else 0.0
+        _growth_color = "#00a651" if _growth_abs > 0 else (
+            "#d32f2f" if _growth_abs < 0 else "#333")
+        st.markdown(
+            f"<div style='padding:8px 14px; background:#f6f9fc; "
+            f"border-radius:8px; font-size:.9rem; margin-top:6px;'>"
+            f"<b>Прирост:</b> "
+            f"<span style='color:{_growth_color}; font-weight:800; "
+            f"font-size:1.05rem;'>{_growth_abs:+,.2f} ₽</span> "
+            f"<span style='color:{_growth_color};'>"
+            f"({_growth_pct:+.2f}%)</span></div>",
+            unsafe_allow_html=True)
+
+    # ==========================================================
+    # ДОБАВИТЬ СДЕЛКУ
+    # ==========================================================
     with st.expander("Добавить сделку", expanded=False):
         with st.form("journal_add_form", clear_on_submit=True):
             _jc1, _jc2, _jc3 = st.columns(3)
@@ -8525,6 +8793,9 @@ def _render_journal_tab():
                 st.success(_msg)
                 st.rerun()
 
+    # ==========================================================
+    # УПРАВЛЕНИЕ
+    # ==========================================================
     st.markdown("### Управление")
     _e1, _e2, _e3 = st.columns(3)
     with _e1:
@@ -8587,14 +8858,61 @@ def _render_journal_tab():
             st.rerun()
 
     st.markdown("---")
+
+    # ==========================================================
+    # ФИЛЬТР ПО ПЕРИОДУ
+    # ==========================================================
+    _period_options = ["Всё время", "Последний месяц",
+                        "Последние 3 месяца", "Последние 6 месяцев",
+                        "Последний год"]
+    _period_chosen = st.radio(
+        "Период",
+        _period_options,
+        index=_period_options.index(st.session_state.journal_period_filter)
+              if st.session_state.journal_period_filter in _period_options else 0,
+        horizontal=True,
+        key="journal_period_radio",
+        label_visibility="collapsed")
+    st.session_state.journal_period_filter = _period_chosen
+
+    _period_days_map = {
+        "Всё время": None,
+        "Последний месяц": 30,
+        "Последние 3 месяца": 90,
+        "Последние 6 месяцев": 180,
+        "Последний год": 365,
+    }
+    _period_days = _period_days_map.get(_period_chosen)
+
+    _rows_all = st.session_state.journal_rows
+    if _period_days is not None and _rows_all:
+        _cutoff = date.today() - timedelta(days=_period_days)
+        _rows_filtered = []
+        for r in _rows_all:
+            try:
+                _rd = datetime.strptime(
+                    str(r.get("Дата входа", "")), "%Y-%m-%d").date()
+                if _rd >= _cutoff:
+                    _rows_filtered.append(r)
+            except Exception:
+                _rows_filtered.append(r)
+    else:
+        _rows_filtered = list(_rows_all)
+
+    # ==========================================================
+    # СТАТИСТИКА
+    # ==========================================================
     st.markdown("### Статистика")
 
-    _rows = st.session_state.journal_rows
-    if not _rows:
-        st.info("Журнал пуст. Добавьте первую сделку.")
+    if not _rows_filtered:
+        if _period_days is not None:
+            st.info(f"Нет сделок за период «{_period_chosen}». "
+                    f"Выберите «Всё время» или добавьте сделки.")
+        else:
+            st.info("Журнал пуст. Добавьте первую сделку.")
         return
 
-    _closed = [r for r in _rows
+    _closed = [r for r in _rows_filtered
                if r.get("Статус") in ("Закрыта", "Сгорел")]
     _wins = [r for r in _closed if (r.get("P&L") or 0) > 0]
     _losses = [r for r in _closed if (r.get("P&L") or 0) < 0]
@@ -8604,30 +8922,166 @@ def _render_journal_tab():
     _avg_win = (_gross_win / len(_wins)) if _wins else 0.0
     _avg_loss = (_gross_loss / len(_losses)) if _losses else 0.0
     _win_rate = (len(_wins) / len(_closed) * 100) if _closed else 0.0
-    _profit_factor = (_gross_win / _gross_loss) if _gross_loss > 0 else 0.0
 
+    _profit_factor = _journal_profit_factor(_closed)
+
+    # Max drawdown по всему журналу (не по фильтру — это важнее)
+    _equity_df = _journal_equity_series(_rows_all, _init_dep)
+    _max_dd_abs, _max_dd_pct = _journal_max_drawdown(_equity_df)
+
+    # Streaks
+    _streaks = _journal_streaks(_closed)
+
+    # Основная сетка метрик — 1
     _s1, _s2, _s3, _s4 = st.columns(4)
-    _s1.metric("Всего сделок", len(_rows),
+    _s1.metric("Всего сделок", len(_rows_filtered),
                delta=f"закрыто {len(_closed)}")
     _s2.metric("Win-rate", f"{_win_rate:.1f}%",
                delta=f"{len(_wins)}W / {len(_losses)}L")
-    _s3.metric("Total P&L", f"{_total_pnl:+,.2f} ₽")
-    _s4.metric("Profit Factor",
-               f"{_profit_factor:.2f}" if _profit_factor > 0 else "—")
+    _s3.metric("Total P&L (фильтр)", f"{_total_pnl:+,.2f} ₽")
+    if _profit_factor is None:
+        _pf_str = "—"
+    elif _profit_factor == float("inf"):
+        _pf_str = "∞"
+    else:
+        _pf_str = f"{_profit_factor:.2f}"
+    _s4.metric("Profit Factor", _pf_str)
 
+    # Сетка метрик — 2
     _s5, _s6, _s7, _s8 = st.columns(4)
     _s5.metric("Ср. выигрыш", f"{_avg_win:+,.2f} ₽")
     _s6.metric("Ср. убыток", f"{-_avg_loss:+,.2f} ₽")
-    _expectancy = ((_win_rate / 100.0) * _avg_win
-                    - (1 - _win_rate / 100.0) * _avg_loss) if _closed else 0.0
-    _s7.metric("Expectancy", f"{_expectancy:+,.2f} ₽")
-    _s8.metric("Gross Loss", f"{-_gross_loss:+,.2f} ₽")
+    if _closed and _avg_loss > 0:
+        _expectancy = ((_win_rate / 100.0) * _avg_win
+                        - (1 - _win_rate / 100.0) * _avg_loss)
+        _s7.metric("Expectancy", f"{_expectancy:+,.2f} ₽")
+    else:
+        _s7.metric("Expectancy", "—")
+    _s8.metric("Max Drawdown",
+                f"{_max_dd_abs:,.0f} ₽" if _max_dd_abs > 0 else "—",
+                delta=f"−{_max_dd_pct:.1f}%" if _max_dd_pct > 0 else None,
+                delta_color="inverse")
 
+    # Сетка метрик — 3: streaks + risk per trade
+    _s9, _s10, _s11, _s12 = st.columns(4)
+    _s9.metric("Max серия W", _streaks["max_wins"],
+               delta=f"ср. {_streaks['avg_wins']:.1f}")
+    _s10.metric("Max серия L", _streaks["max_losses"],
+                 delta=f"ср. {_streaks['avg_losses']:.1f}")
+    _open_trades = [r for r in _rows_filtered
+                    if r.get("Статус") == "Открыта"]
+    _s11.metric("Открыто сейчас", len(_open_trades))
+    # Risk per trade = макс. убыток на сделку в % от начального депозита
+    _max_loss_single = 0.0
+    if _losses:
+        _max_loss_single = abs(min((r.get("P&L") or 0) for r in _losses))
+    _risk_pct_per_trade = (_max_loss_single / _init_dep * 100.0) \
+                          if _init_dep > 0 else 0.0
+    _s12.metric("Макс. убыток / сделка", f"{_max_loss_single:,.0f} ₽",
+                 delta=f"{_risk_pct_per_trade:.1f}% депо",
+                 delta_color="inverse")
+
+    # ==========================================================
+    # EQUITY CURVE
+    # ==========================================================
+    if not _equity_df.empty:
+        st.markdown("---")
+        st.markdown("### Кривая капитала")
+
+        _eq_plot = _equity_df.copy()
+        _eq_plot["idx"] = range(1, len(_eq_plot) + 1)
+        _eq_plot["label"] = _eq_plot["date"] + " #" + _eq_plot["idx"].astype(str)
+
+        fig_eq = go.Figure()
+        fig_eq.add_trace(go.Scatter(
+            x=_eq_plot["idx"],
+            y=_eq_plot["balance"],
+            mode="lines+markers",
+            name="Баланс",
+            line=dict(color="#1e5a7a", width=3),
+            marker=dict(size=6, color="#1e88e5"),
+            customdata=_eq_plot[["date", "pnl"]].values,
+            hovertemplate=(
+                "Сделка #%{x}<br>"
+                "Дата: %{customdata[0]}<br>"
+                "P&L: %{customdata[1]:+,.2f} ₽<br>"
+                "Баланс: %{y:,.2f} ₽<extra></extra>"
+            )))
+        fig_eq.add_hline(
+            y=float(_init_dep),
+            line=dict(color="#7a7a7a", width=1.5, dash="dash"),
+            annotation_text=f"Начальный депозит = {_init_dep:,.0f} ₽",
+            annotation_position="top left",
+            annotation_font_color="#7a7a7a")
+        fig_eq.update_layout(
+            title="Кривая капитала",
+            xaxis_title="№ сделки (закрытые)",
+            yaxis_title="Баланс, ₽",
+            height=380,
+            margin=dict(l=20, r=20, t=50, b=20),
+            plot_bgcolor="white", paper_bgcolor="white",
+            hovermode="x unified",
+            showlegend=False)
+        st.plotly_chart(fig_eq, use_container_width=True)
+
+    # ==========================================================
+    # СТАТИСТИКА ПО ТИКЕРАМ
+    # ==========================================================
+    with st.expander("Статистика по тикерам и стратегиям", expanded=False):
+        _stat_tab1, _stat_tab2 = st.tabs(["По тикерам", "По конструкциям"])
+
+        with _stat_tab1:
+            _df_by_ticker = _journal_stats_by(_closed, "Тикер")
+            if not _df_by_ticker.empty:
+                st.dataframe(
+                    _df_by_ticker.style.format({
+                        "Win-rate, %": "{:.1f}",
+                        "P&L, ₽": "{:+,.2f}",
+                    }, na_rep="—"),
+                    use_container_width=True, hide_index=True,
+                    height=min(120 + 35 * len(_df_by_ticker), 400))
+            else:
+                st.caption("Нет закрытых сделок")
+
+        with _stat_tab2:
+            _df_by_constr = _journal_stats_by(_closed, "Опцион")
+            if not _df_by_constr.empty:
+                st.dataframe(
+                    _df_by_constr.style.format({
+                        "Win-rate, %": "{:.1f}",
+                        "P&L, ₽": "{:+,.2f}",
+                    }, na_rep="—"),
+                    use_container_width=True, hide_index=True,
+                    height=min(120 + 35 * len(_df_by_constr), 400))
+            else:
+                st.caption("Нет закрытых сделок")
+
+    # ==========================================================
+    # ТАБЛИЦА / КАРТОЧКИ
+    # ==========================================================
     st.markdown("---")
     st.markdown("### Список сделок")
 
-    _df_journal = pd.DataFrame(st.session_state.journal_rows)
-    _df_display = _df_journal.drop(columns=["_id"], errors="ignore")
+    # Обогащаем строки балансом и % от депозита
+    _rows_for_table = []
+    _running_balance = _init_dep
+    _closed_ids = {id(r) for r in _closed}
+    for r in _rows_filtered:
+        _rr = dict(r)
+        _p = float(r.get("P&L") or 0)
+        if r.get("Статус") in ("Закрыта", "Сгорел"):
+            _bal_before = _running_balance
+            _running_balance += _p
+            _rr["_balance"] = _running_balance
+            _rr["_pct_deposit"] = (_p / _bal_before * 100.0) if _bal_before > 0 else 0.0
+        else:
+            _rr["_balance"] = None
+            _rr["_pct_deposit"] = None
+        _rows_for_table.append(_rr)
+
+    _df_journal = pd.DataFrame(_rows_for_table)
+    _df_display = _df_journal.drop(
+        columns=["_id", "_balance", "_pct_deposit"], errors="ignore")
 
     def _style_journal_row(row):
         _styles = []
@@ -8666,7 +9120,7 @@ def _render_journal_tab():
     st.session_state.journal_view_mode = _view_mode_journal
 
     if st.session_state.journal_view_mode == "Карточки (мобильный)":
-        for _idx_j, _row_j in _df_display.iterrows():
+        for _idx_j, _row_j in _df_journal.iterrows():
             _rd_j = _row_j.to_dict()
             _status = _rd_j.get("Статус", "")
             _pnl_j = _rd_j.get("P&L") or 0
@@ -8681,6 +9135,8 @@ def _render_journal_tab():
             _date_j = _rd_j.get("Дата входа", "—")
             _exp_j = _rd_j.get("Экспирация", "—")
             _note_j = _rd_j.get("Заметка", "")
+            _bal_j = _rd_j.get("_balance")
+            _pct_j = _rd_j.get("_pct_deposit")
 
             _status_color = {
                 "Сгорел": "#8b1e1e", "Закрыта": "#5a6b78",
@@ -8731,6 +9187,19 @@ def _render_journal_tab():
                     f"</div>",
                     unsafe_allow_html=True)
 
+                # Баланс
+                if _bal_j is not None:
+                    st.markdown(
+                        f"<div style='margin-top:4px; padding:6px 10px; "
+                        f"background:#f0f4f8; border-radius:6px; "
+                        f"font-size:.82rem;'>"
+                        f"<b>Баланс после:</b> "
+                        f"<span style='color:#1a3b4f; font-weight:700;'>"
+                        f"{_bal_j:,.2f} ₽</span>"
+                        f"{(' · ' + f'{_pct_j:+.2f}% депо') if _pct_j is not None else ''}"
+                        f"</div>",
+                        unsafe_allow_html=True)
+
                 _dc1, _dc2 = st.columns(2)
                 with _dc1:
                     st.markdown(
@@ -8749,16 +9218,26 @@ def _render_journal_tab():
                     st.caption(f"Заметка: {_note_j}")
 
     else:
+        # Таблица — добавляем колонки «Баланс» и «% депо»
+        _df_for_show = _df_display.copy()
+        _df_for_show["Баланс, ₽"] = _df_journal["_balance"].values
+        _df_for_show["% депо"] = _df_journal["_pct_deposit"].values
+
         st.dataframe(
-            _df_display.style.apply(_style_journal_row, axis=1).format({
+            _df_for_show.style.apply(_style_journal_row, axis=1).format({
                 "Страйк":       lambda v: f"{v:.2f}" if pd.notna(v) else "—",
                 "Цена входа":   "{:.4f}",
                 "Цена выхода":  lambda v: f"{v:.4f}" if pd.notna(v) else "—",
                 "Комиссия":     "{:.2f}",
                 "P&L":          "{:+,.2f}",
+                "Баланс, ₽":    lambda v: f"{v:,.2f}" if pd.notna(v) else "—",
+                "% депо":       lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
             }, na_rep="—"),
             use_container_width=True, hide_index=True, height=400)
 
+    # ==========================================================
+    # РЕДАКТИРОВАНИЕ
+    # ==========================================================
     with st.expander("Редактировать / закрыть сделку", expanded=False):
         if not st.session_state.journal_rows:
             st.info("Журнал пуст.")
@@ -8968,8 +9447,43 @@ $f^* = \frac{(2+1) \cdot 0.44 - 1}{2} = 0.16$ → ставка **16%** капи�
             key="kelly_avg_l")
 
     st.markdown("### 2) Депозит")
-    _deposit = float(st.session_state.get("dep_inp", 100000.0))
-    st.info(f"Депозит берётся с вкладки «Позиция»: {_deposit:,.2f} ₽")
+    # Приоритет: текущий депозит журнала (если задан) → вкладка «Позиция»
+    _init_dep_k, _cur_dep_k, _dep_mode_k = _journal_get_deposit()
+    _journal_has_rows = bool(st.session_state.get("journal_rows"))
+    _use_journal_dep = _dep_mode_k == "manual" or _journal_has_rows
+
+    if _use_journal_dep and _cur_dep_k > 0:
+        _deposit = float(_cur_dep_k)
+        _dep_src = ("текущий депозит журнала ("
+                     + ("ручной" if _dep_mode_k == "manual" else "авто по P&L")
+                     + ")")
+    else:
+        _deposit = float(st.session_state.get("dep_inp", 100000.0))
+        _dep_src = "вкладка «Позиция»"
+
+    st.info(f"Депозит берётся из: {_dep_src} — **{_deposit:,.2f} ₽**")
+
+    # ==========================================================
+    # Блок 6: Диагностика качества статистики
+    # Показывается только в режиме «Из журнала»
+    # ==========================================================
+    if _src == "Из журнала":
+        _closed_count = len([r for r in st.session_state.get("journal_rows", [])
+                             if r.get("Статус") in ("Закрыта", "Сгорел")])
+        if _closed_count < 20:
+            st.warning(
+                f"Закрытых сделок в журнале: {_closed_count}. "
+                f"Для достоверной оценки p и r рекомендуется ≥ 20 сделок. "
+                f"Текущие результаты Kelly могут быть ненадёжны — "
+                f"продолжайте собирать статистику.")
+        elif _closed_count < 50:
+            st.info(
+                f"Закрытых сделок в журнале: {_closed_count}. "
+                f"Статистика достаточная, но при 50+ сделках точность будет выше.")
+        else:
+            st.success(
+                f"Закрытых сделок в журнале: {_closed_count} — "
+                f"статистика надёжна, Kelly-оценки устойчивы.")
 
     st.markdown("### 3) Результат")
     _f_full = None
