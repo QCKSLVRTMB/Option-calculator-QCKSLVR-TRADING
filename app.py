@@ -5775,58 +5775,56 @@ def _render_position_tab():
         if opt_type == "call":
             return S * math.exp(-q * T) * _norm_cdf_py(d1) \
                    - K * math.exp(-r * T) * _norm_cdf_py(d2)
-        return K * math.exp(-r * T) * _norm_cdf_py(-d2) \
+                return K * math.exp(-r * T) * _norm_cdf_py(-d2) \
                - S * math.exp(-q * T) * _norm_cdf_py(-d1)
 
-def _sync_qty_to_position(key, pos_id):
-    """Записывает session_state[key] в positions[...]['Кол-во']."""
-    try:
-        _new_val = int(st.session_state.get(key, 0))
-    except (TypeError, ValueError):
-        return
-    for _p in st.session_state.get("positions", []):
-        if _p.get("_id") == pos_id:
-            _p["Кол-во"] = _new_val
+    def _sync_qty_to_position(key, pos_id):
+        """Записывает session_state[key] в positions[...]['Кол-во']."""
+        try:
+            _new_val = int(st.session_state.get(key, 0))
+        except (TypeError, ValueError):
             return
+        for _p in st.session_state.get("positions", []):
+            if _p.get("_id") == pos_id:
+                _p["Кол-во"] = _new_val
+                return
 
-
-def _sync_price_to_position(key, pos_id):
-    """Записывает session_state[key] в positions[...]['Цена']."""
-    try:
-        _new_val = float(st.session_state.get(key, 0.0))
-    except (TypeError, ValueError):
-        return
-    if _new_val < 0:
-        _new_val = 0.0
-    for _p in st.session_state.get("positions", []):
-        if _p.get("_id") == pos_id:
-            _p["Цена"] = _new_val
+    def _sync_price_to_position(key, pos_id):
+        """Записывает session_state[key] в positions[...]['Цена']."""
+        try:
+            _new_val = float(st.session_state.get(key, 0.0))
+        except (TypeError, ValueError):
             return
+        if _new_val < 0:
+            _new_val = 0.0
+        for _p in st.session_state.get("positions", []):
+            if _p.get("_id") == pos_id:
+                _p["Цена"] = _new_val
+                return
 
+    def _cb_qty_dec(key, pos_id):
+        st.session_state[key] = int(st.session_state.get(key, 1)) - 1
+        _sync_qty_to_position(key, pos_id)
 
-def _cb_qty_dec(key, pos_id):
-    st.session_state[key] = int(st.session_state.get(key, 1)) - 1
-    _sync_qty_to_position(key, pos_id)
+    def _cb_qty_inc(key, pos_id):
+        st.session_state[key] = int(st.session_state.get(key, 1)) + 1
+        _sync_qty_to_position(key, pos_id)
 
-def _cb_qty_inc(key, pos_id):
-    st.session_state[key] = int(st.session_state.get(key, 1)) + 1
-    _sync_qty_to_position(key, pos_id)
+    def _cb_price_dec(key, pos_id):
+        st.session_state[key] = round(max(0.0, float(st.session_state.get(key, 0.0)) - 0.01), 4)
+        _sync_price_to_position(key, pos_id)
 
-def _cb_price_dec(key, pos_id):
-    st.session_state[key] = round(max(0.0, float(st.session_state.get(key, 0.0)) - 0.01), 4)
-    _sync_price_to_position(key, pos_id)
+    def _cb_price_inc(key, pos_id):
+        st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
+        _sync_price_to_position(key, pos_id)
 
-def _cb_price_inc(key, pos_id):
-    st.session_state[key] = round(float(st.session_state.get(key, 0.0)) + 0.01, 4)
-    _sync_price_to_position(key, pos_id)
+    def _cb_qty_sync(key, pos_id):
+        """on_change number_input Кол-во."""
+        _sync_qty_to_position(key, pos_id)
 
-def _cb_qty_sync(key, pos_id):
-    """on_change number_input Кол-во."""
-    _sync_qty_to_position(key, pos_id)
-
-def _cb_price_sync(key, pos_id):
-    """on_change number_input Цена."""
-    _sync_price_to_position(key, pos_id)
+    def _cb_price_sync(key, pos_id):
+        """on_change number_input Цена."""
+        _sync_price_to_position(key, pos_id)
 
     def _get_board_price(_strike, _opt_type, _side_internal, _c_map, _p_map):
         if _strike is None:
