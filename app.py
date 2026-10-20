@@ -1,4 +1,15 @@
 import streamlit as st
+import os
+
+# Определяем, запущены ли мы на Streamlit Cloud
+# (путь /mount/src — характерный признак Cloud-деплоя)
+_IS_CLOUD = os.path.exists("/mount/src") or os.path.exists("/app")
+# =========================================================
+# Переключатель lazy-рендеринга вкладок.
+# True  → радио-навигация (быстро, но может глючить на Streamlit < 1.35)
+# False → классические st.tabs (медленнее, но безопасно)
+# =========================================================
+LAZY_TABS = True
 import streamlit.components.v1 as components
 import requests
 import pandas as pd
@@ -1458,7 +1469,6 @@ def fetch_series_overview(asset: str, asset_type_ui: str):
         except Exception:
             return _s, None
 
-    # Параллельная загрузка (4 воркера) — экономит 5–15 секунд
     _results = {}
     with ThreadPoolExecutor(max_workers=4) as _ex:
         _futs = [_ex.submit(_fetch_one, _s) for _s in series_list]
@@ -3471,6 +3481,10 @@ def _cache_file():
 
 
 def _load_cache():
+    # FIX 3.5: на Cloud файловый кеш отключён — /tmp ephemeral и шарится
+    # между сессиями. Единственный persistence — session_state + JSON export.
+    if _IS_CLOUD:
+        return {}
     _f = _cache_file()
     if _f is None or not _f.exists():
         return {}
@@ -3486,6 +3500,8 @@ def _load_cache():
 
 
 def _save_cache(_cache: dict):
+    if _IS_CLOUD:
+        return False
     _f = _cache_file()
     if _f is None:
         return False
@@ -5118,6 +5134,11 @@ def _render_position_tab():
         st.caption(
             f"Позиции + журнал + история IV + чек-боксы + настройки. "
             f"Последняя загрузка: {_cache_loaded_at}")
+        if _IS_CLOUD:
+            st.warning(
+                "☁️ На Streamlit Cloud автосохранение между сессиями "
+                "не работает — скачивайте JSON перед закрытием вкладки "
+                "и загружайте при следующем заходе.")
 
         _fc1, _fc2 = st.columns(2)
         with _fc1:
@@ -5153,6 +5174,13 @@ def _render_position_tab():
                     st.error(f"Ошибка импорта: {_e_imp}")
 
     st.header("Управление позицией")
+
+    if _IS_CLOUD:
+        st.info(
+            "☁️ **Streamlit Cloud:** файловый кеш отключён. Позиции "
+            "живут только в текущей сессии. Для сохранения между "
+            "сессиями — используйте **«Скачать JSON»** / "
+            "**«Загрузить JSON»** в блоке ниже.")
 
     if "pos_view_mode" not in st.session_state:
         st.session_state.pos_view_mode = "Таблица"
@@ -5408,13 +5436,32 @@ def _render_position_tab():
                     "form_use_auto_price", "fallback_series_selector"):
             st.session_state.pop(_fk, None)
 
-    # G3: миграция r/q для существующих позиций (один раз за сессию,
-    # а также принудительно после импорта полного кеша — fix #9).
+    # G3: миграция r/q + гигиена полей у существующих позиций
     if st.session_state.get("_g3_migrated") is not True:
         try:
             if st.session_state.get("positions"):
-                _migrate_positions_r_q(st.session_state.positions)
                 _ck_mig = st.session_state.get("_pos_active_key")
+                # FIX 3.2: у старых позиций могут отсутствовать _asset / _atype / _vol
+                _parts_mig = (_ck_mig.split("|", 1) if _ck_mig else [None, None])
+                _asset_mig = _parts_mig[0] if len(_parts_mig) > 0 else None
+                _atype_mig = _parts_mig[1] if len(_parts_mig) > 1 else None
+                for _p_mig in st.session_state.positions:
+                    if not _p_mig.get("_asset") and _asset_mig:
+                        _p_mig["_asset"] = _asset_mig
+                    if not _p_mig.get("_atype") and _atype_mig:
+                        _p_mig["_atype"] = _atype_mig
+                    if _p_mig.get("Тип инструмента") == "Опцион":
+                        if "_vol" not in _p_mig or _p_mig.get("_vol") is None:
+                            _p_mig["_vol"] = 20.0
+                        if "_r" not in _p_mig:
+                            _p_mig["_r"] = 0.0
+                        if "_q" not in _p_mig:
+                            _p_mig["_q"] = 0.0
+                    if "_id" not in _p_mig:
+                        _p_mig["_id"] = _new_position_id()
+
+                _migrate_positions_r_q(st.session_state.positions)
+
                 if _ck_mig:
                     st.session_state.positions_cache[_ck_mig] = list(
                         st.session_state.positions)
@@ -5876,7 +5923,10 @@ def _cb_price_sync(key, pos_id):
                 except Exception:
                     pass
             else:
-                if not _series_now:
+                # FIX 3.1: серия должна существовать в актуальном списке,
+                # иначе fetch_optionboard вернёт None и форма не отрендерится
+                _all_series_codes = {s["code"] for s in _all_series}
+                if not _series_now or _series_now not in _all_series_codes:
                     _first = sorted(_all_series, key=lambda x: x.get("expiry", ""))[0]
                     st.session_state.pos_series_code = _first["code"]
                     st.session_state.pos_expiry = _first["expiry"]
@@ -5929,6 +5979,34 @@ def _cb_price_sync(key, pos_id):
                         st.session_state.pop("form_series", None)
                         st.session_state.pop("form_strike", None)
                         st.rerun()
+
+                if not board:
+                    st.error(
+                        f"⚠️ Форма добавления недоступна: доска опционов "
+                        f"не загружена для {_asset_now_all} ({_atype_now_all}), "
+                        f"серия {_series_now}.")
+                    with st.expander("Диагностика", expanded=False):
+                        st.json({
+                            "pos_asset": _asset_now_all,
+                            "pos_category": _atype_now_all,
+                            "pos_series_code": _series_now,
+                            "pos_expiry": _expiry_now,
+                            "all_series_count": len(_all_series),
+                            "all_series_codes_first5":
+                                [s["code"] for s in _all_series[:5]],
+                            "board_load_err": _board_load_err,
+                            "is_cloud": _IS_CLOUD,
+                        })
+                        if st.button("Сбросить серию и попробовать снова",
+                                      key=f"reset_series_{_asset_now_all}"):
+                            st.session_state.pos_series_code = ""
+                            st.session_state.pos_autoloaded_for = (None, None)
+                            # FIX 3.7: чистим кеш board для этой серии
+                            try:
+                                fetch_optionboard.clear()
+                            except Exception:
+                                pass
+                            st.rerun()
 
                 if board:
                     calls = board.get('call') or []
