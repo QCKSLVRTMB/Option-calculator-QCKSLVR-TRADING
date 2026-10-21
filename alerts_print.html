@@ -88,18 +88,27 @@
     box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow-x: auto;
   }
   .print-header { display: none; }
-  table#alerts-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+  /* --- ЧЁРНАЯ СЕТКА --- */
+  table#alerts-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1.5px solid #000;
+    font-size: 12px;
+  }
   #alerts-table thead th {
     background: #eef6fb; color: #1a3b4f; font-weight: 700;
     padding: 7px 5px; text-align: left;
-    border-bottom: 2px solid #cfdfe9;
+    border: 1px solid #000;
     font-size: 11px; text-transform: uppercase;
     letter-spacing: .03em; white-space: nowrap;
   }
   #alerts-table thead th.num { text-align: right; }
   #alerts-table thead th.ck  { text-align: center; }
-  #alerts-table tbody td { padding: 5px; border-bottom: 1px solid #eef2f5; }
-  #alerts-table tbody tr:last-child td { border-bottom: none; }
+  #alerts-table tbody td {
+    padding: 5px;
+    border: 1px solid #000;
+  }
   #alerts-table tbody tr:hover { background: #f8fbfd; }
 
   td[contenteditable="true"] { cursor: text; }
@@ -115,7 +124,7 @@
   .ck-3 { color: #00a651; }
   .ck-4 { color: #d32f2f; }
 
-  /* ============ ПЕЧАТЬ A4 ============ */
+  /* ============ ПЕЧАТЬ A4 — сетка тоже чёрная ============ */
   @media print {
     @page { size: A4 landscape; margin: 5mm; }
     body {
@@ -134,16 +143,20 @@
       color: #5a6b78; margin-top: 1mm;
     }
     .table-wrapper { box-shadow: none; padding: 0; }
-    #alerts-table { font-size: 8.5px; page-break-inside: auto; }
+
+    #alerts-table {
+      font-size: 8.5px; page-break-inside: auto;
+      border: 1px solid #000;
+    }
     #alerts-table thead { display: table-header-group; }
     #alerts-table tbody tr { page-break-inside: avoid; }
     #alerts-table thead th {
       padding: 3px 2px; font-size: 8px;
-      border-bottom: 1.5px solid #cfdfe9;
+      border: 0.8px solid #000;
     }
     #alerts-table tbody td {
       padding: 2px 2px; font-size: 8.5px;
-      border-bottom: 0.5px solid #e8eef4;
+      border: 0.8px solid #000;
     }
     td[contenteditable] {
       outline: none !important; background: none !important;
