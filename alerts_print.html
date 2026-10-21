@@ -10,6 +10,8 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     margin: 0; padding: 12px; background: #f5f7fa; color: #1a3b4f;
   }
+
+  /* ============ ТУЛБАР ============ */
   .toolbar {
     background: #fff; padding: 10px; border-radius: 8px;
     margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
@@ -18,16 +20,25 @@
   .toolbar button {
     padding: 7px 13px; border: none; border-radius: 6px;
     font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: background .15s;
   }
   .btn-primary   { background: #1e88e5; color: #fff; }
+  .btn-primary:hover { background: #1565c0; }
   .btn-secondary { background: #eef2f5; color: #1a3b4f; }
+  .btn-secondary:hover { background: #dde5ed; }
   .btn-success   { background: #00a651; color: #fff; }
+  .btn-success:hover { background: #008a42; }
   .btn-danger    { background: #d32f2f; color: #fff; }
+  .btn-danger:hover { background: #b71c1c; }
   .btn-warn      { background: #e6a500; color: #fff; }
-  .status { font-size: 12px; color: #5a6b78; margin-left: auto;
-            max-width: 45%; overflow: hidden; text-overflow: ellipsis;
-            white-space: nowrap; }
+  .btn-warn:hover { background: #c89000; }
+  .status {
+    font-size: 12px; color: #5a6b78; margin-left: auto;
+    max-width: 45%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
+  /* ============ ПАНЕЛЬ НАСТРОЕК ============ */
   .settings-panel {
     background: #fff; border-radius: 8px; padding: 0;
     margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
@@ -54,6 +65,7 @@
     padding: 6px 12px; border: 1px solid #cfdfe9; border-radius: 20px;
     background: #f6f9fc; color: #1a3b4f; font-size: 12px;
     font-weight: 600; cursor: pointer;
+    transition: all .15s;
   }
   .presets button:hover { background: #e3eef8; border-color: #1e88e5; }
 
@@ -70,6 +82,7 @@
     width: 16px; height: 16px; cursor: pointer;
   }
 
+  /* ============ ТАБЛИЦА ============ */
   .table-wrapper {
     background: #fff; border-radius: 8px; padding: 10px;
     box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow-x: auto;
@@ -88,10 +101,12 @@
   #alerts-table tbody td { padding: 5px; border-bottom: 1px solid #eef2f5; }
   #alerts-table tbody tr:last-child td { border-bottom: none; }
   #alerts-table tbody tr:hover { background: #f8fbfd; }
+
   td[contenteditable="true"] { cursor: text; }
   td[contenteditable="true"]:focus {
     outline: 2px solid #1e88e5; background: #f0f7ff;
   }
+
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .ck  { text-align: center; font-weight: 700; }
   .row-index { color: #7a8b99; font-weight: 600; }
@@ -100,18 +115,24 @@
   .ck-3 { color: #00a651; }
   .ck-4 { color: #d32f2f; }
 
+  /* ============ ПЕЧАТЬ A4 ============ */
   @media print {
     @page { size: A4 landscape; margin: 5mm; }
-    body { background: #fff; padding: 0; font-size: 9px;
-           -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body {
+      background: #fff; padding: 0; font-size: 9px;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
     .toolbar,
     .settings-panel { display: none !important; }
     .print-header {
       display: block; text-align: center; font-size: 12px;
       font-weight: 800; margin-bottom: 3mm; color: #1a3b4f;
     }
-    .print-header .sub { font-size: 8px; font-weight: 400;
-                         color: #5a6b78; margin-top: 1mm; }
+    .print-header .sub {
+      font-size: 8px; font-weight: 400;
+      color: #5a6b78; margin-top: 1mm;
+    }
     .table-wrapper { box-shadow: none; padding: 0; }
     #alerts-table { font-size: 8.5px; page-break-inside: auto; }
     #alerts-table thead { display: table-header-group; }
@@ -124,12 +145,15 @@
       padding: 2px 2px; font-size: 8.5px;
       border-bottom: 0.5px solid #e8eef4;
     }
-    td[contenteditable] { outline: none !important; background: none !important; }
+    td[contenteditable] {
+      outline: none !important; background: none !important;
+    }
   }
 </style>
 </head>
 <body>
 
+<!-- ==================== ТУЛБАР ==================== -->
 <div class="toolbar">
   <button class="btn-success"   onclick="loadFromGoogle()">📥 Из Google Sheets</button>
   <button class="btn-danger"    onclick="clearTable()">🗑 Очистить</button>
@@ -139,6 +163,7 @@
   <span class="status" id="status">Инициализация…</span>
 </div>
 
+<!-- ==================== ПАНЕЛЬ НАСТРОЕК ==================== -->
 <details class="settings-panel" open>
   <summary>⚙ Настройки таблицы — что показывать и чем заполнять</summary>
   <div class="settings-inner">
@@ -163,11 +188,13 @@
   </div>
 </details>
 
+<!-- ==================== ЗАГОЛОВОК ПЕЧАТИ ==================== -->
 <div class="print-header">
   ОПОВЕЩЕНИЯ ПО УРОВНЯМ — <span id="printDate"></span>
   <div class="sub">Источник: <span id="printSource">—</span></div>
 </div>
 
+<!-- ==================== ТАБЛИЦА ==================== -->
 <div class="table-wrapper">
   <table id="alerts-table">
     <thead><tr id="theadRow"></tr></thead>
@@ -175,6 +202,7 @@
   </table>
 </div>
 
+<!-- ==================== ХРАНИЛИЩЕ СОСТОЯНИЯ ==================== -->
 <script id="saved-state" type="application/json">null</script>
 
 <script>
@@ -189,7 +217,7 @@ const GOOGLE_SHEETS_CSV =
   "/pub?output=csv";
 
 /* ============================================================
-   ★ NEW: НОРМАЛИЗАЦИЯ ЗНАЧЕНИЙ — NaN/None/#N/A → ""
+   ★ НОРМАЛИЗАЦИЯ: NaN / None / #N/A → ""
    ============================================================ */
 const EMPTY_PATTERNS = new Set([
   "", "nan", "null", "none", "nat", "undefined",
@@ -198,19 +226,12 @@ const EMPTY_PATTERNS = new Set([
 ]);
 
 function cleanCell(v) {
-  // null / undefined
   if (v === null || v === undefined) return "";
-
-  // числовой NaN / Infinity / -Infinity
   if (typeof v === "number") {
     if (!isFinite(v)) return "";
     return String(v);
   }
-
-  // булевы значения в данных не ожидаются
   if (typeof v === "boolean") return "";
-
-  // всё остальное — в строку с обрезкой пробелов
   let s;
   try { s = String(v).trim(); } catch (e) { return ""; }
   if (EMPTY_PATTERNS.has(s.toLowerCase())) return "";
@@ -249,7 +270,7 @@ function resetStateCols() {
 resetStateCols();
 
 /* ============================================================
-   DOM-ССЫЛКИ
+   DOM
    ============================================================ */
 const theadRow    = document.getElementById("theadRow");
 const tbody       = document.getElementById("tbody");
@@ -259,9 +280,10 @@ const togglesBody = document.getElementById("colTogglesBody");
 function setStatus(msg) { statusEl.textContent = msg; }
 
 /* ============================================================
-   РЕНДЕР
+   РЕНДЕР ТАБЛИЦЫ
    ============================================================ */
 function render() {
+  /* --- шапка --- */
   theadRow.innerHTML = "";
   const thNum = document.createElement("th");
   thNum.textContent = "#";
@@ -277,6 +299,7 @@ function render() {
     theadRow.appendChild(th);
   });
 
+  /* --- тело --- */
   tbody.innerHTML = "";
   state.rows.forEach((row, i) => {
     const tr = document.createElement("tr");
@@ -295,7 +318,6 @@ function render() {
       if (c.ck)  td.classList.add("ck");
 
       const cfg = state.cols[c.key];
-      // ★ NEW: cleanCell для обоих источников
       let val = "";
       if (row.edits[c.key] != null) {
         val = cleanCell(row.edits[c.key]);
@@ -316,7 +338,7 @@ function render() {
 }
 
 /* ============================================================
-   ЧЕК-БОКСЫ «Показать / Заполнить»
+   ЧЕК-БОКСЫ ПАНЕЛИ
    ============================================================ */
 function renderToggles() {
   togglesBody.innerHTML = "";
@@ -406,14 +428,13 @@ function applyPreset(name) {
 }
 
 /* ============================================================
-   ЗАГРУЗКА ДАННЫХ
+   ЗАГРУЗКА ИЗ НАБОРА ЗАПИСЕЙ
    ============================================================ */
 function loadFromRecords(records, checksMap) {
   state.rows = [];
 
   for (const rec of records) {
     const data = {};
-    // ★ NEW: cleanCell вместо String()
     COLUMNS.forEach(c => { data[c.key] = cleanCell(rec[c.key]); });
 
     const hasContent = COLUMNS.some(c => data[c.key] !== "");
@@ -424,7 +445,6 @@ function loadFromRecords(records, checksMap) {
       const cat = String(rec["Категория БА"] || "").trim();
       const ck = checksMap[`${tk}|${cat}`];
       if (ck) {
-        // ★ NEW: тоже чистим
         const bv = cleanCell(ck.buy);
         const sv = cleanCell(ck.sell);
         if (bv) edits["Чек покупки"] = bv;
@@ -446,6 +466,9 @@ function loadFromRecords(records, checksMap) {
   renderToggles();
 }
 
+/* ============================================================
+   ЗАГРУЗКА ИЗ GOOGLE SHEETS
+   ============================================================ */
 async function loadFromGoogle() {
   setStatus("Загрузка из Google Sheets…");
   try {
@@ -462,7 +485,6 @@ async function loadFromGoogle() {
     const records = [];
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
-      // ★ NEW: пустая строка = все ячейки пустые после cleanCell
       const rec = {};
       COLUMNS.forEach(c => {
         const i = idx[c.key];
@@ -522,7 +544,7 @@ function findColIdx(headers, target) {
 }
 
 /* ============================================================
-   ОБРАБОТЧИКИ ЯЧЕЕК
+   РЕДАКТИРОВАНИЕ ЯЧЕЕК
    ============================================================ */
 tbody.addEventListener("input", e => {
   const td = e.target;
@@ -542,7 +564,7 @@ tbody.addEventListener("input", e => {
 });
 
 /* ============================================================
-   ★ NEW: ВСТАВКА ИЗ БУФЕРА — одиночная и многоклеточная
+   ВСТАВКА ИЗ БУФЕРА (одиночная / многоклеточная)
    ============================================================ */
 tbody.addEventListener("paste", e => {
   const td = e.target;
@@ -553,7 +575,7 @@ tbody.addEventListener("paste", e => {
   const rowsText = text.replace(/\r/g, "").split("\n").filter(r => r !== "");
   const firstRowCells = rowsText[0].split("\t");
 
-  // --- одиночная вставка ---
+  /* --- одиночная --- */
   if (rowsText.length === 1 && firstRowCells.length === 1) {
     e.preventDefault();
     td.textContent = cleanCell(text);
@@ -561,7 +583,7 @@ tbody.addEventListener("paste", e => {
     return;
   }
 
-  // --- многоклеточная вставка из Excel / Google Sheets ---
+  /* --- многоклеточная --- */
   e.preventDefault();
   const startRow = parseInt(td.dataset.rowIdx, 10);
   const visibleCols = COLUMNS.filter(c => state.cols[c.key].show);
@@ -578,7 +600,6 @@ tbody.addEventListener("paste", e => {
       const colIdx = startColIdx + cOff;
       if (colIdx >= visibleCols.length) return;
       const colKey = visibleCols[colIdx].key;
-      // ★ NEW: чистим вставленные значения
       state.rows[rowIdx].edits[colKey] = cleanCell(cellText);
     });
   });
@@ -586,7 +607,7 @@ tbody.addEventListener("paste", e => {
 });
 
 /* ============================================================
-   ДЕЙСТВИЯ ТУЛБАРА
+   ТУЛБАР: ДЕЙСТВИЯ
    ============================================================ */
 function addRows(n) {
   for (let i = 0; i < n; i++) state.rows.push({ data: {}, edits: {} });
@@ -604,10 +625,10 @@ function clearTable() {
 }
 
 /* ============================================================
-   СКАЧИВАНИЕ HTML — с очисткой state и защитой от </script>
+   СКАЧИВАНИЕ HTML С СОСТОЯНИЕМ
    ============================================================ */
 function downloadHTML() {
-  // ★ NEW: чистим data/edits перед сохранением
+  /* ★ Чистим данные перед сохранением */
   const cleanState = {
     cols: state.cols,
     rows: state.rows.map(r => ({
@@ -618,7 +639,7 @@ function downloadHTML() {
     })),
   };
 
-  // ★ NEW: экранируем <, >, & — чтобы JSON не сломал <script>
+  /* ★ Экранируем <, >, & — чтобы JSON не сломал <script> */
   const safeJson = JSON.stringify(cleanState)
     .replace(/</g, "\\u003C")
     .replace(/>/g, "\\u003E")
@@ -626,17 +647,25 @@ function downloadHTML() {
 
   document.getElementById("saved-state").textContent = safeJson;
 
+  /* Снимаем снапшот всего документа */
   const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href = url;
   a.download = "alerts_print_" + new Date().toISOString().slice(0, 10) + ".html";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
+
   setStatus("HTML скачан — при открытии восстановятся и данные, и настройки");
 }
 
+/* ============================================================
+   ДАТА ПЕЧАТИ
+   ============================================================ */
 function setPrintDate() {
   const d = new Date();
   document.getElementById("printDate").textContent =
@@ -651,17 +680,16 @@ window.addEventListener("beforeprint", setPrintDate);
 function init() {
   setPrintDate();
 
-  // --- 1. Восстановление из скачанного HTML ---
+  /* --- 1. Восстановление из скачанного HTML --- */
   const savedEl = document.getElementById("saved-state");
   if (savedEl) {
     const txt = (savedEl.textContent || "").trim();
     if (txt && txt !== "null") {
       try {
-        const saved = JSON.parse(txt);
-        if (saved && saved.cols && Array.isArray(saved.rows)) {
-          state.cols = saved.cols;
-          // ★ NEW: чистим загруженное состояние
-          state.rows = saved.rows.map(r => ({
+        const parsed = JSON.parse(txt);
+        if (parsed && parsed.cols && Array.isArray(parsed.rows)) {
+          state.cols = parsed.cols;
+          state.rows = parsed.rows.map(r => ({
             data: Object.fromEntries(
               Object.entries(r.data || {}).map(([k, v]) => [k, cleanCell(v)])),
             edits: Object.fromEntries(
@@ -674,11 +702,11 @@ function init() {
           setStatus("Содержимое и настройки восстановлены из скачанного HTML");
           return;
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) { /* fall through */ }
     }
   }
 
-  // --- 2. INJECT от Python-обёртки ---
+  /* --- 2. INJECT от Python-обёртки --- */
   if (INJECT && Array.isArray(INJECT.alerts) && INJECT.alerts.length > 0) {
     loadFromRecords(INJECT.alerts, INJECT.checks);
     document.getElementById("printSource").textContent =
@@ -686,7 +714,7 @@ function init() {
     return;
   }
 
-  // --- 3. Прямая загрузка из Google Sheets ---
+  /* --- 3. Прямая загрузка из Google Sheets --- */
   loadFromGoogle();
 }
 
