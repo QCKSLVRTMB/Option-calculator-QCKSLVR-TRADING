@@ -2033,7 +2033,6 @@ def _render_alert_card(r: dict):
             "_lvl_buy": _lvl_buy, "_lvl_sell": _lvl_sell,
         }
         st.session_state["_alert_checks"] = _all_checks_card
-        # ВАЖНО: удаляем ключи radio-виджетов, чтобы сброс реально применился
         st.session_state.pop(f"_alert_buy_check_{_checks_key}", None)
         st.session_state.pop(f"_alert_sell_check_{_checks_key}", None)
         _cur_checks = {"buy": None, "sell": None}
@@ -2096,36 +2095,6 @@ def _render_alert_card(r: dict):
             f"text-transform:uppercase; letter-spacing:.06em;'>"
             f"{_category}</div>",
             unsafe_allow_html=True)
-
-        _lc1, _lc2 = st.columns(2)
-        with _lc1:
-            st.markdown(
-                f"<div style='background:{_lvl_buy_bg}; "
-                f"border:1px solid {_lvl_buy_border}; border-radius:6px; "
-                f"padding:7px 9px; min-height:100px;'>"
-                f"<div style='font-size:.6rem; color:#333; font-weight:700; "
-                f"text-transform:uppercase; letter-spacing:.06em;'>Покупка</div>"
-                f"<div style='font-size:1.02rem; font-weight:700; color:#111; "
-                f"line-height:1.2; margin-top:2px;'>{_lvl_buy:.2f}</div>"
-                f"<div style='font-size:.76rem; color:#333; margin-top:1px;'>"
-                f"{_buy_dev_str}</div>"
-                f"{_at_buy_badge}"
-                f"{_prox_bar_html(_prox_buy, '#9c00ff')}"
-                f"</div>", unsafe_allow_html=True)
-        with _lc2:
-            st.markdown(
-                f"<div style='background:{_lvl_sell_bg}; "
-                f"border:1px solid {_lvl_sell_border}; border-radius:6px; "
-                f"padding:7px 9px; min-height:100px;'>"
-                f"<div style='font-size:.6rem; color:#333; font-weight:700; "
-                f"text-transform:uppercase; letter-spacing:.06em;'>Продажа</div>"
-                f"<div style='font-size:1.02rem; font-weight:700; color:#111; "
-                f"line-height:1.2; margin-top:2px;'>{_lvl_sell:.2f}</div>"
-                f"<div style='font-size:.76rem; color:#333; margin-top:1px;'>"
-                f"{_sell_dev_str}</div>"
-                f"{_at_sell_badge}"
-                f"{_prox_bar_html(_prox_sell, '#d81b60')}"
-                f"</div>", unsafe_allow_html=True)
 
         # G4: мини-бейдж рекомендации
         try:
@@ -2223,8 +2192,27 @@ def _render_alert_card(r: dict):
         def _fmt_opt(v):
             return _opt_labels.get(v, v)
 
-        _cc1, _cc2 = st.columns(2)
-        with _cc1:
+        _lc1, _lc2 = st.columns(2)
+        with _lc1:
+            st.markdown(
+                f"<div style='background:{_lvl_buy_bg}; "
+                f"border:1px solid {_lvl_buy_border}; border-radius:6px; "
+                f"padding:7px 9px;'>"
+                f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
+                f"<div style='font-size:.6rem; color:#333; font-weight:700; "
+                f"text-transform:uppercase; letter-spacing:.06em;'>Покупка</div>"
+                f"<div style='font-size:.65rem; font-weight:700; "
+                f"color:{_buy_fg}; background:{_buy_bg}; "
+                f"padding:2px 6px; border-radius:10px;'>{_buy_mark}</div>"
+                f"</div>"
+                f"<div style='font-size:1.02rem; font-weight:700; color:#111; "
+                f"line-height:1.2; margin-top:2px;'>{_lvl_buy:.2f}</div>"
+                f"<div style='font-size:.76rem; color:#333; margin-top:1px;'>"
+                f"{_buy_dev_str}</div>"
+                f"{_at_buy_badge}"
+                f"{_prox_bar_html(_prox_buy, '#9c00ff')}"
+                f"</div>", unsafe_allow_html=True)
+
             _buy_choice = st.radio(
                 "buy_group",
                 _buy_opts,
@@ -2233,7 +2221,27 @@ def _render_alert_card(r: dict):
                 horizontal=True,
                 format_func=_fmt_opt,
                 label_visibility="collapsed")
-        with _cc2:
+
+        with _lc2:
+            st.markdown(
+                f"<div style='background:{_lvl_sell_bg}; "
+                f"border:1px solid {_lvl_sell_border}; border-radius:6px; "
+                f"padding:7px 9px;'>"
+                f"<div style='display:flex; justify-content:space-between; align-items:center;'>"
+                f"<div style='font-size:.6rem; color:#333; font-weight:700; "
+                f"text-transform:uppercase; letter-spacing:.06em;'>Продажа</div>"
+                f"<div style='font-size:.65rem; font-weight:700; "
+                f"color:{_sell_fg}; background:{_sell_bg}; "
+                f"padding:2px 6px; border-radius:10px;'>{_sell_mark}</div>"
+                f"</div>"
+                f"<div style='font-size:1.02rem; font-weight:700; color:#111; "
+                f"line-height:1.2; margin-top:2px;'>{_lvl_sell:.2f}</div>"
+                f"<div style='font-size:.76rem; color:#333; margin-top:1px;'>"
+                f"{_sell_dev_str}</div>"
+                f"{_at_sell_badge}"
+                f"{_prox_bar_html(_prox_sell, '#d81b60')}"
+                f"</div>", unsafe_allow_html=True)
+
             _sell_choice = st.radio(
                 "sell_group",
                 _sell_opts,
@@ -2250,22 +2258,9 @@ def _render_alert_card(r: dict):
             None if _buy_choice == "—" else _buy_choice)
         _new_checks[_checks_key]["sell"] = (
             None if _sell_choice == "—" else _sell_choice)
-        # Снимок уровней на момент выбора
         _new_checks[_checks_key]["_lvl_buy"] = _lvl_buy
         _new_checks[_checks_key]["_lvl_sell"] = _lvl_sell
         st.session_state["_alert_checks"] = _new_checks
-
-        st.markdown(
-            f"<div style='display:flex; gap:6px; margin-top:8px;'>"
-            f"<div style='flex:1; text-align:center; padding:6px; "
-            f"border-radius:6px; font-size:.82rem; font-weight:700; "
-            f"background:{_buy_bg}; color:{_buy_fg}; letter-spacing:.05em;'>"
-            f"{_buy_mark} ПОКУПКА</div>"
-            f"<div style='flex:1; text-align:center; padding:6px; "
-            f"border-radius:6px; font-size:.82rem; font-weight:700; "
-            f"background:{_sell_bg}; color:{_sell_fg}; letter-spacing:.05em;'>"
-            f"{_sell_mark} ПРОДАЖА</div></div>",
-            unsafe_allow_html=True)
 
 
 # ================= alert_targets =================
@@ -3768,8 +3763,24 @@ def _import_full_cache(json_str):
             st.session_state["positions"] = _data["positions_current"]
             _loaded.append("positions")
 
-        if "positions_active_key" in _data:
-            st.session_state["_pos_active_key"] = _data["positions_active_key"]
+        if "positions_active_key" in _data and _data["positions_active_key"]:
+            _pak = str(_data["positions_active_key"])
+            st.session_state["_pos_active_key"] = _pak
+            _parts = _pak.split("|", 1)
+            if len(_parts) == 2:
+                st.session_state["pos_asset_input"]     = _parts[0]
+                st.session_state["pos_category_select"] = _parts[1]
+                st.session_state["pos_asset"]           = _parts[0]
+                st.session_state["pos_category"]        = _parts[1]
+                st.session_state["pos_series_list"]     = []
+                st.session_state["pos_series_code"]     = ""
+                st.session_state["pos_expiry"]          = ""
+                st.session_state["pos_autoloaded_for"]  = (None, None)
+                for _fk in ("form_series", "form_strike", "form_opt_type",
+                            "form_side", "form_qty", "form_price",
+                            "form_instrument_type", "form_futures_contract",
+                            "form_use_auto_price", "fallback_series_selector"):
+                    st.session_state.pop(_fk, None)
 
         if "journal_rows" in _data and isinstance(_data["journal_rows"], list):
             st.session_state["journal_rows"] = _data["journal_rows"]
@@ -5163,13 +5174,18 @@ def _render_position_tab():
                 label_visibility="collapsed")
             if _up_full is not None:
                 try:
-                    _json_bytes = _up_full.read()
-                    _ok, _msg = _import_full_cache(_json_bytes.decode("utf-8"))
-                    if _ok:
-                        st.success(f"Кеш загружен. {_msg}")
-                        st.rerun()
+                    _raw_bytes = _up_full.getvalue()
+                    _h = hashlib.md5(_raw_bytes).hexdigest()
+                    if st.session_state.get("_last_import_hash") != _h:
+                        _ok, _msg = _import_full_cache(_raw_bytes.decode("utf-8"))
+                        if _ok:
+                            st.session_state["_last_import_hash"] = _h
+                            st.success(f"Кеш загружен. {_msg}")
+                            st.rerun()
+                        else:
+                            st.error(_msg)
                     else:
-                        st.error(_msg)
+                        st.caption("Этот файл уже загружен. Нажмите «×» и выберите другой.")
                 except Exception as _e_imp:
                     st.error(f"Ошибка импорта: {_e_imp}")
 
