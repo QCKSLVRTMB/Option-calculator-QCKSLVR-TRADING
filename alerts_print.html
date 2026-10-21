@@ -28,7 +28,6 @@
             max-width: 45%; overflow: hidden; text-overflow: ellipsis;
             white-space: nowrap; }
 
-  /* --- панель настроек --- */
   .settings-panel {
     background: #fff; border-radius: 8px; padding: 0;
     margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
@@ -58,9 +57,7 @@
   }
   .presets button:hover { background: #e3eef8; border-color: #1e88e5; }
 
-  .col-toggles {
-    width: 100%; border-collapse: collapse; font-size: 12px;
-  }
+  .col-toggles { width: 100%; border-collapse: collapse; font-size: 12px; }
   .col-toggles th {
     text-align: left; padding: 4px 6px; color: #4a6f8a;
     font-weight: 700; font-size: 11px;
@@ -73,7 +70,6 @@
     width: 16px; height: 16px; cursor: pointer;
   }
 
-  /* --- таблица --- */
   .table-wrapper {
     background: #fff; border-radius: 8px; padding: 10px;
     box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow-x: auto;
@@ -134,7 +130,6 @@
 </head>
 <body>
 
-<!-- ============ ТУЛБАР ============ -->
 <div class="toolbar">
   <button class="btn-success"   onclick="loadFromGoogle()">📥 Из Google Sheets</button>
   <button class="btn-danger"    onclick="clearTable()">🗑 Очистить</button>
@@ -144,7 +139,6 @@
   <span class="status" id="status">Инициализация…</span>
 </div>
 
-<!-- ============ ПАНЕЛЬ НАСТРОЕК ============ -->
 <details class="settings-panel" open>
   <summary>⚙ Настройки таблицы — что показывать и чем заполнять</summary>
   <div class="settings-inner">
@@ -169,23 +163,18 @@
   </div>
 </details>
 
-<!-- ============ ЗАГОЛОВОК ПЕЧАТИ ============ -->
 <div class="print-header">
   ОПОВЕЩЕНИЯ ПО УРОВНЯМ — <span id="printDate"></span>
   <div class="sub">Источник: <span id="printSource">—</span></div>
 </div>
 
-<!-- ============ ТАБЛИЦА ============ -->
 <div class="table-wrapper">
   <table id="alerts-table">
-    <thead>
-      <tr id="theadRow"></tr>
-    </thead>
+    <thead><tr id="theadRow"></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
 </div>
 
-<!-- ============ ХРАНИЛИЩЕ СОСТОЯНИЯ ДЛЯ СКАЧАННОГО HTML ============ -->
 <script id="saved-state" type="application/json">null</script>
 
 <script>
@@ -198,6 +187,35 @@ const GOOGLE_SHEETS_CSV =
   "https://docs.google.com/spreadsheets/d/e/" +
   "2PACX-1vRKISFld2M8tFEEE1o1Fo5nQgHP6qMmOFu57JDmi-t-Y4Xj67N5SQP9uQ02JW2Ixyd663zewMYY1hfx" +
   "/pub?output=csv";
+
+/* ============================================================
+   ★ NEW: НОРМАЛИЗАЦИЯ ЗНАЧЕНИЙ — NaN/None/#N/A → ""
+   ============================================================ */
+const EMPTY_PATTERNS = new Set([
+  "", "nan", "null", "none", "nat", "undefined",
+  "inf", "-inf", "infinity", "-infinity", "<na>",
+  "#n/a", "#div/0!", "#value!", "#ref!", "#name?", "#num!", "#null!",
+]);
+
+function cleanCell(v) {
+  // null / undefined
+  if (v === null || v === undefined) return "";
+
+  // числовой NaN / Infinity / -Infinity
+  if (typeof v === "number") {
+    if (!isFinite(v)) return "";
+    return String(v);
+  }
+
+  // булевы значения в данных не ожидаются
+  if (typeof v === "boolean") return "";
+
+  // всё остальное — в строку с обрезкой пробелов
+  let s;
+  try { s = String(v).trim(); } catch (e) { return ""; }
+  if (EMPTY_PATTERNS.has(s.toLowerCase())) return "";
+  return s;
+}
 
 /* ============================================================
    МОДЕЛЬ ДАННЫХ
@@ -215,15 +233,16 @@ const COLUMNS = [
   { key: "Чек продажи",     num: false, ck: true  },
 ];
 
-const state = {
-  cols: {},   // { "Тикер БА": { show: true, fill: true }, ... }
-  rows: [],   // [ { data: {col: val}, edits: {col: val} }, ... ]
-};
+const state = { cols: {}, rows: [] };
 
 function resetStateCols() {
   COLUMNS.forEach(c => {
-    if (!state.cols[c.key]) {
+    const cur = state.cols[c.key];
+    if (!cur || typeof cur !== "object") {
       state.cols[c.key] = { show: true, fill: true };
+    } else {
+      if (typeof cur.show !== "boolean") cur.show = true;
+      if (typeof cur.fill !== "boolean") cur.fill = true;
     }
   });
 }
@@ -240,10 +259,9 @@ const togglesBody = document.getElementById("colTogglesBody");
 function setStatus(msg) { statusEl.textContent = msg; }
 
 /* ============================================================
-   РЕНДЕР ТАБЛИЦЫ
+   РЕНДЕР
    ============================================================ */
 function render() {
-  // --- заголовок ---
   theadRow.innerHTML = "";
   const thNum = document.createElement("th");
   thNum.textContent = "#";
@@ -259,7 +277,6 @@ function render() {
     theadRow.appendChild(th);
   });
 
-  // --- тело ---
   tbody.innerHTML = "";
   state.rows.forEach((row, i) => {
     const tr = document.createElement("tr");
@@ -278,11 +295,12 @@ function render() {
       if (c.ck)  td.classList.add("ck");
 
       const cfg = state.cols[c.key];
+      // ★ NEW: cleanCell для обоих источников
       let val = "";
       if (row.edits[c.key] != null) {
-        val = row.edits[c.key];
+        val = cleanCell(row.edits[c.key]);
       } else if (cfg.fill) {
-        val = row.data[c.key] != null ? String(row.data[c.key]) : "";
+        val = cleanCell(row.data[c.key]);
       }
       td.textContent = val;
 
@@ -298,7 +316,7 @@ function render() {
 }
 
 /* ============================================================
-   РЕНДЕР ЧЕК-БОКСОВ «Показать / Заполнить»
+   ЧЕК-БОКСЫ «Показать / Заполнить»
    ============================================================ */
 function renderToggles() {
   togglesBody.innerHTML = "";
@@ -318,6 +336,7 @@ function renderToggles() {
     cbShow.onchange = () => {
       state.cols[c.key].show = cbShow.checked;
       render();
+      renderToggles();
     };
     tdShow.appendChild(cbShow);
     tr.appendChild(tdShow);
@@ -345,52 +364,42 @@ function renderToggles() {
    ============================================================ */
 function applyPreset(name) {
   const ALL = COLUMNS.map(c => c.key);
-
   const resetAll = () => ALL.forEach(k => {
     state.cols[k].show = true;
     state.cols[k].fill = true;
   });
 
   switch (name) {
-    case "full":
-      resetAll();
-      break;
-
+    case "full": resetAll(); break;
     case "no_levels":
       resetAll();
       state.cols["Уровень покупок"].fill = false;
       state.cols["Уровень продаж"].fill = false;
       break;
-
     case "no_trend":
       resetAll();
       state.cols["Тренд"].show = false;
       state.cols["Волна"].show = false;
       state.cols["Тенденция"].show = false;
       break;
-
     case "empty":
       resetAll();
       ALL.forEach(k => state.cols[k].fill = false);
       break;
-
     case "minimal":
       resetAll();
-      ALL.forEach(k => {
-        if (k !== "Тикер БА") state.cols[k].show = false;
-      });
+      ALL.forEach(k => { if (k !== "Тикер БА") state.cols[k].show = false; });
       break;
-
     case "ticker_levels":
       resetAll();
       ALL.forEach(k => {
-        if (!["Тикер БА", "Категория БА", "Уровень покупок", "Уровень продаж"].includes(k)) {
+        if (!["Тикер БА", "Категория БА",
+              "Уровень покупок", "Уровень продаж"].includes(k)) {
           state.cols[k].show = false;
         }
       });
       break;
   }
-
   render();
   renderToggles();
   setStatus("Применён пресет: " + name);
@@ -401,14 +410,13 @@ function applyPreset(name) {
    ============================================================ */
 function loadFromRecords(records, checksMap) {
   state.rows = [];
-  for (const rec of records) {
-    const hasContent = COLUMNS.some(c =>
-      rec[c.key] != null && String(rec[c.key]).trim() !== "");
 
+  for (const rec of records) {
     const data = {};
-    COLUMNS.forEach(c => {
-      data[c.key] = rec[c.key] != null ? String(rec[c.key]) : "";
-    });
+    // ★ NEW: cleanCell вместо String()
+    COLUMNS.forEach(c => { data[c.key] = cleanCell(rec[c.key]); });
+
+    const hasContent = COLUMNS.some(c => data[c.key] !== "");
 
     const edits = {};
     if (checksMap) {
@@ -416,8 +424,11 @@ function loadFromRecords(records, checksMap) {
       const cat = String(rec["Категория БА"] || "").trim();
       const ck = checksMap[`${tk}|${cat}`];
       if (ck) {
-        if (ck.buy  != null) edits["Чек покупки"] = String(ck.buy);
-        if (ck.sell != null) edits["Чек продажи"] = String(ck.sell);
+        // ★ NEW: тоже чистим
+        const bv = cleanCell(ck.buy);
+        const sv = cleanCell(ck.sell);
+        if (bv) edits["Чек покупки"] = bv;
+        if (sv) edits["Чек продажи"] = sv;
       }
     }
 
@@ -451,12 +462,13 @@ async function loadFromGoogle() {
     const records = [];
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
-      if (row.every(c => (c || "").trim() === "")) continue;
+      // ★ NEW: пустая строка = все ячейки пустые после cleanCell
       const rec = {};
       COLUMNS.forEach(c => {
         const i = idx[c.key];
-        rec[c.key] = i >= 0 ? (row[i] || "").trim() : "";
+        rec[c.key] = i >= 0 ? cleanCell(row[i]) : "";
       });
+      if (COLUMNS.every(c => rec[c.key] === "")) continue;
       records.push(rec);
     }
 
@@ -522,12 +534,55 @@ tbody.addEventListener("input", e => {
   const val = td.textContent;
   state.rows[i].edits[col] = val;
 
-  // перекраска чек-ячеек на лету
   if (col === "Чек покупки" || col === "Чек продажи") {
     td.classList.remove("ck-1", "ck-2");
     if (val === "1" || val === "3") td.classList.add("ck-1");
     if (val === "2" || val === "4") td.classList.add("ck-2");
   }
+});
+
+/* ============================================================
+   ★ NEW: ВСТАВКА ИЗ БУФЕРА — одиночная и многоклеточная
+   ============================================================ */
+tbody.addEventListener("paste", e => {
+  const td = e.target;
+  if (!td.dataset.col) return;
+  const text = (e.clipboardData || window.clipboardData).getData("text");
+  if (!text) return;
+
+  const rowsText = text.replace(/\r/g, "").split("\n").filter(r => r !== "");
+  const firstRowCells = rowsText[0].split("\t");
+
+  // --- одиночная вставка ---
+  if (rowsText.length === 1 && firstRowCells.length === 1) {
+    e.preventDefault();
+    td.textContent = cleanCell(text);
+    td.dispatchEvent(new Event("input", { bubbles: true }));
+    return;
+  }
+
+  // --- многоклеточная вставка из Excel / Google Sheets ---
+  e.preventDefault();
+  const startRow = parseInt(td.dataset.rowIdx, 10);
+  const visibleCols = COLUMNS.filter(c => state.cols[c.key].show);
+  const startColIdx = visibleCols.findIndex(c => c.key === td.dataset.col);
+  if (startColIdx < 0) return;
+
+  rowsText.forEach((rowText, rOff) => {
+    const cells = rowText.split("\t");
+    const rowIdx = startRow + rOff;
+    if (rowIdx >= state.rows.length) {
+      state.rows.push({ data: {}, edits: {} });
+    }
+    cells.forEach((cellText, cOff) => {
+      const colIdx = startColIdx + cOff;
+      if (colIdx >= visibleCols.length) return;
+      const colKey = visibleCols[colIdx].key;
+      // ★ NEW: чистим вставленные значения
+      state.rows[rowIdx].edits[colKey] = cleanCell(cellText);
+    });
+  });
+  render();
 });
 
 /* ============================================================
@@ -548,15 +603,30 @@ function clearTable() {
   document.getElementById("printSource").textContent = "ручное заполнение";
 }
 
+/* ============================================================
+   СКАЧИВАНИЕ HTML — с очисткой state и защитой от </script>
+   ============================================================ */
 function downloadHTML() {
-  // 1. вшиваем текущее состояние
-  const savedEl = document.getElementById("saved-state");
-  savedEl.textContent = JSON.stringify(state);
+  // ★ NEW: чистим data/edits перед сохранением
+  const cleanState = {
+    cols: state.cols,
+    rows: state.rows.map(r => ({
+      data: Object.fromEntries(
+        Object.entries(r.data || {}).map(([k, v]) => [k, cleanCell(v)])),
+      edits: Object.fromEntries(
+        Object.entries(r.edits || {}).map(([k, v]) => [k, cleanCell(v)])),
+    })),
+  };
 
-  // 2. снимаем снапшот
+  // ★ NEW: экранируем <, >, & — чтобы JSON не сломал <script>
+  const safeJson = JSON.stringify(cleanState)
+    .replace(/</g, "\\u003C")
+    .replace(/>/g, "\\u003E")
+    .replace(/&/g, "\\u0026");
+
+  document.getElementById("saved-state").textContent = safeJson;
+
   const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
-
-  // 3. скачиваем
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
@@ -564,7 +634,7 @@ function downloadHTML() {
   a.download = "alerts_print_" + new Date().toISOString().slice(0, 10) + ".html";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  setStatus("HTML скачан — при открытии восстановятся и данные, и настройки колонок");
+  setStatus("HTML скачан — при открытии восстановятся и данные, и настройки");
 }
 
 function setPrintDate() {
@@ -581,7 +651,7 @@ window.addEventListener("beforeprint", setPrintDate);
 function init() {
   setPrintDate();
 
-  // --- 1. Скачанный HTML: восстановить сохранённое состояние ---
+  // --- 1. Восстановление из скачанного HTML ---
   const savedEl = document.getElementById("saved-state");
   if (savedEl) {
     const txt = (savedEl.textContent || "").trim();
@@ -590,7 +660,13 @@ function init() {
         const saved = JSON.parse(txt);
         if (saved && saved.cols && Array.isArray(saved.rows)) {
           state.cols = saved.cols;
-          state.rows = saved.rows;
+          // ★ NEW: чистим загруженное состояние
+          state.rows = saved.rows.map(r => ({
+            data: Object.fromEntries(
+              Object.entries(r.data || {}).map(([k, v]) => [k, cleanCell(v)])),
+            edits: Object.fromEntries(
+              Object.entries(r.edits || {}).map(([k, v]) => [k, cleanCell(v)])),
+          }));
           resetStateCols();
           render();
           renderToggles();
@@ -602,7 +678,7 @@ function init() {
     }
   }
 
-  // --- 2. INJECT (session_state из app.py / серверный Google Sheets) ---
+  // --- 2. INJECT от Python-обёртки ---
   if (INJECT && Array.isArray(INJECT.alerts) && INJECT.alerts.length > 0) {
     loadFromRecords(INJECT.alerts, INJECT.checks);
     document.getElementById("printSource").textContent =
@@ -610,7 +686,7 @@ function init() {
     return;
   }
 
-  // --- 3. Google Sheets напрямую ---
+  // --- 3. Прямая загрузка из Google Sheets ---
   loadFromGoogle();
 }
 
