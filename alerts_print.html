@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Оповещения по уровням — печать A4</title>
+<style>
+  @page { size: A4 landscape; margin: 6mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    margin: 0; padding: 12px; background: #f5f7fa; color: #1a3b4f;
+  }
+  .toolbar {
+    background: #fff; padding: 10px; border-radius: 8px;
+    margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  }
+  .toolbar button {
+    padding: 7px 13px; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary   { background: #1e88e5; color: #fff; }
+  .btn-secondary { background: #eef2f5; color: #1a3b4f; }
+  .btn-success   { background: #00a651; color: #fff; }
+  .btn-danger    { background: #d32f2f; color: #fff; }
+  .btn-warn      { background: #e6a500; color: #fff; }
+  .status { font-size: 12px; color: #5a6b78; margin-left: auto;
+            max-width: 48%; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; }
+  .table-wrapper { background: #fff; border-radius: 8px; padding: 10px;
+                   box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow-x: auto; }
+  .print-header { display: none; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    background: #eef6fb; color: #1a3b4f; font-weight: 700;
+    padding: 7px 5px; text-align: left;
+    border-bottom: 2px solid #cfdfe9;
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: .03em; white-space: nowrap;
+  }
+  thead th.num { text-align: right; }
+  thead th.ck  { text-align: center; }
+  tbody td { padding: 5px; border-bottom: 1px solid #eef2f5; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #f8fbfd; }
+  td[contenteditable="true"] { cursor: text; }
+  td[contenteditable="true"]:focus { outline: 2px solid #1e88e5;
+                                     background: #f0f7ff; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .ck  { text-align: center; font-weight: 700; }
+  .row-index { color: #7a8b99; font-weight: 600; }
+  .ck-1, .ck-3 { color: #00a651; }
+  .ck-2, .ck-4 { color: #d32f2f; }
+
+  @media print {
+    @page { size: A4 landscape; margin: 5mm; }
+    body { background: #fff; padding: 0; font-size: 9px;
+           -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toolbar { display: none !important; }
+    .print-header {
+      display: block; text-align: center; font-size: 12px;
+      font-weight: 800; margin-bottom: 3mm; color: #1a3b4f;
+    }
+    .print-header .sub { font-size: 8px; font-weight: 400;
+                         color: #5a6b78; margin-top: 1mm; }
+    .table-wrapper { box-shadow: none; padding: 0; }
+    table { font-size: 8.5px; page-break-inside: auto; }
+    thead { display: table-header-group; }
+    tbody tr { page-break-inside: avoid; }
+    thead th { padding: 3px 2px; font-size: 8px;
+               border-bottom: 1.5px solid #cfdfe9; }
+    tbody td { padding: 2px 2px; font-size: 8.5px;
+               border-bottom: 0.5px solid #e8eef4; }
+    td[contenteditable] { outline: none !important;
+                          background: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button class="btn-success"  onclick="loadFromGoogle()">📥 Из Google Sheets</button>
+  <button class="btn-danger"   onclick="clearTable()">🗑 Очистить</button>
+  <button class="btn-secondary" onclick="addRows(5)">＋ +5 строк</button>
+  <button class="btn-warn"     onclick="downloadHTML()">💾 Скачать HTML</button>
+  <button class="btn-primary"  onclick="window.print()">🖨 Печать / PDF (A4)</button>
+  <span class="status" id="status">Инициализация…</span>
+</div>
+
+<div class="print-header">
+  ОПОВЕЩЕНИЯ ПО УРОВНЯМ — <span id="printDate"></span>
+  <div class="sub">Источник: <span id="printSource">—</span></div>
+</div>
+
+<div class="table-wrapper">
+  <table id="alerts-table">
+    <thead>
+      <tr>
+        <th style="width:3%;">#</th>
+        <th>Тикер БА</th>
+        <th>Категория БА</th>
+        <th>Тренд</th>
+        <th>Волна</th>
+        <th>Тенденция</th>
+        <th>ТФ уровня</th>
+        <th class="num">Уровень покупок</th>
+        <th class="num">Уровень продаж</th>
+        <th class="ck">Чек покупки</th>
+        <th class="ck">Чек продажи</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+/* Сюда обёртка из pages/*.py вшивает данные session_state.
+   Если открыт «голый» HTML — будет null, пойдёт запрос в Google Sheets. */
+const INJECT = /*__INJECT_ALERTS__*/null;
+
+const GOOGLE_SHEETS_CSV =
+  "https://docs.google.com/spreadsheets/d/e/" +
+  "2PACX-1vRKISFld2M8tFEEE1o1Fo5nQgHP6qMmOFu57JDmi-t-Y4Xj67N5SQP9uQ02JW2Ixyd663zewMYY1hfx" +
+  "/pub?output=csv";
+
+const COLUMNS = [
+  "Тикер БА", "Категория БА", "Тренд", "Волна",
+  "Тенденция", "ТФ уровня", "Уровень покупок", "Уровень продаж"
+];
+const NUMERIC_COLS = new Set(["Уровень покупок", "Уровень продаж"]);
+const DEFAULT_ROWS = 20;
+
+const tbody    = document.getElementById("tbody");
+const statusEl = document.getElementById("status");
+
+function setStatus(msg) { statusEl.textContent = msg; }
+
+/* ---------- построение строк ---------- */
+function createRow(data = {}, checks = {}) {
+  const tr = document.createElement("tr");
+
+  const tdNum = document.createElement("td");
+  tdNum.className = "num row-index";
+  tr.appendChild(tdNum);
+
+  COLUMNS.forEach(col => {
+    const td = document.createElement("td");
+    td.contentEditable = "true";
+    td.dataset.col = col;
+    td.textContent = data[col] != null ? String(data[col]) : "";
+    if (NUMERIC_COLS.has(col)) td.classList.add("num");
+    tr.appendChild(td);
+  });
+
+  // Чек покупки
+  const tdBuy = document.createElement("td");
+  tdBuy.className = "ck";
+  tdBuy.contentEditable = "true";
+  tdBuy.dataset.col = "Чек покупки";
+  const bv = checks.buy || "";
+  tdBuy.textContent = bv;
+  if (bv === "1") tdBuy.classList.add("ck-1");
+  if (bv === "2") tdBuy.classList.add("ck-2");
+  tr.appendChild(tdBuy);
+
+  // Чек продажи
+  const tdSell = document.createElement("td");
+  tdSell.className = "ck";
+  tdSell.contentEditable = "true";
+  tdSell.dataset.col = "Чек продажи";
+  const sv = checks.sell || "";
+  tdSell.textContent = sv;
+  if (sv === "3") tdSell.classList.add("ck-3");
+  if (sv === "4") tdSell.classList.add("ck-4");
+  tr.appendChild(tdSell);
+
+  return tr;
+}
+
+function renumber() {
+  Array.from(tbody.children).forEach((tr, i) => {
+    tr.firstChild.textContent = i + 1;
+  });
+}
+
+function fillEmpty(n) {
+  for (let i = 0; i < n; i++) tbody.appendChild(createRow());
+  renumber();
+}
+
+function addRows(n) {
+  fillEmpty(n);
+  setStatus(`Добавлено ${n} пустых строк`);
+}
+
+function clearTable() {
+  if (!confirm("Очистить таблицу? Введённые данные будут потеряны.")) return;
+  tbody.innerHTML = "";
+  fillEmpty(DEFAULT_ROWS);
+  setStatus("Таблица очищена — заполните вручную");
+  document.getElementById("printSource").textContent = "ручное заполнение";
+}
+
+function tableHasContent() {
+  const cells = tbody.querySelectorAll("td[data-col]");
+  return Array.from(cells).some(td => td.textContent.trim() !== "");
+}
+
+/* ---------- CSV-парсер (RFC 4180) ---------- */
+function parseCSV(text) {
+  const rows = []; let row = []; let field = ""; let inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (text[i+1] === '"') { field += '"'; i++; } else inQ = false;
+      } else field += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') { row.push(field); field = ""; }
+      else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ""; }
+      else if (ch !== '\r') field += ch;
+    }
+  }
+  if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function findColIdx(headers, target) {
+  const norm = s => s.toLowerCase().replace(/ё/g, "е")
+                     .replace(/\s+/g, " ").trim();
+  const t = norm(target);
+  for (let i = 0; i < headers.length; i++)
+    if (norm(headers[i]) === t) return i;
+  for (let i = 0; i < headers.length; i++) {
+    const h = norm(headers[i]);
+    if (h && (h.includes(t) || t.includes(h))) return i;
+  }
+  return -1;
+}
+
+/* ---------- заполнение из массива объектов ---------- */
+function fillFromData(records, checksMap) {
+  tbody.innerHTML = "";
+  let n = 0;
+  for (const rec of records) {
+    // пропускаем пустые
+    const hasContent = COLUMNS.some(c => rec[c] != null && String(rec[c]).trim() !== "");
+    if (!hasContent) continue;
+
+    const tk = String(rec["Тикер БА"] || "").toUpperCase().trim();
+    const cat = String(rec["Категория БА"] || "").trim();
+    const ck = (checksMap && checksMap[`${tk}|${cat}`]) || {};
+    tbody.appendChild(createRow(rec, ck));
+    n++;
+  }
+  if (n === 0) { fillEmpty(DEFAULT_ROWS); setStatus("Данные пусты — ручной режим"); }
+  else setStatus(`Загружено ${n} строк`);
+  renumber();
+}
+
+/* ---------- загрузка из Google Sheets ---------- */
+async function loadFromGoogle() {
+  setStatus("Загрузка из Google Sheets…");
+  try {
+    const resp = await fetch(GOOGLE_SHEETS_CSV, { cache: "no-store" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const text = await resp.text();
+    const rows = parseCSV(text);
+    if (!rows.length || rows.length < 2) throw new Error("Пустой лист");
+    const headers = rows[0].map(h => (h || "").trim());
+    const idx = {};
+    COLUMNS.forEach(c => { idx[c] = findColIdx(headers, c); });
+
+    const records = [];
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (row.every(c => (c || "").trim() === "")) continue;
+      const rec = {};
+      COLUMNS.forEach(c => {
+        const i = idx[c];
+        rec[c] = i >= 0 ? (row[i] || "").trim() : "";
+      });
+      records.push(rec);
+    }
+    fillFromData(records, null);
+    document.getElementById("printSource").textContent =
+      "Google Sheets (прямая загрузка)";
+  } catch (e) {
+    console.error(e);
+    setStatus("Ошибка загрузки: " + e.message + " — можно заполнить вручную");
+    if (tbody.children.length === 0) fillEmpty(DEFAULT_ROWS);
+  }
+}
+
+/* ---------- скачать текущее состояние как HTML ---------- */
+function downloadHTML() {
+  const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = "alerts_print_" + new Date().toISOString().slice(0,10) + ".html";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setStatus("HTML скачан — откройте файл в браузере и нажмите Ctrl+P");
+}
+
+/* ---------- дата в шапке печати ---------- */
+function setPrintDate() {
+  const d = new Date();
+  document.getElementById("printDate").textContent =
+    d.toLocaleDateString("ru-RU") + " " +
+    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+window.addEventListener("beforeprint", setPrintDate);
+
+/* ---------- инициализация (приоритет: сохранённый HTML → INJECT → Google Sheets) ---------- */
+function init() {
+  setPrintDate();
+  if (tableHasContent()) {
+    renumber();
+    setStatus("Содержимое восстановлено из сохранённого HTML");
+    document.getElementById("printSource").textContent = "сохранено локально";
+    return;
+  }
+  if (INJECT && Array.isArray(INJECT.alerts) && INJECT.alerts.length > 0) {
+    fillFromData(INJECT.alerts, INJECT.checks);
+    document.getElementById("printSource").textContent =
+      "session_state (" + (INJECT.source || "app.py") + ")";
+    return;
+  }
+  loadFromGoogle();
+}
+init();
+</script>
+</body>
+</html>
