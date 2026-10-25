@@ -32,11 +32,6 @@ st.set_page_config(
 # [PATCH 7] Удалён блок очистки кэша для каждой новой сессии —
 # st.cache_data разделяется между сессиями, и новый пользователь
 # не должен чистить кэш остальным.
-# Было:
-#   if "cache_cleared_v7" not in st.session_state:
-#       st.cache_data.clear()
-#       st.session_state["cache_cleared_v7"] = True
-# Стало: блок полностью удалён.
 
 st.markdown("""
 <style>
@@ -1376,20 +1371,407 @@ def _fetch_board_cached_30s(asset: str, asset_type_ui: str, series_code: str):
             if data is not None:
                 return data
     return None
-    # ================= Payoff-расчёты =================
-# (без изменений — вставьте существующие функции:
-#  _months_between, _bs_price_np, compute_payoff, find_breakevens)
-
-# ================= Биржевой график =================
-# (без изменений — вставьте существующую render_exchange_chart)
-
-# ================= Вспомогательные =================
-# (без изменений — _color_call_put, _side_from_qty, _side_ui,
-#  _side_internal, _new_position_id, _fmt_strike,
-#  _greek_delta_color, _greek_theta_color)
+# ==================================================================
+# Базовые хелперы
+# ==================================================================
+def _color_call_put(option: str) -> str:
+    if option == "Call":
+        return f"<span style='color:#00a651; font-weight:700;'>{option}</span>"
+    if option == "Put":
+        return f"<span style='color:#d32f2f; font-weight:700;'>{option}</span>"
+    return option
 
 
-# ================= Карточка оповещения =================
+def _side_from_qty(qty: int) -> str:
+    if qty > 0:
+        return "Buy"
+    if qty < 0:
+        return "Sell"
+    return "—"
+
+
+def _side_ui(side: str) -> str:
+    return {"Buy": "Покупка", "Sell": "Продажа"}.get(side, side)
+
+
+def _side_internal(side_ui: str) -> str:
+    return {"Покупка": "Buy", "Продажа": "Sell"}.get(side_ui, side_ui)
+
+
+def _new_position_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def _fmt_strike(k, asset_type=None):
+    """Страйк: для валюты — 1 знак, для остальных — целое или 2 знака."""
+    if k is None:
+        return "—"
+    try:
+        kf = float(k)
+    except (TypeError, ValueError):
+        return str(k)
+    if asset_type == "Валюта":
+        return f"{kf:.1f}"
+    if kf.is_integer():
+        return f"{int(kf)}"
+    return f"{kf:.2f}"
+
+
+def _greek_delta_color(delta) -> str:
+    if delta is None or not isinstance(delta, (int, float)):
+        return ""
+    d = abs(delta)
+    if 0.25 <= d <= 0.45:
+        return "#00a651"
+    if (0.15 <= d < 0.25) or (0.45 < d <= 0.55):
+        return "#e6a500"
+    return "#d32f2f"
+
+
+def _greek_theta_color(theta, vega) -> str:
+    if theta is None or vega is None:
+        return ""
+    if not isinstance(theta, (int, float)) or not isinstance(vega, (int, float)):
+        return ""
+    if abs(vega) < 1e-9:
+        return ""
+    ratio = abs(theta) / abs(vega)
+    if ratio > 1.0:
+        return "#00a651"
+    if ratio > 0.5:
+        return "#e6a500"
+    return "#d32f2f"
+
+
+# ==================================================================
+# Payoff-расчёты
+# ==================================================================
+def _months_between(d1: date, d2: date) -> float:
+    return max((d2 - d1).days, 0) / 365.0
+
+
+def _bs_price_np(S, K, T, r_pct, vol_pct, q_pct, opt_type):
+    if T <= 0 or S <= 0 or K <= 0 or vol_pct <= 0:
+        return max(0.0, S - K) if opt_type == "call" else max(0.0, K - S)
+    r = r_pct / 100.0
+    q = q_pct / 100.0
+    sigma = vol_pct / 100.0
+    sqrtT = math.sqrt(T)
+    try:
+        d1 = (math.log(S / K) + (r - q + sigma * sigma / 2) * T) / (sigma * sqrtT)
+        d2 = d1 - sigma * sqrtT
+        nd1 = 0.5 * (1.0 + math.erf(d1 / math.sqrt(2.0)))
+        nd2 = 0.5 * (1.0 + math.erf(d2 / math.sqrt(2.0)))
+        if opt_type == "call":
+            return S * math.exp(-q * T) * nd1 - K * math.exp(-r * T) * nd2
+        return K * math.exp(-r * T) * (1 - nd2) - S * math.exp(-q * T) * (1 - nd1)
+    except Exception:
+        return max(0.0, S - K) if opt_type == "call" else max(0.0, K - S)
+
+
+def compute_payoff(positions, S_values, comm_func=None, anchor_expiry: str = None,
+                   pricing_date: str = None, vol_default: float = 20.0,
+                   r_default: float = 0.0, q_default: float = 0.0):
+    S = np.asarray(S_values, dtype=float)
+    pnl = np.zeros_like(S)
+    all_expiries = []
+    for p in positions:
+        exp_str = p.get("Эксп.", "—")
+        if exp_str and exp_str != "—":
+            try:
+                d = datetime.strptime(exp_str, "%Y-%m-%d").date()
+                all_expiries.append(d)
+            except Exception:
+                pass
+    if anchor_expiry:
+        try:
+            anchor_date = datetime.strptime(anchor_expiry, "%Y-%m-%d").date()
+        except Exception:
+            anchor_date = max(all_expiries) if all_expiries else date.today()
+    else:
+        anchor_date = max(all_expiries) if all_expiries else date.today()
+
+    for p in positions:
+        if not p.get("visible", True):
+            continue
+        qty = int(p.get("Кол-во", 0))
+        entry = float(p.get("Цена", 0))
+        _instr = p.get("Тип инструмента", "Опцион")
+        com = comm_func(entry, _instr) if comm_func else 0.0
+        if p.get("Тип инструмента") == "БА" or p.get("Опцион") == "БА":
+            pnl += (S - entry) * qty
+            continue
+        K = float(p["Страйк"]) if p.get("Страйк") is not None else 0
+        if K == 0:
+            continue
+        leg_expiry_str = p.get("Эксп.", "—")
+        leg_expiry = None
+        if leg_expiry_str and leg_expiry_str != "—":
+            try:
+                leg_expiry = datetime.strptime(leg_expiry_str, "%Y-%m-%d").date()
+            except Exception:
+                leg_expiry = None
+        if leg_expiry is None:
+            intrinsic = np.maximum(0, S - K) if p["Опцион"] == "Call" else np.maximum(0, K - S)
+            pnl += (intrinsic - entry - com) * qty
+            continue
+        if leg_expiry <= anchor_date:
+            intrinsic = np.maximum(0, S - K) if p["Опцион"] == "Call" else np.maximum(0, K - S)
+            pnl += (intrinsic - entry - com) * qty
+        else:
+            T_remaining = _months_between(anchor_date, leg_expiry)
+            opt_type = "call" if p["Опцион"] == "Call" else "put"
+            vol_leg = float(p.get("_vol", vol_default) or vol_default)
+            r_leg = float(p.get("_r", r_default) or r_default)
+            q_leg = float(p.get("_q", q_default) or q_default)
+            price_at_anchor = np.array([
+                _bs_price_np(Si, K, T_remaining, r_leg, vol_leg, q_leg, opt_type)
+                for Si in S
+            ])
+            pnl += (price_at_anchor - entry - com) * qty
+    return pnl
+
+
+def find_breakevens(positions, price_min, price_max, n=500, comm_func=None, anchor_expiry=None):
+    prices = np.linspace(price_min, price_max, n)
+    pnl = compute_payoff(positions, prices, comm_func=comm_func, anchor_expiry=anchor_expiry)
+    be = []
+    for i in range(1, len(prices)):
+        if pnl[i-1] * pnl[i] < 0:
+            denom = pnl[i] - pnl[i-1]
+            if abs(denom) > 1e-12:
+                x0 = prices[i-1] + (prices[i] - prices[i-1]) * (-pnl[i-1]) / denom
+                be.append(float(x0))
+    return be
+
+
+# ==================================================================
+# Биржевой график
+# ==================================================================
+def render_exchange_chart(df, positions, buy_level, sell_level, strikes, title, key,
+                          current_price=None, comm_func=None, anchor_expiry=None,
+                          interval=24):
+    if df is None or df.empty:
+        st.info(f"Нет данных для {title}")
+        return
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.04, row_heights=[0.78, 0.22],
+                        specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
+    _hover_dt_fmt = "%d.%m.%Y %H:%M" if interval == 60 else "%d.%m.%Y"
+
+    fig.add_trace(go.Ohlc(
+        x=df["begin"], open=df["open"], high=df["high"],
+        low=df["low"], close=df["close"],
+        increasing_line_color="black", decreasing_line_color="black",
+        name="", showlegend=False,
+        hovertemplate=(
+            f"<b>%{{x|{_hover_dt_fmt}}}</b><br>"
+            "O: %{open:.2f}<br>"
+            "H: %{high:.2f}<br>"
+            "L: %{low:.2f}<br>"
+            "C: %{close:.2f}<extra></extra>"
+        )),
+        row=1, col=1, secondary_y=False)
+    fig.add_trace(go.Bar(
+        x=df["begin"], y=df["volume"], marker_color="black",
+        name="", showlegend=False,
+        hovertemplate=(
+            f"<b>%{{x|{_hover_dt_fmt}}}</b><br>"
+            "V: %{y:,.0f}<extra></extra>"
+        )),
+        row=2, col=1)
+    price_min = float(df["low"].min()) * 0.97
+    price_max = float(df["high"].max()) * 1.03
+    if positions:
+        be_points = find_breakevens(positions, price_min, price_max,
+                                     n=500, comm_func=comm_func, anchor_expiry=anchor_expiry)
+        segments = [price_min] + sorted(be_points) + [price_max]
+        for i in range(len(segments) - 1):
+            seg_start = segments[i]
+            seg_end = segments[i + 1]
+            mid = (seg_start + seg_end) / 2
+            mid_pnl = compute_payoff(positions, [mid], comm_func=comm_func,
+                                     anchor_expiry=anchor_expiry)[0]
+            color = ("rgba(0,220,80,0.28)" if mid_pnl > 0 else "rgba(255,40,40,0.22)")
+            fig.add_shape(type="rect", xref="x domain", x0=0, x1=1,
+                          yref="y", y0=seg_start, y1=seg_end,
+                          fillcolor=color, line_width=0, layer="below", row=1, col=1)
+    else:
+        be_points = []
+    visible_strikes = []
+    if strikes:
+        visible_strikes = sorted(float(s) for s in strikes if price_min <= float(s) <= price_max)
+        for K in visible_strikes:
+            fig.add_hline(y=K, line=dict(color="#9c00ff", width=1, dash="dot"),
+                          opacity=0.45, row=1, col=1)
+    buy_markers, sell_markers = [], []
+    for p in (positions or []):
+        if not p.get("visible", True):
+            continue
+        if p.get("Опцион") not in ("Call", "Put"):
+            continue
+        qty = int(p.get("Кол-во", 0))
+        if qty == 0:
+            continue
+        K = p.get("Страйк")
+        if K is None:
+            continue
+        code = "C" if p["Опцион"] == "Call" else "P"
+        color = "#00a651" if p["Опцион"] == "Call" else "#d32f2f"
+        sign = "+" if qty > 0 else "-"
+        Ks = _fmt_strike(K, p.get("_atype"))
+        exp_marker = ""
+        exp_str = p.get("Эксп.", "—")
+        if exp_str and exp_str != "—":
+            try:
+                exp_d = datetime.strptime(exp_str, "%Y-%m-%d").date()
+                exp_marker = f" [{exp_d.strftime('%m/%y')}]"
+            except Exception:
+                pass
+        entry = {"text": f"{sign}{abs(qty)}{code} {Ks}{exp_marker}", "color": color}
+        if qty > 0:
+            buy_markers.append(entry)
+        else:
+            sell_markers.append(entry)
+
+    def _add_level(level, label_txt, line_color, markers):
+        fig.add_hline(y=level, line=dict(color=line_color, width=2.5), row=1, col=1)
+        fig.add_annotation(x=0.5, y=level, xref="paper", yref="y",
+                           text=label_txt, showarrow=False,
+                           font=dict(size=10, color=line_color, family="Arial Black"),
+                           bgcolor="rgba(255,255,255,0.85)", yshift=11, row=1, col=1)
+        for i, m in enumerate(markers[:6]):
+            fig.add_annotation(x=0.5, y=level, xref="paper", yref="y",
+                               text=m["text"], showarrow=False,
+                               font=dict(size=10, color=m["color"],
+                                         family="Consolas, monospace"),
+                               bgcolor="rgba(255,255,255,0.88)",
+                               xshift=80 + i * 72, yshift=11, row=1, col=1)
+
+    if buy_level and buy_level > 0:
+        _add_level(buy_level, f"Покупка {buy_level:.2f}", "#9c00ff", buy_markers)
+    if sell_level and sell_level > 0:
+        _add_level(sell_level, f"Продажа {sell_level:.2f}", "#fb92f0", sell_markers)
+    if current_price is not None and current_price > 0:
+        fig.add_hline(
+            y=current_price,
+            line=dict(color="#1e88e5", width=1.5, dash="dash"),
+            row=1, col=1)
+        fig.add_annotation(
+            x=1.0, y=current_price,
+            xref="paper", yref="y",
+            text=f"{current_price:.2f}",
+            showarrow=False,
+            xanchor="left",
+            yanchor="middle",
+            xshift=2,
+            font=dict(size=9, color="#ffffff", family="Arial"),
+            bgcolor="#1e88e5",
+            borderpad=2,
+            row=1, col=1)
+        _last_bar_date = df["begin"].iloc[-1]
+        _last_bar_close = float(df["close"].iloc[-1])
+        fig.add_annotation(
+            x=_last_bar_date, y=_last_bar_close,
+            xref="x", yref="y",
+            text=f"{_last_bar_close:.2f}",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=0.8,
+            arrowwidth=1,
+            arrowcolor="#000000",
+            ax=32, ay=0,
+            xanchor="left",
+            font=dict(size=9, color="#ffffff", family="Arial"),
+            bgcolor="#000000",
+            bordercolor="#ffffff",
+            borderwidth=1,
+            borderpad=2,
+            row=1, col=1)
+    for be in be_points:
+        fig.add_hline(y=be, line=dict(color="#00a651", width=1.5, dash="dot"), row=1, col=1)
+        fig.add_annotation(x=0.5, y=be, xref="paper", yref="y",
+                           text=f"БУ {be:.2f}", showarrow=False,
+                           font=dict(size=10, color="#00a651", family="Arial Black"),
+                           bgcolor="rgba(255,255,255,0.90)",
+                           bordercolor="#00a651", borderwidth=1, yshift=10, row=1, col=1)
+    fig.add_trace(go.Scatter(x=[df["begin"].iloc[0], df["begin"].iloc[-1]],
+                             y=[price_min, price_max], mode="lines",
+                             line=dict(width=0), opacity=0, showlegend=False,
+                             hoverinfo="skip", name="_right_axis"),
+                  row=1, col=1, secondary_y=True)
+    fig.update_layout(
+        title=title, height=520,
+        margin=dict(l=20, r=70, t=50, b=20),
+        plot_bgcolor="white", paper_bgcolor="white",
+        hovermode="closest",
+        showlegend=False,
+        hoverlabel=dict(
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="#1e5a7a",
+            font=dict(size=11, color="#1a3b4f",
+                      family="Consolas, monospace"),
+            align="left",
+            namelength=-1))
+    if visible_strikes:
+        _strike_vals = [float(k) for k in visible_strikes]
+        _strike_text = [_fmt_strike(k) for k in _strike_vals]
+    else:
+        _strike_vals = None
+        _strike_text = None
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     side="left", row=1, col=1,
+                     tickmode="array" if _strike_vals else "auto",
+                     tickvals=_strike_vals if _strike_vals else None,
+                     ticktext=_strike_text if _strike_text else None,
+                     tickfont=dict(size=10, color="#9c00ff"),
+                     showspikes=True, spikemode='across', spikesnap='cursor',
+                     spikecolor='#888888', spikethickness=1, spikedash='dot')
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                     side="left", row=2, col=1,
+                     showspikes=True, spikemode='across', spikesnap='cursor',
+                     spikecolor='#888888', spikethickness=1, spikedash='dot')
+
+    fig.update_yaxes(
+        side="right", row=1, col=1, secondary_y=True,
+        showgrid=False, zeroline=False,
+        tickfont=dict(size=10, color="#1a3b4f"),
+        showspikes=True, spikemode='across',
+        spikesnap='cursor',
+        spikecolor='#1e88e5',
+        spikethickness=1, spikedash='dot',
+        title=None)
+    _x_min_val = df["begin"].min()
+    _x_max_val = df["begin"].max()
+    if pd.notna(_x_min_val) and pd.notna(_x_max_val):
+        if len(df) >= 2:
+            _diffs = df["begin"].diff().dropna()
+            _step = _diffs.median() if not _diffs.empty else pd.Timedelta(days=1)
+        else:
+            _step = pd.Timedelta(days=1)
+        if pd.isna(_step) or _step <= pd.Timedelta(0):
+            _step = pd.Timedelta(days=1)
+        _x_max_extended = _x_max_val + _step * 15
+        _x_tickfmt = "%d.%m %H:%M" if interval == 60 else "%d.%m"
+
+        fig.update_xaxes(
+            type='date', range=[_x_min_val, _x_max_extended],
+            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+            rangeslider_visible=False, row=1, col=1,
+            tickformat=_x_tickfmt,
+            showspikes=True, spikemode='across', spikesnap='cursor',
+            spikecolor='#666666', spikethickness=1, spikedash='dot')
+        fig.update_xaxes(
+            type='date', range=[_x_min_val, _x_max_extended],
+            showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+            row=2, col=1,
+            tickformat=_x_tickfmt,
+            showspikes=True, spikemode='across', spikesnap='cursor',
+            spikecolor='#666666', spikethickness=1, spikedash='dot')
+    st.plotly_chart(fig, use_container_width=True, key=key)
+# ==================================================================
+# Карточка оповещения
+# ==================================================================
 def _render_alert_card(r: dict):
     """Карточка тикера: цена, уровни с плашками, чек-боксы, badges."""
     _ticker = r["ticker"]
@@ -1487,12 +1869,9 @@ def _render_alert_card(r: dict):
             f"{_category}</div>",
             unsafe_allow_html=True)
 
-        # G4: мини-бейдж рекомендации
         try:
             _strikes_card = []
             try:
-                # [PATCH 7] Не запрашивать доску, если _series_code пустой —
-                # иначе карточки делают заведомо бесполезный сетевой запрос.
                 _card_series = r.get("_series_code")
                 _b_chk = (
                     fetch_optionboard(r["ticker"], _category, _card_series)
@@ -1660,13 +2039,192 @@ def _render_alert_card(r: dict):
         st.session_state["_alert_checks"] = _new_checks
 
 
-# ================= alert_targets, postMessage-мост, аналитика =================
-# (без изменений — _nearest_strike_above, _nearest_strike_below,
-#  _get_board_price_for, build_alert_targets, _send_to_iframes,
-#  push_expiry_to_calculator, push_strikes_to_calculator,
-#  push_alert_levels, _weighted_avg_iv)
+# ==================================================================
+# alert_targets
+# ==================================================================
+def _nearest_strike_above(strikes, level):
+    if not strikes or level is None:
+        return None
+    s_sorted = sorted([float(s) for s in strikes])
+    for k in s_sorted:
+        if k > float(level):
+            return k
+    return s_sorted[-1]
 
 
+def _nearest_strike_below(strikes, level):
+    if not strikes or level is None:
+        return None
+    s_sorted = sorted([float(s) for s in strikes], reverse=True)
+    for k in s_sorted:
+        if k < float(level):
+            return k
+    return s_sorted[-1]
+
+
+def _get_board_price_for(board_data, opt_type, strike, side):
+    if not board_data or strike is None:
+        return None
+    src = board_data.get('call' if opt_type == 'call' else 'put') or []
+    row = next((x for x in src if x.get('strike') == strike), None)
+    if row is None:
+        return None
+    v = row.get('offer') if side == 'Buy' else row.get('bid')
+    if v is None or v <= 0:
+        v = row.get('theorprice')
+    if v is None or v <= 0:
+        v = row.get('last')
+    try:
+        return float(v) if v and v > 0 else None
+    except Exception:
+        return None
+
+
+def build_alert_targets(asset, asset_type_ui, series_code, board_data, levels,
+                        current_price=None):
+    if not board_data:
+        return None
+    calls = board_data.get('call') or []
+    puts = board_data.get('put') or []
+    all_strikes = sorted({float(c['strike']) for c in calls if c.get('strike') is not None}
+                         | {float(p['strike']) for p in puts if p.get('strike') is not None})
+    if not all_strikes:
+        return None
+
+    lvl_buy = levels.get("buy") if levels else None
+    lvl_sell = levels.get("sell") if levels else None
+
+    if current_price is not None and current_price > 0:
+        _cp = float(current_price)
+
+        _bcands = [k for k in all_strikes if k > _cp]
+        K_buy_call = _bcands[0] if _bcands else all_strikes[-1]
+
+        _bpcands = [k for k in all_strikes if k < _cp]
+        K_buy_put = _bpcands[-1] if _bpcands else all_strikes[0]
+
+        _sell_call_target = float(lvl_sell) if lvl_sell is not None else _cp
+        _scands = [k for k in all_strikes if k > _sell_call_target]
+        K_sell_call = _scands[0] if _scands else all_strikes[-1]
+
+        _sell_put_target = float(lvl_buy) if lvl_buy is not None else _cp
+        _spcands = [k for k in all_strikes if k < _sell_put_target]
+        K_sell_put = _spcands[-1] if _spcands else all_strikes[0]
+    else:
+        K_buy_call  = _nearest_strike_above(all_strikes, lvl_buy)
+        K_buy_put   = _nearest_strike_below(all_strikes, lvl_buy)
+        K_sell_call = _nearest_strike_above(all_strikes, lvl_sell)
+        K_sell_put  = _nearest_strike_below(all_strikes, lvl_buy)
+
+    def _price_for(strike, opt_type, side):
+        if strike is None:
+            return {}
+        p = _get_board_price_for(board_data, opt_type, strike, side)
+        return {str(strike): p} if p is not None else {}
+
+    return {
+        "asset": asset,
+        "atype": asset_type_ui,
+        "series_code": series_code,
+        "lvl_buy": lvl_buy,
+        "lvl_sell": lvl_sell,
+        "current_price": current_price,
+        "strikes_buy": {
+            "call": K_buy_call,
+            "put":  K_buy_put,
+        },
+        "strikes_sell": {
+            "call": K_sell_call,
+            "put":  K_sell_put,
+        },
+        "prices_buy": {
+            "call": _price_for(K_buy_call, 'call', 'Buy'),
+            "put":  _price_for(K_buy_put,  'put',  'Sell'),
+        },
+        "prices_sell": {
+            "call": _price_for(K_sell_call, 'call', 'Sell'),
+            "put":  _price_for(K_sell_put,  'put',  'Buy'),
+        },
+    }
+
+
+# ==================================================================
+# postMessage-мост
+# ==================================================================
+def _send_to_iframes(payload: dict, delays=(300, 1500)):
+    delays_js = "\n".join([f"setTimeout(send, {d});" for d in delays])
+    js = f"""
+    <script>
+    (function() {{
+      const payload = {json.dumps(payload, ensure_ascii=False)};
+      function send() {{
+        try {{
+          const frames = window.parent.document.querySelectorAll('iframe');
+          frames.forEach(f => {{
+            try {{ f.contentWindow.postMessage(payload, '*'); }} catch (e) {{}}
+          }});
+        }} catch (e) {{}}
+      }}
+      send();
+      {delays_js}
+    }})();
+    </script>
+    """
+    components.html(js, height=0)
+
+
+def push_expiry_to_calculator(expiry_str: str, series_code: str = ""):
+    _send_to_iframes({"type": "setExpiry", "value": expiry_str, "series_code": series_code})
+
+
+def push_strikes_to_calculator(strikes_iv: list, central_strike):
+    _send_to_iframes({"type": "setStrikes", "strikes": strikes_iv, "central": central_strike})
+
+
+def push_alert_levels(ticker: str, buy_lvl, sell_lvl):
+    _send_to_iframes({"type": "setAlertLevels",
+                      "ticker": ticker or "",
+                      "buy": float(buy_lvl) if buy_lvl is not None else None,
+                      "sell": float(sell_lvl) if sell_lvl is not None else None})
+
+
+# ==================================================================
+# Взвешенная IV
+# ==================================================================
+def _weighted_avg_iv(board, central_strike=None):
+    if not board:
+        return None
+    calls = board.get("call") or []
+    puts = board.get("put") or []
+    ivs, weights = [], []
+    for side in (calls, puts):
+        for row in side:
+            iv = row.get("volatility")
+            k = row.get("strike")
+            if iv is None or k is None:
+                continue
+            try:
+                iv_f = float(iv)
+                k_f = float(k)
+            except (TypeError, ValueError):
+                continue
+            if not (0 < iv_f < 500):
+                continue
+            w = 1.0 / (abs(k_f - float(central_strike)) + 1.0) \
+                if central_strike is not None else 1.0
+            ivs.append(iv_f)
+            weights.append(w)
+    if not ivs:
+        return None
+    total_w = sum(weights)
+    if total_w <= 0:
+        return None
+    return sum(iv * w for iv, w in zip(ivs, weights)) / total_w
+
+
+# ==================================================================
+# IV snapshot + история HV/RVI
+# ==================================================================
 def _store_iv_snapshot(asset, atype, series, iv_value):
     if iv_value is None:
         return
@@ -1685,7 +2243,6 @@ def _store_iv_snapshot(asset, atype, series, iv_value):
         history[key] = bucket[-500:]
 
 
-# [PATCH 3] Новые функции для сохранения HV и RVI рядом с _store_iv_snapshot
 def _merge_history_records(previous, incoming):
     """Объединение по дате без потери ранее накопленных значений."""
     merged = {
@@ -1693,16 +2250,12 @@ def _merge_history_records(previous, incoming):
         for row in previous
         if isinstance(row, dict) and row.get("date")
     }
-
     for row in incoming:
         day = row["date"]
         target = merged.setdefault(day, {"date": day})
-
-        # Неполное новое окно расчёта не должно стирать старую HV.
         for key, value in row.items():
             if value is not None:
                 target[key] = value
-
     return [merged[day] for day in sorted(merged)]
 
 
@@ -1717,24 +2270,19 @@ def _remember_volatility_history(asset, category, bars, rvi_frame=None):
             .sort_values("begin")
             .drop_duplicates("begin", keep="last")
         )
-
         returns = np.log(frame["close"] / frame["close"].shift(1))
-
         history = pd.DataFrame({
             "date": frame["begin"].dt.strftime("%Y-%m-%d")
         })
-
         for window in (10, 20, 50, 100):
             history[f"hv{window}"] = (
                 returns.rolling(window).std(ddof=1)
                 * np.sqrt(252)
                 * 100
             )
-
         fields = ["hv10", "hv20", "hv50", "hv100"]
         history = history.dropna(subset=fields, how="all")
         incoming = _backup_clean(history.to_dict(orient="records"))
-
         key = f"{asset}|{category}"
         all_hv = dict(st.session_state.get("_hv_history", {}))
         all_hv[key] = _merge_history_records(all_hv.get(key, []), incoming)
@@ -1745,7 +2293,6 @@ def _remember_volatility_history(asset, category, bars, rvi_frame=None):
         frame["begin"] = pd.to_datetime(frame["begin"], errors="coerce")
         frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
         frame = frame.dropna().sort_values("begin")
-
         incoming = [
             {
                 "date": timestamp.date().isoformat(),
@@ -1754,37 +2301,937 @@ def _remember_volatility_history(asset, category, bars, rvi_frame=None):
             for timestamp, value in zip(frame["begin"], frame["close"])
             if math.isfinite(float(value)) and float(value) >= 0
         ]
-
         st.session_state["_rvi_history"] = _merge_history_records(
             st.session_state.get("_rvi_history", []),
             incoming,
         )
 
 
-# ================= _portfolio_value, _portfolio_value_with_rvi,
-# _get_current_market_price_for_asset =================
-# (без изменений)
+# ==================================================================
+# Портфельные расчёты для What-if
+# ==================================================================
+def _portfolio_value(positions, S_vals, days_forward, iv_pct, comm_func=None):
+    S = np.asarray(S_vals, dtype=float)
+    total = np.zeros_like(S)
+    if days_forward is None:
+        days_forward = 0
+
+    for p in positions:
+        if not p.get("visible", True):
+            continue
+        qty = int(p.get("Кол-во", 0))
+        if qty == 0:
+            continue
+        entry = float(p.get("Цена", 0))
+        _instr = p.get("Тип инструмента", "Опцион")
+        com = comm_func(entry, _instr) if comm_func else 0.0
+
+        if _instr == "БА" or p.get("Опцион") == "БА":
+            total += (S - entry) * qty
+            continue
+
+        K = p.get("Страйк")
+        if K is None:
+            continue
+        K = float(K)
+
+        exp_str = p.get("Эксп.", "—")
+        leg_expiry = None
+        if exp_str and exp_str != "—":
+            try:
+                leg_expiry = datetime.strptime(exp_str, "%Y-%m-%d").date()
+            except Exception:
+                leg_expiry = None
+
+        r_leg = float(p.get("_r", 0.0) or 0.0)
+        q_leg = float(p.get("_q", 0.0) or 0.0)
+        vol_leg = float(p.get("_vol", iv_pct or 20.0) or 20.0)
+        opt_type = "call" if p.get("Опцион") == "Call" else "put"
+
+        if leg_expiry is None:
+            price_now = np.maximum(0, S - K) if opt_type == "call" \
+                else np.maximum(0, K - S)
+        else:
+            days_left = (leg_expiry - date.today()).days - days_forward
+            if days_left <= 0:
+                price_now = np.maximum(0, S - K) if opt_type == "call" \
+                    else np.maximum(0, K - S)
+            else:
+                T_years = days_left / 365.0
+                if iv_pct is not None:
+                    vol_leg = float(iv_pct)
+                price_now = np.array([
+                    _bs_price_np(s, K, T_years, r_leg, vol_leg, q_leg, opt_type)
+                    for s in S
+                ])
+
+        total += (price_now - entry - com) * qty
+    return total
 
 
-# ================= Трендовые хелперы оповещений =================
-# (без изменений — _ALERT_TREND_EMOJI, _ALERT_RECOMMENDATION_MAP,
-#  _trend_emoji, _trend_emoji_triplet, _get_recommendation,
-#  find_alert_full_info, analyze_level_activity, _level_proximity,
-#  get_alert_checks, get_alert_recommendation_text,
-#  _compute_r_q_for_leg, _migrate_positions_r_q,
-#  _calc_range_strikes, _suggest_strategy, _suggestion_legs,
-#  _apply_suggested_strategy,
-#  _pretrade_checklist_state, _render_pretrade_checklist,
-#  _validate_options_leg,
-#  _planned_close_date, _planned_close_badge, _planned_close_date_str)
+def _portfolio_value_with_rvi(positions, S_vals, days_forward,
+                               iv_pct, rvi_shift, correlation,
+                               comm_func=None):
+    S = np.asarray(S_vals, dtype=float)
+    total = np.zeros_like(S)
+    if days_forward is None:
+        days_forward = 0
+
+    for p in positions:
+        if not p.get("visible", True):
+            continue
+        qty = int(p.get("Кол-во", 0))
+        if qty == 0:
+            continue
+        entry = float(p.get("Цена", 0))
+        _instr = p.get("Тип инструмента", "Опцион")
+        com = comm_func(entry, _instr) if comm_func else 0.0
+
+        if _instr == "БА" or p.get("Опцион") == "БА":
+            total += (S - entry) * qty
+            continue
+
+        K = p.get("Страйк")
+        if K is None:
+            continue
+        K = float(K)
+
+        exp_str = p.get("Эксп.", "—")
+        leg_expiry = None
+        if exp_str and exp_str != "—":
+            try:
+                leg_expiry = datetime.strptime(exp_str, "%Y-%m-%d").date()
+            except Exception:
+                leg_expiry = None
+
+        r_leg = float(p.get("_r", 0.0) or 0.0)
+        q_leg = float(p.get("_q", 0.0) or 0.0)
+        vol_base = float(p.get("_vol", iv_pct or 20.0) or 20.0)
+        vol_adjusted = vol_base + rvi_shift * correlation
+        opt_type = "call" if p.get("Опцион") == "Call" else "put"
+
+        if leg_expiry is None:
+            price_now = np.maximum(0, S - K) if opt_type == "call" \
+                else np.maximum(0, K - S)
+        else:
+            days_left = (leg_expiry - date.today()).days - days_forward
+            if days_left <= 0:
+                price_now = np.maximum(0, S - K) if opt_type == "call" \
+                    else np.maximum(0, K - S)
+            else:
+                T_years = days_left / 365.0
+                price_now = np.array([
+                    _bs_price_np(s, K, T_years, r_leg, vol_adjusted, q_leg, opt_type)
+                    for s in S
+                ])
+
+        total += (price_now - entry - com) * qty
+    return total
 
 
-# ================= Кэш позиций и доски =================
-# (без изменений — _fetch_board_nocache, _strike_eq, _find_board_row,
-#  _find_board_row_by_secid, _get_board_for_analytics, _get_cache_file_path,
-#  _cache_file, _load_cache, _save_cache, _positions_signature)
+def _get_current_market_price_for_asset(asset, atype):
+    if not (asset and atype):
+        return None
+    try:
+        eng, mkt = _get_engine_market(atype)
+        secid = resolve_underlying_secid(asset, atype)
+        if secid is None:
+            return None
+        return get_last_close_price(secid, eng, mkt)
+    except Exception:
+        return None
+# ==================================================================
+# Тренд / волна / тенденция
+# ==================================================================
+_ALERT_TREND_EMOJI = {
+    "вверх": "🟩",
+    "вниз":  "🟥",
+    "рейндж": "🟦",
+}
+
+_ALERT_RECOMMENDATION_MAP = {
+    ("вверх", "вверх", "вверх"): ("CALL", "Присоединиться к движению вверх в восходящей тенденции. Ожидание - обновление максимума волны и тренда."),
+    ("вверх", "вверх", "вниз"):  ("CALL", "Ожидание появления объема на уровне покупок в нисходящей тенденции и ослабления продаж"),
+    ("вверх", "вниз", "вверх"):  ("CALL", "Ожидание разворота волны вверх от сильного уровня покупок и продолжения восходящего тренда. Присоединиться к движению вверх в восходящей тенденции на тесте. Держать сделку до появления объема продавца или разворота тенденции вниз"),
+    ("вверх", "вниз", "вниз"):   ("CALL", "Ожидание разворота волны вверх от сильного уровня покупок и продолжения восходящего тренда. Дождаться разворота тенденции и волны. Вход на 3 ноге, тесте ПК или тесте перебивки объема."),
+    ("вниз", "вверх", "вверх"):  ("PUT",  "Ожидание разворота тенденции, а затем и волны вниз и продолжение нисходящего тренда. Дождаться разворота тенденции и волны вниз. Вход на 3 ноге, тесте ПК или тесте перебивки объема."),
+    ("вниз", "вверх", "вниз"):   ("PUT",  "Ожидание разворота волны вниз от сильного уровня продаж и продолжения нисходящего тренда. Присоединиться к движению вниз в нисходящей тенденции на тесте. Держать сделку до появления объема покупателя или разворота тенденции вверх"),
+    ("вниз", "вниз", "вверх"):   ("PUT",  "Ожидание появления объема на уровне продаж в восходящей тенденции и ослабления покупок"),
+    ("вниз", "вниз", "вниз"):    ("PUT",  "Присоединиться к движению вниз в нисходящей тенденции. Ожидание - обновление минимума волны и тренда."),
+    ("рейндж", "вверх", "вверх"): ("CALL", "Торговля от нижней границы рейнджа (ICE) до верхней границы рейнджа (CREEK). Присоединиться к движению вверх в восходящей тенденции."),
+    ("рейндж", "вверх", "вниз"):  ("CALL", "Торговля от нижней границы рейнджа (ICE) до верхней границы рейнджа (CREEK). Ожидание появления объема на уровне покупок в зигзаге тенденции вверх и ослабления продаж."),
+    ("рейндж", "вниз", "вверх"):  ("PUT",  "Торговля от верхней границы рейнджа (CREEK) до нижней границы рейнджа (ICE). Ожидание появления объема на уровне продаж в зигзаге тенденции вниз и ослабления покупок."),
+    ("рейндж", "вниз", "вниз"):   ("PUT",  "Торговля от верхней границы рейнджа (CREEK) до нижней границы рейнджа (ICE). Присоединиться к движению вниз в нисходящей тенденции."),
+}
 
 
+def _trend_emoji(value) -> str:
+    if value is None:
+        return ""
+    v = str(value).strip().lower()
+    return _ALERT_TREND_EMOJI.get(v, "")
+
+
+def _trend_emoji_triplet(trend, wave, tendency) -> str:
+    parts = [_trend_emoji(trend), _trend_emoji(wave), _trend_emoji(tendency)]
+    parts = [p for p in parts if p]
+    return " ".join(parts)
+
+
+def _get_recommendation(trend, wave, tendency):
+    if not (trend and wave and tendency):
+        return (None, None)
+    key = (str(trend).strip().lower(),
+           str(wave).strip().lower(),
+           str(tendency).strip().lower())
+    return _ALERT_RECOMMENDATION_MAP.get(key, (None, None))
+
+
+def find_alert_full_info(ticker: str, category: str = None):
+    df = st.session_state.get("alerts_df")
+    if df is None or df.empty:
+        return None
+    tk = ticker.upper().strip()
+    try:
+        mask = df["Тикер БА"].astype(str).str.upper().str.strip() == tk
+        if category and "Категория БА" in df.columns:
+            mask_cat = df["Категория БА"].astype(str).str.strip() == category
+            rows = df[mask & mask_cat]
+            if rows.empty:
+                rows = df[mask]
+        else:
+            rows = df[mask]
+        if rows.empty:
+            return None
+        row = rows.iloc[0]
+        return {
+            "ticker": tk,
+            "category": str(row.get("Категория БА", "")),
+            "lvl_buy": float(row["Уровень покупок"]),
+            "lvl_sell": float(row["Уровень продаж"]),
+            "trend": str(row.get("Тренд", "")).strip(),
+            "wave": str(row.get("Волна", "")).strip(),
+            "tendency": str(row.get("Тенденция", "")).strip(),
+            "tf_level": str(row.get("ТФ уровня", "")).strip(),
+        }
+    except Exception:
+        return None
+
+
+# ==================================================================
+# Анализ активности на уровне
+# ==================================================================
+@st.cache_data(ttl=CHECKLIST_RULES["cache_volume_ttl_sec"], show_spinner=False)
+def analyze_level_activity(secid, engine, market, buy_level, sell_level):
+    out = {
+        "at_buy_today": False, "at_sell_today": False,
+        "today_max_vol": None, "prev_max_vol": None,
+        "high_volume": False, "intraday_spike": False,
+        "volume_bar_idx": None,
+        "level_bar_idx_buy": None, "level_bar_idx_sell": None,
+    }
+    if not secid:
+        return out
+
+    today = date.today()
+    end = datetime.now()
+    start = end - timedelta(days=14)
+    url = (f"https://iss.moex.com/iss/engines/{engine}/markets/{market}"
+           f"/securities/{secid}/candles.json")
+
+    h_params = {"from": start.strftime("%Y-%m-%d"),
+                "till": end.strftime("%Y-%m-%d"),
+                "interval": 60, "iss.meta": "off"}
+    data_h = iss_get_json(url, params=h_params, timeout=20)
+    if data_h:
+        cols = data_h.get("candles", {}).get("columns", [])
+        rows = data_h.get("candles", {}).get("data", [])
+        if rows and cols:
+            df_h = pd.DataFrame(rows, columns=cols)
+            df_h["begin"] = pd.to_datetime(df_h["begin"], errors="coerce")
+            df_h = df_h.dropna(subset=["begin", "volume"])
+            df_h["day"] = df_h["begin"].dt.date
+            df_h["wd"] = df_h["begin"].dt.weekday
+            df_h = df_h[df_h["wd"] <= 4]
+            df_h = df_h.sort_values("begin").reset_index(drop=True)
+
+            if not df_h.empty:
+                all_days = sorted(df_h["day"].unique())
+                live_days = [d for d in all_days if d <= today]
+                if live_days:
+                    recent = live_days[-3:]
+                    today_h = df_h[df_h["day"] == recent[-1]].reset_index(drop=True)
+                    prev_h  = df_h[df_h["day"].isin(recent[:-1])]
+
+                    if buy_level is not None and not today_h.empty:
+                        touch_b = (today_h["low"] <= buy_level) & \
+                                  (today_h["high"] >= buy_level)
+                        if touch_b.any():
+                            out["at_buy_today"] = True
+                            _idx = touch_b[touch_b].index.tolist()
+                            if _idx:
+                                out["level_bar_idx_buy"] = int(_idx[0])
+                    if sell_level is not None and not today_h.empty:
+                        touch_s = (today_h["low"] <= sell_level) & \
+                                  (today_h["high"] >= sell_level)
+                        if touch_s.any():
+                            out["at_sell_today"] = True
+                            _idx = touch_s[touch_s].index.tolist()
+                            if _idx:
+                                out["level_bar_idx_sell"] = int(_idx[0])
+
+                    if not today_h.empty:
+                        out["today_max_vol"] = float(today_h["volume"].max())
+                        out["volume_bar_idx"] = int(today_h["volume"].idxmax())
+                    if not prev_h.empty:
+                        out["prev_max_vol"] = float(prev_h["volume"].max())
+
+                    _at_any = out["at_buy_today"] or out["at_sell_today"]
+                    if (_at_any
+                            and out["today_max_vol"] is not None
+                            and out["prev_max_vol"] is not None
+                            and out["today_max_vol"] > out["prev_max_vol"]):
+                        out["intraday_spike"] = True
+
+                        level_bars = {i for i in (out["level_bar_idx_buy"],
+                                                   out["level_bar_idx_sell"])
+                                      if i is not None}
+                        if out["volume_bar_idx"] not in level_bars:
+                            out["high_volume"] = True
+
+    d_params = {"from": start.strftime("%Y-%m-%d"),
+                "till": end.strftime("%Y-%m-%d"),
+                "interval": 24, "iss.meta": "off"}
+    data_d = iss_get_json(url, params=d_params, timeout=15)
+    if data_d:
+        cols_d = data_d.get("candles", {}).get("columns", [])
+        rows_d = data_d.get("candles", {}).get("data", [])
+        if rows_d and cols_d:
+            df_d = pd.DataFrame(rows_d, columns=cols_d)
+            df_d["begin"] = pd.to_datetime(df_d["begin"], errors="coerce")
+            df_d = df_d.dropna(subset=["begin"])
+            df_d["day"] = df_d["begin"].dt.date
+            today_bar = df_d[df_d["day"] == today]
+            if not today_bar.empty:
+                tb = today_bar.iloc[-1]
+                if buy_level is not None and tb["low"] <= buy_level <= tb["high"]:
+                    out["at_buy_today"] = True
+                if sell_level is not None and tb["low"] <= sell_level <= tb["high"]:
+                    out["at_sell_today"] = True
+
+    return out
+
+
+def _level_proximity(current_price, level, other_level):
+    if current_price is None or level is None or other_level is None:
+        return None
+    try:
+        cp = float(current_price)
+        lv = float(level)
+        ov = float(other_level)
+    except (TypeError, ValueError):
+        return None
+    span = abs(ov - lv)
+    if span <= 0:
+        return None
+    ratio = max(0.0, min(1.0, 1.0 - abs(cp - lv) / span))
+    return ratio * 100.0
+
+
+def get_alert_checks(ticker: str, category: str = None):
+    if not ticker:
+        return {"buy": None, "sell": None}
+    key = f"{(ticker or '').upper().strip()}|{(category or '').strip()}"
+    _all_checks = st.session_state.get("_alert_checks", {})
+    _stored = _all_checks.get(key) or {}
+    if not _stored:
+        return {"buy": None, "sell": None}
+
+    _cur_levels = find_alert_levels(ticker, category)
+    if _cur_levels.get("found"):
+        _cur_buy = _cur_levels.get("buy")
+        _cur_sell = _cur_levels.get("sell")
+        _stored_buy = _stored.get("_lvl_buy")
+        _stored_sell = _stored.get("_lvl_sell")
+
+        if _stored_buy is not None and _stored_sell is not None \
+                and _cur_buy is not None and _cur_sell is not None:
+            _changed = (
+                abs(float(_stored_buy) - float(_cur_buy)) > 0.01
+                or abs(float(_stored_sell) - float(_cur_sell)) > 0.01
+            )
+            if _changed:
+                _all_checks[key] = {
+                    "buy": None, "sell": None,
+                    "_lvl_buy": _cur_buy, "_lvl_sell": _cur_sell,
+                }
+                st.session_state["_alert_checks"] = _all_checks
+                st.session_state.pop(f"_alert_buy_check_{key}", None)
+                st.session_state.pop(f"_alert_sell_check_{key}", None)
+                return {"buy": None, "sell": None}
+        elif _stored_buy is None and _stored_sell is None:
+            pass
+        else:
+            _all_checks[key]["_lvl_buy"] = _cur_buy
+            _all_checks[key]["_lvl_sell"] = _cur_sell
+            st.session_state["_alert_checks"] = _all_checks
+
+    return {"buy": _stored.get("buy"), "sell": _stored.get("sell")}
+
+
+def get_alert_recommendation_text(ticker: str, category: str = None):
+    checks = get_alert_checks(ticker, category)
+    b, s = checks.get("buy"), checks.get("sell")
+    parts = []
+    if b == "1":
+        parts.append("на уровне покупок рекомендуется **+C** (покупка Call, сильный отскок)")
+    elif b == "2":
+        parts.append("на уровне покупок рекомендуется **−P** (продажа Put, слабый рост)")
+    if s == "4":
+        parts.append("на уровне продаж рекомендуется **+P** (покупка Put, сильное падение)")
+    elif s == "3":
+        parts.append("на уровне продаж рекомендуется **−C** (продажа Call, слабое падение)")
+    return "; ".join(parts) if parts else None
+
+
+# ==================================================================
+# G3: r/q для ноги + миграция
+# ==================================================================
+def _compute_r_q_for_leg(asset, atype, expiry_str):
+    """Возвращает (r_pct, q_pct) для конкретной опционной ноги."""
+    r_val = 0.0
+    q_val = 0.0
+    if expiry_str and expiry_str not in ("—", ""):
+        try:
+            _r = get_risk_free_rate_for_expiry(expiry_str)
+            if _r is not None:
+                r_val = float(_r)
+        except Exception:
+            r_val = 0.0
+    if atype == "Акция" and asset:
+        try:
+            _q_frac, _, _ = get_dividend_yield_for_ticker(asset, expiry_str)
+            if _q_frac is not None:
+                q_val = float(_q_frac) * 100.0
+        except Exception:
+            q_val = 0.0
+    return r_val, q_val
+
+
+def _migrate_positions_r_q(positions):
+    """Обновляет _r / _q у существующих опционных позиций."""
+    for p in positions:
+        if p.get("Тип инструмента") != "Опцион":
+            continue
+        _exp = p.get("Эксп.", "")
+        if not _exp or _exp == "—":
+            continue
+        _r_new, _q_new = _compute_r_q_for_leg(
+            p.get("_asset", ""), p.get("_atype", ""), _exp)
+        p["_r"] = float(_r_new)
+        p["_q"] = float(_q_new)
+    return positions
+
+
+# ==================================================================
+# G4: ширина диапазона, рекомендация, legs, применение
+# ==================================================================
+def _calc_range_strikes(lvl_buy, lvl_sell, strikes):
+    """Сколько страйков между уровнями покупки/продажи."""
+    if (lvl_buy is None or lvl_sell is None
+            or not strikes or len(strikes) < 2):
+        return None
+    try:
+        steps = np.diff(sorted(float(s) for s in strikes))
+        step_median = float(np.median(steps))
+        if step_median <= 0:
+            return None
+        return abs(float(lvl_sell) - float(lvl_buy)) / step_median
+    except Exception:
+        return None
+
+
+def _suggest_strategy(buy_check, sell_check, trend, wave, tendency,
+                      range_strikes, iv_zone=None, skew_type=None):
+    """Рекомендация конструкции по выбранным чек-боксам."""
+    result = {
+        "side": None,
+        "strategy": None,
+        "direction_ui": "—",
+        "rationale": "",
+        "confidence": "low",
+    }
+
+    if buy_check == "1":
+        result["side"] = "CALL"
+        if iv_zone == "high":
+            result["strategy"] = "Bull Call Spread"
+            result["direction_ui"] = "бычий Call-спред (защита при высокой IV)"
+        elif skew_type == "forward":
+            result["strategy"] = "Ratio Call Spread"
+            result["direction_ui"] = "пропорциональный Call-спред (прямой skew)"
+        else:
+            result["strategy"] = "Bull Call Spread"
+            result["direction_ui"] = "бычий Call-спред"
+        result["rationale"] = "чек-бокс 1: сильный отскок от уровня покупок"
+        result["confidence"] = "high"
+        return result
+
+    if buy_check == "2":
+        result["side"] = "CALL"
+        result["strategy"] = "Bull Put Spread"
+        result["direction_ui"] = "бычий Put-спред"
+        result["rationale"] = "чек-бокс 2: слабый медленный рост от уровня покупок"
+        result["confidence"] = "high"
+        return result
+
+    if sell_check == "4":
+        result["side"] = "PUT"
+        if iv_zone == "high":
+            result["strategy"] = "Bear Put Spread"
+            result["direction_ui"] = "медвежий Put-спред (защита при высокой IV)"
+        elif skew_type == "reverse":
+            result["strategy"] = "Ratio Put Spread"
+            result["direction_ui"] = "пропорциональный Put-спред (обратный skew)"
+        else:
+            result["strategy"] = "Bear Put Spread"
+            result["direction_ui"] = "медвежий Put-спред"
+        result["rationale"] = "чек-бокс 4: сильное падение от уровня продаж"
+        result["confidence"] = "high"
+        return result
+
+    if sell_check == "3":
+        result["side"] = "PUT"
+        result["strategy"] = "Bear Call Spread"
+        result["direction_ui"] = "медвежий Call-спред"
+        result["rationale"] = "чек-бокс 3: слабое медленное падение от уровня продаж"
+        result["confidence"] = "high"
+        return result
+
+    t = (trend or "").strip().lower()
+    w = (wave or "").strip().lower()
+    te = (tendency or "").strip().lower()
+
+    if not (t and w and te):
+        return result
+
+    if t == w == te == "вверх":
+        result["side"] = "CALL"
+        result["strategy"] = "Bull Call Spread"
+        result["direction_ui"] = "бычий Call-спред"
+        result["rationale"] = "восходящий тренд (чек-бокс не выбран)"
+        result["confidence"] = "medium"
+    elif t == w == te == "вниз":
+        result["side"] = "PUT"
+        result["strategy"] = "Bear Put Spread"
+        result["direction_ui"] = "медвежий Put-спред"
+        result["rationale"] = "нисходящий тренд (чек-бокс не выбран)"
+        result["confidence"] = "medium"
+    elif "рейндж" in (t, w, te):
+        result["side"] = "RANGE"
+        if range_strikes is not None and range_strikes > 1:
+            result["strategy"] = "Long Straddle"
+            result["direction_ui"] = "Long Straddle"
+            result["rationale"] = (
+                f"рейндж {range_strikes:.1f} стр — покупка волатильности")
+        else:
+            result["strategy"] = "Short Strangle"
+            result["direction_ui"] = "Short Strangle"
+            _rs = f" ({range_strikes:.1f} стр.)" if range_strikes else ""
+            result["rationale"] = f"рейндж узкий{_rs} — продажа волатильности"
+        result["confidence"] = "medium"
+
+    return result
+
+
+def _suggestion_legs(strategy_name, alert_targets):
+    """Список ног для рекомендованной стратегии."""
+    if not alert_targets or not strategy_name:
+        return []
+
+    sb = alert_targets.get("strikes_buy") or {}
+    ss = alert_targets.get("strikes_sell") or {}
+    K_bc = sb.get("call")
+    K_bp = sb.get("put")
+    K_sc = ss.get("call")
+    K_sp = ss.get("put")
+
+    q2 = 2
+
+    if strategy_name in ("Bull Call Spread", "Bear Call Spread"):
+        if K_bc is not None and K_sc is not None and K_bc >= K_sc:
+            K_bc, K_sc = K_sc, K_bc
+    if strategy_name in ("Bull Put Spread", "Bear Put Spread"):
+        if K_bp is not None and K_sp is not None and K_bp >= K_sp:
+            K_bp, K_sp = K_sp, K_bp
+
+    if strategy_name == "Bull Call Spread":
+        return [
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call (низ)"},
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call (верх)"},
+        ]
+    if strategy_name == "Bear Put Spread":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put (верх)"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put (низ)"},
+        ]
+    if strategy_name == "Ratio Call Spread":
+        return [
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call"},
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2 * 2,
+             "label": "Sell Call ×2"},
+        ]
+    if strategy_name == "Ratio Put Spread":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2 * 2,
+             "label": "Sell Put ×2"},
+        ]
+    if strategy_name == "Short Call":
+        return [
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call"},
+        ]
+    if strategy_name == "Short Put":
+        return [
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put"},
+        ]
+    if strategy_name == "Bull Put Spread":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put (низ)"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put (верх)"},
+        ]
+    if strategy_name == "Bear Call Spread":
+        return [
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call (низ)"},
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call (верх)"},
+        ]
+    if strategy_name in ("Long Straddle", "Short Straddle"):
+        _side = "Buy" if strategy_name == "Long Straddle" else "Sell"
+        _k = K_bc or K_sc or K_bp or K_sp
+        return [
+            {"option": "Call", "side": _side, "strike": _k, "qty": q2,
+             "label": f"{_side} Call"},
+            {"option": "Put", "side": _side, "strike": _k, "qty": q2,
+             "label": f"{_side} Put"},
+        ]
+    if strategy_name == "Short Strangle":
+        return [
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put"},
+        ]
+    if strategy_name == "Iron Condor":
+        return [
+            {"option": "Put", "side": "Buy", "strike": K_bp, "qty": q2,
+             "label": "Buy Put (крыло)"},
+            {"option": "Put", "side": "Sell", "strike": K_sp, "qty": q2,
+             "label": "Sell Put"},
+            {"option": "Call", "side": "Sell", "strike": K_sc, "qty": q2,
+             "label": "Sell Call"},
+            {"option": "Call", "side": "Buy", "strike": K_bc, "qty": q2,
+             "label": "Buy Call (крыло)"},
+        ]
+    return []
+
+
+def _apply_suggested_strategy(strategy_name, asset, atype, series_code,
+                               expiry_str, alert_targets, board):
+    """Создаёт позиции по рекомендованным ногам."""
+    legs = _suggestion_legs(strategy_name, alert_targets)
+    if not legs or not board:
+        return []
+
+    _calls = board.get("call") or []
+    _puts = board.get("put") or []
+    _c_map = {c.get("strike"): c for c in _calls if c.get("strike") is not None}
+    _p_map = {p.get("strike"): p for p in _puts if p.get("strike") is not None}
+
+    _r_leg, _q_leg = _compute_r_q_for_leg(asset, atype, expiry_str)
+
+    created = []
+    for leg in legs:
+        _opt = leg["option"]
+        _side = leg["side"]
+        _k = leg["strike"]
+        _qty = int(leg["qty"])
+        if _k is None:
+            continue
+        _src = _c_map if _opt == "Call" else _p_map
+        _row = _src.get(_k, {})
+        _price = 0.0
+        _v = _row.get("offer") if _side == "Buy" else _row.get("bid")
+        if _v is None or _v <= 0:
+            _v = _row.get("theorprice")
+        if _v is None or _v <= 0:
+            _v = _row.get("last")
+        try:
+            _price = float(_v) if _v and _v > 0 else 0.0
+        except Exception:
+            _price = 0.0
+        if _price <= 0:
+            continue
+
+        _signed = _qty if _side == "Buy" else -_qty
+        _pos = {
+            "_id": _new_position_id(),
+            "Конструкция": strategy_name,
+            "Тип инструмента": "Опцион",
+            "Опцион": _opt,
+            "Направление": _side,
+            "Страйк": _k,
+            "Эксп.": expiry_str,
+            "Тикер": _row.get("secid", "—"),
+            "Кол-во": _signed,
+            "Цена": float(_price),
+            "Теор.цена": None,
+            "Дельта": _row.get("delta"),
+            "Гамма": _row.get("gamma"),
+            "Вега": _row.get("vega"),
+            "Тета": _row.get("theta"),
+            "Ро": _row.get("rho"),
+            "visible": True,
+            "_vol": float(_row.get("volatility") or 20.0),
+            "_r": float(_r_leg),
+            "_q": float(_q_leg),
+            "_series_code": series_code,
+            "_asset": asset,
+            "_atype": atype,
+        }
+        created.append(_pos)
+
+    return created
+
+
+# ==================================================================
+# Чек-лист перед входом (справочно)
+# ==================================================================
+def _pretrade_checklist_state(trend, wave, tendency, tf_level,
+                               side, opt_type, strike, current_price,
+                               expiry_str, qty):
+    items = []
+
+    t = (trend or "").strip().lower()
+    w = (wave or "").strip().lower()
+    te = (tendency or "").strip().lower()
+    if t and w and te and t == w == te and t in ("вверх", "вниз"):
+        items.append(("Фаза волны", "fail",
+                      "Продолжение волны — вход не рекомендуется"))
+    elif t and w and te:
+        items.append(("Фаза волны", "ok", "Не продолжение волны"))
+    else:
+        items.append(("Фаза волны", "skip",
+                      "Тренд / волна / тенденция не заданы"))
+
+    tf = (tf_level or "").strip().upper()
+    if tf in ("D", "D1", "1D", "DAY"):
+        items.append(("Уровень дневной", "ok", "ТФ D1"))
+    elif not tf:
+        items.append(("Уровень дневной", "skip",
+                      "ТФ не задан в таблице — проверьте вручную"))
+    else:
+        items.append(("Уровень дневной", "fail", f"ТФ {tf} — не дневной"))
+
+    if side == "Buy" and opt_type in ("Call", "Put") and strike is not None:
+        if current_price is None:
+            items.append(("OTM при покупке", "skip", "Нет текущей цены БА"))
+        else:
+            try:
+                k = float(strike); cp = float(current_price)
+                if opt_type == "Call" and k > cp:
+                    items.append(("OTM при покупке", "ok",
+                                  f"Call {k:g} выше цены {cp:.2f}"))
+                elif opt_type == "Put" and k < cp:
+                    items.append(("OTM при покупке", "ok",
+                                  f"Put {k:g} ниже цены {cp:.2f}"))
+                else:
+                    items.append(("OTM при покупке", "fail",
+                                  f"{opt_type} {k:g} — не вне денег (цена {cp:.2f})"))
+            except Exception:
+                items.append(("OTM при покупке", "skip", "Не удалось проверить"))
+    else:
+        items.append(("OTM при покупке", "skip",
+                      "Правило только для покупки опциона"))
+
+    _MIN_DAYS = CHECKLIST_RULES["min_business_days_to_expiry"]
+    if (side == "Buy" and opt_type in ("Call", "Put")
+            and expiry_str and expiry_str != "—"):
+        try:
+            exp_d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+            today = date.today()
+            if exp_d < today:
+                items.append((f"Календарь {_MIN_DAYS} дней", "fail",
+                              "Экспирация в прошлом"))
+            else:
+                bus = int(np.busday_count(today, exp_d))
+                if bus < _MIN_DAYS:
+                    items.append((f"Календарь {_MIN_DAYS} дней", "fail",
+                                  f"{bus} раб. дней — меньше {_MIN_DAYS}"))
+                else:
+                    items.append((f"Календарь {_MIN_DAYS} дней", "ok",
+                                  f"{bus} раб. дней — не меньше {_MIN_DAYS}"))
+        except Exception:
+            items.append((f"Календарь {_MIN_DAYS} дней", "skip",
+                          "Не удалось разобрать дату"))
+    else:
+        items.append((f"Календарь {_MIN_DAYS} дней", "skip",
+                      "Правило только для покупки"))
+
+    _MIN_QTY = CHECKLIST_RULES["min_qty"]
+    try:
+        q = int(qty)
+        if q < _MIN_QTY:
+            items.append(("Чётное количество", "fail",
+                          f"Минимум {_MIN_QTY} (введено {q})"))
+        elif q % 2 != 0:
+            items.append(("Чётное количество", "fail",
+                          f"Введено {q} — нечётное"))
+        else:
+            items.append(("Чётное количество", "ok", f"{q}"))
+    except Exception:
+        items.append(("Чётное количество", "skip", "Не число"))
+
+    if opt_type == "Put":
+        try:
+            q = int(qty)
+            items.append(("Путы вдвое меньше коллов", "warn",
+                          f"Проверьте объём: путы обычно вдвое меньше коллов "
+                          f"(сейчас {q})"))
+        except Exception:
+            items.append(("Путы вдвое меньше коллов", "skip", ""))
+    else:
+        items.append(("Путы вдвое меньше коллов", "skip",
+                      "Правило применяется к путам"))
+
+    return items
+
+
+def _render_pretrade_checklist(items):
+    if not items:
+        return
+    _icons = {"ok": "✅", "fail": "❌", "warn": "⚠️", "skip": "ℹ️"}
+    _colors = {"ok": "#00a651", "fail": "#d32f2f",
+               "warn": "#e6a500", "skip": "#7a7a7a"}
+    lines = []
+    for label, status, msg in items:
+        icon = _icons.get(status, "ℹ️")
+        color = _colors.get(status, "#7a7a7a")
+        lines.append(
+            f"<div style='padding:3px 0; font-size:.83rem; line-height:1.35;'>"
+            f"<span style='color:{color}; font-weight:700;'>{icon}</span> "
+            f"<b style='color:#1a3b4f;'>{label}</b>"
+            f"<span style='color:#5a6b78;'> — {msg}</span></div>")
+    st.markdown(
+        "<div style='background:#f6f9fc; border:1px solid #dce8f1; "
+        "border-radius:8px; padding:10px 14px; margin:8px 0;'>"
+        "<div style='font-size:.72rem; color:#2c506d; font-weight:700; "
+        "text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;'>"
+        "Чек-лист перед входом (справочно)</div>"
+        + "".join(lines) +
+        "</div>",
+        unsafe_allow_html=True)
+
+
+def _validate_options_leg(side, opt_type, strike, expiry_str, qty,
+                           current_price):
+    errors, warnings = [], []
+    _MIN_QTY = CHECKLIST_RULES["min_qty"]
+    _MIN_DAYS = CHECKLIST_RULES["min_business_days_to_expiry"]
+
+    try:
+        _q = int(qty)
+    except (TypeError, ValueError):
+        _q = 0
+    if _q < _MIN_QTY:
+        errors.append(f"Чётное количество: минимум {_MIN_QTY} (введено {_q})")
+    elif _q % 2 != 0:
+        errors.append(f"Чётное количество: введено {_q} — нечётное")
+
+    if side == "Buy":
+        _k = None
+        if strike is not None:
+            try:
+                _k = float(strike)
+            except (TypeError, ValueError):
+                _k = None
+
+        if _k is not None:
+            if current_price is None:
+                warnings.append("OTM не проверен — нет текущей цены БА")
+            else:
+                _cp = float(current_price)
+                if opt_type == "Call" and _k <= _cp:
+                    errors.append(
+                        f"Покупка Call должна быть вне денег: "
+                        f"страйк {_k:g} не выше цены {_cp:.2f}")
+                elif opt_type == "Put" and _k >= _cp:
+                    errors.append(
+                        f"Покупка Put должна быть вне денег: "
+                        f"страйк {_k:g} не ниже цены {_cp:.2f}")
+
+        if expiry_str and expiry_str not in ("—", ""):
+            try:
+                _exp_d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+                _today = date.today()
+                if _exp_d < _today:
+                    errors.append("Экспирация в прошлом")
+                else:
+                    _bus = int(np.busday_count(_today, _exp_d))
+                    if _bus < _MIN_DAYS:
+                        errors.append(
+                            f"До экспирации {_bus} раб. дней — меньше {_MIN_DAYS}")
+            except Exception:
+                warnings.append("Не удалось разобрать дату экспирации")
+
+    return errors, warnings
+
+
+# ==================================================================
+# Плановая дата закрытия
+# ==================================================================
+def _planned_close_date(expiry_str):
+    try:
+        exp_d = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+    except Exception:
+        return None
+    days_to = (exp_d - date.today()).days
+    if days_to <= CHECKLIST_RULES["close_weekly_days_threshold"]:
+        return exp_d - timedelta(days=CHECKLIST_RULES["close_weekly_days_before"])
+    return exp_d - timedelta(days=CHECKLIST_RULES["close_monthly_days_before"])
+
+
+def _planned_close_badge(expiry_str):
+    planned = _planned_close_date(expiry_str)
+    if planned is None:
+        return ""
+    today = date.today()
+    days_left = (planned - today).days
+    if days_left < 0:
+        return ("<div style='color:#d32f2f; font-weight:700; "
+                "font-size:.78rem;'>🔴 закрыть сегодня</div>")
+    if days_left <= 2:
+        return ("<div style='color:#e6a500; font-weight:700; "
+                "font-size:.78rem;'>🟡 готов к закрытию</div>")
+    return ""
+
+
+def _planned_close_date_str(expiry_str):
+    planned = _planned_close_date(expiry_str)
+    if planned is None:
+        return "—"
+    return planned.strftime("%d.%m.%Y")
 # ================= Хелперы для журнала =================
 # (без изменений — _journal_closed_sorted, _journal_equity_series,
 #  _journal_max_drawdown, _journal_profit_factor, _journal_streaks,
